@@ -53,11 +53,26 @@ class EMC_SourceView(gtksourceview.View, _EMC_ActionBase):
         self.set_show_line_numbers(True)
         self.set_show_line_marks(True)
         self.set_highlight_current_line(True)
+        # This gets the 'selected text' color
+        # This is before the widget is realized so gives the system theme color
+        style = self.get_style()
+        selected_color = style.base[gtk.STATE_SELECTED].to_string()
+
         self.set_mark_category_icon_from_icon_name('motion', 'gtk-forward')
-        self.set_mark_category_background('motion', gtk.gdk.Color('#ff0'))
-        self.found_text_tag = self.buf.create_tag(background="yellow")
+        self.set_mark_category_background('motion', gtk.gdk.Color(selected_color))
+
+        self.found_text_tag = self.buf.create_tag(background = selected_color)
         self.update_iter()
         self.connect('button-release-event', self.button_pressed)
+        self.connect('realize', self.change_style)
+
+    def change_style(self, *a):
+        # This gets us the 'selected text' color after the theme is selected
+        style= self.get_style()
+        selected_color = style.base[gtk.STATE_SELECTED].to_string()
+        #print "- text",style.base[gtk.STATE_SELECTED].to_string()
+        self.set_mark_category_background('motion', gtk.gdk.Color(selected_color))
+        self.found_text_tag.set_property('background',selected_color)
 
     def do_get_property(self, property):
         name = property.name.replace('-', '_')
@@ -207,18 +222,18 @@ class EMC_SourceView(gtksourceview.View, _EMC_ActionBase):
             self.buf.select_range(self.match_start,self.match_end)
 
             if direction:
-                self.buf.place_cursor(self.match_start)
+                #self.buf.place_cursor(self.match_start)
                 self.grab_focus()
                 self.current_iter = self.match_end.copy()
             else:
-                self.buf.place_cursor(self.match_start)
+                #self.buf.place_cursor(self.match_start)
                 self.grab_focus()
                 self.current_iter = self.match_start.copy()
             self.scroll_to_iter(self.match_start, 0, True, 0, 0.5)
-            self.set_highlight_current_line(True)
+
         else:
             self.current_iter = self.start_iter.copy()
-            self.set_highlight_current_line(False)
+
             self.match_start = self.match_end = None
 
     # check if we already have a match
