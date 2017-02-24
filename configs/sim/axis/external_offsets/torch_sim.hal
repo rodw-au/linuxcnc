@@ -1,0 +1,45 @@
+# Simulate torch voltage measurement with a
+# a single-pole lowpass filter
+
+loadrt scale     names=tovolts
+loadrt lowpass   names=torch-sim
+
+# scale: 0.1 inch -->  100 volts:
+setp   tovolts.gain   1000
+
+# simulate voltage at arc-ok:
+setp   tovolts.offset   60
+
+addf   tovolts   servo-thread
+addf   torch-sim servo-thread
+
+# torch-sim.gain (hal param) sets bandwidth
+# 1000Hz --> 0.9981
+#  100Hz --> 0.4663
+#   50Hz --> 0.2696
+#   20Hz --> 0.1181
+#   10Hz --> 0.0609
+#    1Hz --> 0.0063
+setp torch-sim.gain 0.2696
+
+#   simulate volts by using z-eoffset:
+#   E:z-eoffset <= elsewhere
+net E:z-eoffset => tovolts.in
+
+net T:zscaled   <= tovolts.out
+net T:zscaled   => torch-sim.in
+
+
+#---------------------------------------------------
+# for real hardware (not sim) replace all above
+# with hal logic for torch-controller
+# and use appropriate settings for the
+# following items:
+
+net E:feedback  <= torch-sim.out
+#   E:feedback  => elsewhere
+
+# minimum vel for corner lockout (units/sec)
+# (use value of zero to ignore)
+sets E:minimum-vel 0.5
+#    E:minimum-vel => elsewhere

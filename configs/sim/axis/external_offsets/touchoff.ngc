@@ -1,0 +1,22 @@
+;touchoff (SIMULATION)
+o<touchoff> sub
+
+#<pierce_height> = #1
+ #<pierce_delay> = #2
+   #<cut_height> = #3
+
+;---------------------------------------
+F10
+;NOTE: probe and set Z0 here
+;---------------------------------------
+G1 Z#<pierce_height>
+M3 S1 ;start torch & enable eoffset_pid
+;---------------------------------------
+;NOTE: wait for arc-ok here
+;---------------------------------------
+G4 P#<pierce_delay>
+
+F25
+G1 Z#<cut_height>
+
+o<touchoff> endsub
