@@ -1,0 +1,7 @@
+#Blue-Joy GTK 2.0 Theme
+#############################
+#Author: Nathan Williams
+#Website: www.natedawg.net
+#Comments: Blue-Joy is a combination of the Blue-Junior GTK theme, Azur GTK theme and the Slickness Metacity theme.
+#
+#
