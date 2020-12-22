@@ -1,4 +1,5 @@
-#############################################################################
+#!/usr/bin/python3
+############################################################################
 ##
 ## Copyright (C) 2010 Hans-Peter Jansen <hpj@urpla.net>.
 ## Copyright (C) 2010 Nokia Corporation and/or its subsidiary(-ies).
@@ -39,6 +40,7 @@
 ###########################################################################
 
 import os
+import sys
 from PyQt5 import uic
 from PyQt5.QtCore import pyqtSlot, QFile, QRegExp, Qt, QTextStream
 from PyQt5.QtWidgets import (QApplication, QDialog, QFileDialog, QMessageBox,
@@ -65,7 +67,7 @@ class StyleSheetEditor(QDialog):
             LOG.critical(e)
         self.styleSheetCombo.setFixedWidth(200)
 
-        self.setWindowTitle('Style SHeet Editor Dialog');
+        self.setWindowTitle('Style Sheet Editor Dialog');
         self.parent = parent
         if PATH:
             self.setPath()
@@ -111,7 +113,7 @@ class StyleSheetEditor(QDialog):
                 item.setData(os.path.join(qssname, i), role = QtCore.Qt.UserRole + 1)
                 model.appendRow(item)
         except Exception as e:
-            print e
+            print(e)
 
         # check for qss in the users's config folder 
         localqss = PATH.CONFIGPATH
@@ -122,7 +124,7 @@ class StyleSheetEditor(QDialog):
                 item.setData(os.path.join(localqss, i), role = QtCore.Qt.UserRole + 1)
                 model.appendRow(item)
         except Exception as e:
-            print e
+            print(e)
 
     def selectionChanged(self,i):
         path = self.styleSheetCombo.itemData(i,role = QtCore.Qt.UserRole + 1)
@@ -136,6 +138,7 @@ class StyleSheetEditor(QDialog):
 
     @pyqtSlot()
     def on_applyButton_clicked(self):
+        self.parent.setStyleSheet("")
         if self.tabWidget.currentIndex() == 0:
             self.parent.setStyleSheet(self.styleTextView.toPlainText())
             if WIDGETS.PREFS_:
@@ -162,12 +165,12 @@ class StyleSheetEditor(QDialog):
             file = QFile(fileName)
             file.open(QFile.ReadOnly)
             styleSheet = file.readAll()
-            try:
+            if sys.version_info.major > 2:
+                styleSheet = str(styleSheet, encoding='utf8')
+            else:
                 # Python v2.
                 styleSheet = unicode(styleSheet, encoding='utf8')
-            except NameError:
-                # Python v3.
-                styleSheet = str(styleSheet, encoding='utf8')
+
 
             self.styleTextView.setPlainText(styleSheet)
             model = self.styleSheetCombo.model()
@@ -221,13 +224,11 @@ class StyleSheetEditor(QDialog):
             file = QFile(qssname)
             file.open(QFile.ReadOnly)
             styleSheet = file.readAll()
-            try:
-                # Python v2.
-                styleSheet = unicode(styleSheet, encoding='utf8')
-            except NameError:
+            if sys.version_info.major > 2:
                 # Python v3.
                 styleSheet = str(styleSheet, encoding='utf8')
-
+            else:
+                styleSheet = str(styleSheet)
         self.styleTextView.setPlainText(styleSheet)
 
     def saveStyleSheet(self, fileName):

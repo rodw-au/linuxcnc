@@ -3,10 +3,10 @@ import linuxcnc
 import collections
 
 # Set up logging
-import logger
+from . import logger
 log = logger.getLogger(__name__)
-# Set the log level for this module
-log.setLevel(logger.INFO) # One of DEBUG, INFO, WARNING, ERROR, CRITICAL
+# Force the log level for this module
+#log.setLevel(logger.INFO) # One of DEBUG, INFO, WARNING, ERROR, CRITICAL
 
 try:
     LINUXCNCVERSION = os.environ['LINUXCNCVERSION']
@@ -57,7 +57,8 @@ class _IStat(object):
         self.JOG_INCREMENTS = None
         self.ANGULAR_INCREMENTS = None
 
-        self.MAX_LINEAR_VELOCITY = 60
+        self.MAX_TRAJ_VELOCITY = 60
+
         self.DEFAULT_LINEAR_VELOCITY = 15.0
 
         self.AVAILABLE_SPINDLES = 1
@@ -74,6 +75,9 @@ class _IStat(object):
         self.QTVCP_LOG_HISTORY_PATH = self.INI.find('DISPLAY', 'LOG_FILE') or '~/qtvcp.log'
         self.MACHINE_LOG_HISTORY_PATH = self.INI.find('DISPLAY', 'MACHINE_LOG_PATH') or '~/.machine_log_history'
         self.PREFERENCE_PATH = self.INI.find("DISPLAY","PREFERENCE_FILE_PATH") or None
+        self.PROGRAM_PREFIX = self.get_error_safe_setting("DISPLAY","PROGRAM_PREFIX", '~/linuxcnc/nc_files')
+        if not os.path.exists(os.path.expanduser(self.PROGRAM_PREFIX)):
+            log.warning('Path not valid in INI File [DISPLAY] PROGRAM_PREFIX section')
         self.SUB_PATH = (self.INI.find("RS274NGC", "SUBROUTINE_PATH")) or None
         if self.SUB_PATH is not None:
             for mpath in (self.SUB_PATH.split(':')):
@@ -86,8 +90,12 @@ class _IStat(object):
             self.MACRO_PATH = None
         self.INI_MACROS = self.INI.findall("DISPLAY", "MACRO")
         self.MACHINE_IS_LATHE = bool(self.INI.find("DISPLAY", "LATHE"))
+
         extensions = self.INI.findall("FILTER", "PROGRAM_EXTENSION")
         self.PROGRAM_FILTERS = ([e.split(None, 1) for e in extensions]) or None
+        self.PROGRAM_FILTERS_EXTENSIONS = self.get_filters_extensions()
+        self.VALID_PROGRAM_EXTENSIONS = self.get_all_valid_extensions()
+
         self.PARAMETER_FILE = (self.INI.find("RS274NGC", "PARAMETER_FILE")) or None
         try:
             # check the ini file if UNITS are set to mm"
@@ -148,6 +156,17 @@ class _IStat(object):
                 aa = self.INI.find('AXIS_%s'% letter.upper(), 'MAX_ACCELERATION') or None
                 if av is None or aa is None:
                     log.critical('MISSING [AXIS_{}] MAX VeLOCITY or MAX ACCELERATION entry in INI file.'.format(letter.upper()))
+
+        # convert joint number to axis index
+        # used by dro_widget
+        self.GET_AXIS_INDEX_FROM_JOINT_NUM = {}
+        self.GET_JOINT_NUM_FROM_AXIS_INDEX = {}
+        for i in self.AVAILABLE_JOINTS:
+            let = self.GET_NAME_FROM_JOINT[i][0]
+            axisnum = "XYZABCUVW".index(let)
+            self.GET_AXIS_INDEX_FROM_JOINT_NUM[int(i)] = int(axisnum)
+            self.GET_JOINT_NUM_FROM_AXIS_INDEX[int(axisnum)] = int(i)
+
         self.NO_HOME_REQUIRED = int(self.INI.find("TRAJ", "NO_FORCE_HOMING") or 0)
 
         # home all check
@@ -163,10 +182,15 @@ class _IStat(object):
             self.JOINT_SEQUENCE_LIST[j] = int(seq)
         # joint sequence/type
         self.JOINT_TYPE = [None] * jointcount
+        self.JOINT_TYPE_INT = [None] * jointcount
         self.JOINT_SEQUENCE = [None] * jointcount
         for j in range(jointcount):
             section = "JOINT_%d" % j
             self.JOINT_TYPE[j] = self.INI.find(section, "TYPE") or "LINEAR"
+            if self.JOINT_TYPE[j] == "LINEAR" :
+                self.JOINT_TYPE_INT[j] = 1
+            else:
+                self.JOINT_TYPE_INT[j] = 2
             self.JOINT_SEQUENCE[j]  = int(self.INI.find(section, "HOME_SEQUENCE") or 0)
 
         # jog syncronized sequence
@@ -174,7 +198,7 @@ class _IStat(object):
         for j in self.AVAILABLE_JOINTS:
             temp = []
             flag = False
-            for hj, hs in  self.JOINT_SEQUENCE_LIST.items():
+            for hj, hs in  list(self.JOINT_SEQUENCE_LIST.items()):
                 if abs(int(hs)) == abs(int(self.JOINT_SEQUENCE_LIST.get(j))):
                     temp.append(hj)
                     if int(hs) < 0:
@@ -241,6 +265,9 @@ class _IStat(object):
         self.DEFAULT_ANGULAR_JOG_VEL = float(self.get_error_safe_setting("DISPLAY","DEFAULT_ANGULAR_VELOCITY",6)) * 60
         self.MIN_ANGULAR_JOG_VEL = float(self.get_error_safe_setting("DISPLAY","MIN_ANGULAR_VELOCITY",1)) * 60
         self.MAX_ANGULAR_JOG_VEL = float(self.get_error_safe_setting("DISPLAY","MAX_ANGULAR_VELOCITY",60)) * 60
+        log.debug('DEFAULT_LINEAR_VELOCITY = {}'.format(self.DEFAULT_LINEAR_JOG_VEL))
+        log.debug('MIN_LINEAR_VELOCITY = {}'.format(self.MIN_LINEAR_JOG_VEL))
+        log.debug('MAX_LINEAR_VELOCITY = {}'.format(self.MAX_LINEAR_JOG_VEL))
 
         self.AVAILABLE_SPINDLES = int(self.INI.find("TRAJ", "SPINDLES") or 1)
         self.SPINDLE_INCREMENT = int(self.INI.find("DISPLAY","SPINDLE_INCREMENT")or 100)
@@ -292,7 +319,7 @@ class _IStat(object):
         if len(self.USRMESS_TEXT) != len(self.USRMESS_DETAILS):
             log.warning('Invalid message configuration (missing details) in INI File [DISPLAY] sectioN')
         try:
-            self.ZIPPED_USRMESS = zip(self.USRMESS_BOLDTEXT,self.USRMESS_TEXT,self.USRMESS_DETAILS,self.USRMESS_TYPE,self.USRMESS_PINNAME)
+            self.ZIPPED_USRMESS = list(zip(self.USRMESS_BOLDTEXT,self.USRMESS_TEXT,self.USRMESS_DETAILS,self.USRMESS_TYPE,self.USRMESS_PINNAME))
         except:
             self.ZIPPED_USRMESS = None
 
@@ -315,7 +342,7 @@ class _IStat(object):
                 except:
                     self.TAB_LOCATIONS.append("default")
         try:
-            self.ZIPPED_TABS = zip(self.TAB_NAMES,self.TAB_LOCATIONS,self.TAB_CMDS)
+            self.ZIPPED_TABS = list(zip(self.TAB_NAMES,self.TAB_LOCATIONS,self.TAB_CMDS))
         except:
             self.ZIPPED_TABS = None
 
@@ -364,12 +391,12 @@ class _IStat(object):
             return v
         else:
             c = [1.0/25.4]*3+[1]*3+[1.0/25.4]*3
-            return map(lambda x,y: x*y, v, c)
+            return list(map(lambda x,y: x*y, v, c))
 
     def convert_9_imperial_to_machine(self,v):
         if self.MACHINE_IS_METRIC:
             c = [25.4]*3+[1]*3+[25.4]*3
-            return map(lambda x,y: x*y, v, c)
+            return list(map(lambda x,y: x*y, v, c))
         else:
             return v
 
@@ -378,7 +405,7 @@ class _IStat(object):
 
     def convert_units_9(self,v):
         c = self.MACHINE_UNIT_CONVERSION_9
-        return map(lambda x,y: x*y, v, c)
+        return list(map(lambda x,y: x*y, v, c))
 
     # This finds the filter program's initilizing
     # program eg python for .py from INI
@@ -389,9 +416,38 @@ class _IStat(object):
         else:
             return None
 
+    def get_all_valid_extensions(self):
+        temp = []
+        try:
+            for i in(self.PROGRAM_FILTERS):
+                for q in i[0].split(','):
+                        temp.append('{}'.format(q))
+            if not '.ngc' in temp:
+                temp.append('.ngc')
+            return temp
+        except Exception as e:
+            log.warning('Valid Extension Parsing Error: {}\n Using Default: *'.format(e))
+            return ('*')
+
+    def get_filters_extensions(self):
+        all_extensions = []
+        try:
+            for k, v in self.PROGRAM_FILTERS:
+                k = k.replace('.',' *.')
+                k = k.replace(' ','')
+                temp =[]
+                for q in k.split(','):
+                    temp.append('{}'.format(q))
+                all_extensions.append( ['{}'.format(v),temp] )
+            all_extensions.append(['All (*)', ['*']])
+            return all_extensions
+        except Exception as e:
+            log.warning('filter Extension Parsing Error: {}\n Using Default: ALL (*)'.format(e))
+            return [['All (*)',['*']]]
+
     # get filter extensions in QT format
-    def get_qt_filter_extensions(self,):
-        all_extensions = [("G code (*.ngc)")]
+    def get_qt_filter_extensions(self):
+        all_extensions = []
         try:
             for k, v in self.PROGRAM_FILTERS:
                 k = k.replace('.',' *.')
@@ -402,8 +458,17 @@ class _IStat(object):
             for i in all_extensions:
                 temp = '%s %s'%(temp ,i)
             return temp
-        except:
+        except Exception as e:
+            log.warning('Qt filter Extension Parsing Error: {}\n Using Default: ALL (*)'.format(e))
             return ('All (*)')
+
+    def program_extension_valid(self, fname):
+        filename, file_extension = os.path.splitext(fname)
+        if '*' in self.VALID_PROGRAM_EXTENSIONS:
+            return True
+        elif file_extension.lower() in (self.VALID_PROGRAM_EXTENSIONS):
+            return True
+        return False
 
     def __getitem__(self, item):
         return getattr(self, item)

@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 #
 # QTVcp Widget
 # Copyright (c) 2018 Chris Morley
@@ -35,8 +35,8 @@ STATUS = Status()
 INFO = Info()
 ACTION = Action()
 LOG = logger.getLogger(__name__)
-# Set the log level for this module
-LOG.setLevel(logger.DEBUG) # One of DEBUG, INFO, WARNING, ERROR, CRITICAL
+# Force the log level for this module
+#LOG.setLevel(logger.DEBUG) # One of DEBUG, INFO, WARNING, ERROR, CRITICAL
 
 class AxisToolButton(QToolButton, _HalWidgetBase):
     def __init__(self, parent=None):
@@ -50,7 +50,7 @@ class AxisToolButton(QToolButton, _HalWidgetBase):
         self.display_units_mm = 0
         homeOption = False
 
-        SettingMenu = QMenu()
+        SettingMenu = QMenu(self)
         self.settingMenu = SettingMenu
         self.zeroButton = QAction(QIcon('exit24.png'), 'Zero', self)
         self.zeroButton.triggered.connect(self.Zero)

@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
 from __future__ import print_function
 
@@ -18,17 +18,25 @@ from PyQt5.QtWidgets import (QApplication, QHBoxLayout, QMessageBox, QSlider,
 try:
     from PyQt5.QtOpenGL import QGLWidget
 except ImportError:
-    LOG.critical("Qtvcp error with qt5_graphics - is package python-pyqt5.qtopengl installed?")
+    LOG.critical("Qtvcp error with qt5_graphics - is package python3-pyqt5.qtopengl installed?")
 
 LIB_GOOD = True
 try:
     from OpenGL import GL
     from OpenGL import GLU
 except ImportError:
-    LOG.error('Qtvcp Error with graphics - is python-openGL installed?')
+    LOG.error('Qtvcp Error with graphics - is python3-openGL installed?')
     LIB_GOOD = False
 
-import pango
+if sys.version_info.major > 2:
+    import gi
+    gi.require_version('Pango', '1.0')
+    from gi.repository import Pango
+    import _thread
+else:
+    import pango
+    import thread as _thread
+    
 import glnav
 from rs274 import glcanon
 from rs274 import interpret
@@ -41,7 +49,6 @@ import tempfile
 import shutil
 import os
 
-import thread
 from qtvcp.widgets.fake_status import fakeStatus
 
 ###################################
@@ -188,7 +195,7 @@ class Lcnc_3dGraphics(QGLWidget,  glcanon.GlCanonDraw, glnav.GlNavBase):
     rotation_vectors = [(1.,0.,0.), (0., 0., 1.)]
 
     def __init__(self, parent=None):
-        super(Lcnc_3dGraphics, self).__init__(parent)
+        super(Lcnc_3dGraphics,self).__init__(parent)
         glnav.GlNavBase.__init__(self)
 
         def C(s):
@@ -218,7 +225,7 @@ class Lcnc_3dGraphics(QGLWidget,  glcanon.GlCanonDraw, glnav.GlNavBase):
             self.get_geometry()
         )
         # start tracking linuxcnc position so we can plot it
-        thread.start_new_thread(self.logger.start, (.01,))
+        _thread.start_new_thread(self.logger.start, (.01,))
         glcanon.GlCanonDraw.__init__(self, stat, self.logger)
 
         # set defaults
@@ -482,12 +489,12 @@ class Lcnc_3dGraphics(QGLWidget,  glcanon.GlCanonDraw, glnav.GlNavBase):
         view_dict = {'x':0, 'y':1, 'y2':1, 'z':2, 'z2':2, 'p':3}
         return view_dict.get(self.current_view, 3)
     def get_geometry(self):
-        temp = self.inifile.find("DISPLAY", "GEOMETRY")
+        temp = self.inifile.find("DISPLAY", "GEOMETRY") or 'XYZABCUVW'
         if temp:
             _geometry = re.split(" *(-?[XYZABCUVW])", temp.upper())
             self._geometry = "".join(reversed(_geometry))
         else:
-            self._geometry = 'XYZ'
+            self._geometry = 'XYZABCUVW'
         return self._geometry
     def is_lathe(self): return self.lathe_option
     def is_foam(self): return self.foam_option
@@ -864,7 +871,7 @@ class Lcnc_3dGraphics(QGLWidget,  glcanon.GlCanonDraw, glnav.GlNavBase):
 
     def mouseDoubleClickEvent(self, event):
         if event.button() & Qt.RightButton:
-            self.clear_live_plotter()
+            self.logger.clear()
 
     def mouseMoveEvent(self, event):
         # move
@@ -909,20 +916,20 @@ class Lcnc_3dGraphics(QGLWidget,  glcanon.GlCanonDraw, glnav.GlNavBase):
         y4 = +0.22 * factor
 
         # cross
-        self.quad(x1, y1, x2, y2, y2, x2, y1, x1)
+        self.quad(x1, y1, x2, y2, y2, x2, y1, x1, z= .05, color = self.Green)
         # vertical line
-        self.quad(x3, y3, x4, y4, y4, x4, y3, x3)
+        self.quad(x3, y3, x4, y4, y4, x4, y3, x3, z= .05, color = self.Green)
 
         # cross depth
-        self.extrude(x1, y1, x2, y2)
-        self.extrude(x2, y2, y2, x2)
-        self.extrude(y2, x2, y1, x1)
-        self.extrude(y1, x1, x1, y1)
+        self.extrude(x1, y1, x2, y2, z= .05, color = self.Green)
+        self.extrude(x2, y2, y2, x2, z= .05, color = self.Green)
+        self.extrude(y2, x2, y1, x1, z= .05, color = self.Green)
+        self.extrude(y1, x1, x1, y1, z= .05, color = self.Green)
 
         # vertical depth
-        self.extrude(x3, y3, x4, y4)
-        self.extrude(x4, y4, y4, x4)
-        self.extrude(y4, x4, y3, x3)
+        self.extrude(x3, y3, x4, y4, z= .05, color = self.Green)
+        self.extrude(x4, y4, y4, x4, z= .05, color = self.Green)
+        self.extrude(y4, x4, y3, x3, z= .05, color = self.Green)
   
         NumSectors = 200
   
@@ -940,36 +947,50 @@ class Lcnc_3dGraphics(QGLWidget,  glcanon.GlCanonDraw, glnav.GlNavBase):
             x8 = 0.30 * math.sin(angle2) * factor
             y8 = 0.30 * math.cos(angle2) * factor
   
-            self.quad(x5, y5, x6, y6, x7, y7, x8, y8)
+            self.quad(x5, y5, x6, y6, x7, y7, x8, y8, z= .05, color = self.Green)
   
-            self.extrude(x6, y6, x7, y7)
-            self.extrude(x8, y8, x5, y5)
+            self.extrude(x6, y6, x7, y7, z= .05, color = self.Green)
+            self.extrude(x8, y8, x5, y5, z= .05, color = self.Green)
   
         GL.glEnd()
         GL.glEndList()
   
         return genList
   
-    def quad(self, x1, y1, x2, y2, x3, y3, x4, y4):
-        self.qglColor(self.Green)
+    def quad(self, x1, y1, x2, y2, x3, y3, x4, y4, z, color):
+        self.qglColor(color)
   
-        GL.glVertex3d(x1, y1, -0.05)
-        GL.glVertex3d(x2, y2, -0.05)
-        GL.glVertex3d(x3, y3, -0.05)
-        GL.glVertex3d(x4, y4, -0.05)
+        GL.glVertex3d(x1, y1, -z)
+        GL.glVertex3d(x2, y2, -z)
+        GL.glVertex3d(x3, y3, -z)
+        GL.glVertex3d(x4, y4, -z)
   
-        GL.glVertex3d(x4, y4, +0.05)
-        GL.glVertex3d(x3, y3, +0.05)
-        GL.glVertex3d(x2, y2, +0.05)
-        GL.glVertex3d(x1, y1, +0.05)
+        GL.glVertex3d(x4, y4, +z)
+        GL.glVertex3d(x3, y3, +z)
+        GL.glVertex3d(x2, y2, +z)
+        GL.glVertex3d(x1, y1, +z)
+
+    def lathe_quad(self, x1, x2, x3, x4, z1, z2, z3, z4, color):
+        self.qglColor(color)
   
-    def extrude(self, x1, y1, x2, y2):
-        self.qglColor(self.Green.darker(250 + int(100 * x1)))
+        GL.glVertex3d(x1, 0, z1)
+        GL.glVertex3d(x2, 0, z2)
+        GL.glVertex3d(x3, 0, z3)
+        GL.glVertex3d(x4, 0, z4)
+
+        # defeat back face cull
+        GL.glVertex3d(x4, 0, z4)
+        GL.glVertex3d(x3, 0, z3)
+        GL.glVertex3d(x2, 0, z2)
+        GL.glVertex3d(x1, 0, z1)
+
+    def extrude(self, x1, y1, x2, y2, z, color):
+        self.qglColor(color)
   
-        GL.glVertex3d(x1, y1, +0.05)
-        GL.glVertex3d(x2, y2, +0.05)
-        GL.glVertex3d(x2, y2, -0.05)
-        GL.glVertex3d(x1, y1, -0.05)
+        GL.glVertex3d(x1, y1, +z)
+        GL.glVertex3d(x2, y2, +z)
+        GL.glVertex3d(x2, y2, -z)
+        GL.glVertex3d(x1, y1, -z)
 
 ###########
 # Testing

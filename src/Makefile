@@ -276,8 +276,11 @@ INFILES = \
 	../scripts/haltcl ../scripts/rtapi.conf Makefile.inc Makefile.modinc \
 	../tcl/linuxcnc.tcl ../scripts/halrun ../scripts/rip-environment \
 	../scripts/linuxcncmkdesktop \
-	 ../lib/python/nf.py \
-	../share/desktop-directories/cnc.directory ../share/menus/CNC.menu \
+	../lib/python/nf.py \
+	../share/desktop-directories/linuxcnc-doc.directory \
+	../share/desktop-directories/linuxcnc-ref.directory \
+	../share/desktop-directories/linuxcnc-cnc.directory \
+	../share/menus/CNC.menu \
 	../share/applications/linuxcnc.desktop \
 	../share/applications/linuxcnc-latency.desktop \
 	../scripts/linuxcnc_var \
@@ -704,6 +707,11 @@ install-python: install-dirs
 	$(DIR) $(DESTDIR)$(SITEPY)/qtvcp/designer/x86_64/qt5.7
 	$(DIR) $(DESTDIR)$(SITEPY)/qtvcp/designer/x86_64/qt5.9
 	$(DIR) $(DESTDIR)$(SITEPY)/qtvcp/lib
+	$(DIR) $(DESTDIR)$(SITEPY)/qtvcp/lib/writer
+	$(DIR) $(DESTDIR)$(SITEPY)/qtvcp/lib/writer/ext
+	$(DIR) $(DESTDIR)$(SITEPY)/qtvcp/lib/conversational
+	$(DIR) $(DESTDIR)$(SITEPY)/qtvcp/lib/qt_vismach
+	$(DIR) $(DESTDIR)$(SITEPY)/qtvcp/lib/gcode_utility
 	$(DIR) $(DESTDIR)$(SITEPY)/qtvcp/plugins
 	$(DIR) $(DESTDIR)$(SITEPY)/qtvcp/widgets
 	$(DIR) $(DESTDIR)$(SITEPY)/qtvcp/widgets/widget_icons
@@ -725,6 +733,11 @@ install-python: install-dirs
 	$(FILE) ../lib/python/qtvcp/widgets/widget_icons/*.png ../lib/python/qtvcp/widgets/widget_icons/*.gif $(DESTDIR)$(SITEPY)/qtvcp/widgets/widget_icons
 	$(FILE) ../lib/python/qtvcp/plugins/*.py $(DESTDIR)$(SITEPY)/qtvcp/plugins
 	$(FILE) ../lib/python/qtvcp/lib/*.py $(DESTDIR)$(SITEPY)/qtvcp/lib
+	$(FILE) ../lib/python/qtvcp/lib/writer/*.py $(DESTDIR)$(SITEPY)/qtvcp/lib/writer
+	$(FILE) ../lib/python/qtvcp/lib/writer/ext/*.py $(DESTDIR)$(SITEPY)/qtvcp/lib/writer/ext
+	$(FILE) ../lib/python/qtvcp/lib/conversational/*.py $(DESTDIR)$(SITEPY)/qtvcp/lib/conversational
+	$(FILE) ../lib/python/qtvcp/lib/qt_vismach/*.py $(DESTDIR)$(SITEPY)/qtvcp/lib/qt_vismach
+	$(FILE) ../lib/python/qtvcp/lib/gcode_utility/*.py ../lib/python/qtvcp/lib/gcode_utility/*.ui ../lib/python/qtvcp/lib/gcode_utility/*.txt $(DESTDIR)$(SITEPY)/qtvcp/lib/gcode_utility
 	$(FILE) ../lib/python/gmoccapy/*.py $(DESTDIR)$(SITEPY)/gmoccapy
 	$(FILE) ../lib/python/gladevcp/*.py $(DESTDIR)$(SITEPY)/gladevcp
 	$(FILE) ../lib/python/gladevcp/*.glade $(DESTDIR)$(SITEPY)/gladevcp

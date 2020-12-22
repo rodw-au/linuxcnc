@@ -1036,7 +1036,7 @@ AC_MSG_CHECKING([whether to build documentation])
 AC_ARG_ENABLE(build-documentation,
     AS_HELP_STRING(
         [--enable-build-documentation[=FORMAT]],
-        [Build documentation.  FORMAT may be "pdf" or "html" if only one format is desired.]
+        [Build documentation.  FORMAT may be "Y" for both or "pdf" or "html" if only one format is desired.]
     ),
     [
         case "$enableval" in
@@ -1691,8 +1691,11 @@ AC_SUBST(PYTHON_LIBS)
 # For the CFLAGS we must assume that boost is at the top-level, for instance in /usr/include/:
 AX_BOOST_PYTHON_EMC
 
+saved_CPPFLAGS=$CPPFLAGS
+CPPFLAGS="$PYTHON_CPPFLAGS $CPPFLAGS"
 AC_CHECK_HEADER($INCLUDEPY/Python.h,[],
-    [AC_MSG_ERROR([Required header Python.h missing.  Install it, or specify --disable-python to skip the parts of LinuxCNC that depend on Python])])
+     [AC_MSG_ERROR([Required header Python.h missing.  Install it, or specify --disable-python to skip the parts of LinuxCNC that depend on Python])])
+CPPFLAGS=$saved_CPPFLAGS
 
 AC_MSG_CHECKING(for site-package location)
 SITEPY=`$PYTHON -c 'import distutils.sysconfig; print(distutils.sysconfig.get_python_lib())'`
@@ -1748,7 +1751,9 @@ AC_CONFIG_FILES(../lib/python/nf.py)
 AC_CONFIG_FILES([../scripts/linuxcncmkdesktop], [chmod +x ../scripts/linuxcncmkdesktop])
 AC_CONFIG_FILES(../share/applications/linuxcnc-latency.desktop)
 AC_CONFIG_FILES(../share/applications/linuxcnc.desktop)
-AC_CONFIG_FILES(../share/desktop-directories/cnc.directory)
+AC_CONFIG_FILES(../share/desktop-directories/linuxcnc-cnc.directory)
+AC_CONFIG_FILES(../share/desktop-directories/linuxcnc-ref.directory)
+AC_CONFIG_FILES(../share/desktop-directories/linuxcnc-doc.directory)
 AC_CONFIG_FILES(../share/menus/CNC.menu)
 AC_OUTPUT()
 

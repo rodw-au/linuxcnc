@@ -1552,12 +1552,28 @@ static PyTypeObject Error_Type = {
 
 #include <GL/gl.h>
 
+#define AXIS_MASK_A 0x08
+#define AXIS_MASK_B 0x10
+#define AXIS_MASK_C 0x20
+static struct rotation_offsets {
+    double x;
+    double y;
+    double z;
+    unsigned int axis_mask;
+    unsigned int respect_offsets;
+} roffsets;
+
 static void rotate_z(double pt[3], double a) {
     double theta = a * M_PI / 180;
     double c = cos(theta), s = sin(theta);
     double tx, ty;
-    tx = pt[0] * c - pt[1] * s;
-    ty = pt[0] * s + pt[1] * c;
+    if (roffsets.respect_offsets) {
+        tx = (pt[0]-roffsets.x) * c - (pt[1]-roffsets.y) * s;
+        ty = (pt[0]-roffsets.x) * s + (pt[1]-roffsets.y) * c;
+    } else {
+        tx = pt[0] * c - pt[1] * s;
+        ty = pt[0] * s + pt[1] * c;
+    }
 
     pt[0] = tx; pt[1] = ty;
 }
@@ -1566,8 +1582,13 @@ static void rotate_y(double pt[3], double a) {
     double theta = a * M_PI / 180;
     double c = cos(theta), s = sin(theta);
     double tx, tz;
-    tx = pt[0] * c - pt[2] * s;
-    tz = pt[0] * s + pt[2] * c;
+    if (roffsets.respect_offsets) {
+        tx = (pt[0]-roffsets.x) * c - (pt[2]-roffsets.z) * s;
+        tz = (pt[0]-roffsets.x) * s + (pt[2]-roffsets.z) * c;
+    } else {
+        tx = pt[0] * c - pt[2] * s;
+        tz = pt[0] * s + pt[2] * c;
+    }
 
     pt[0] = tx; pt[2] = tz;
 }
@@ -1575,11 +1596,16 @@ static void rotate_y(double pt[3], double a) {
 static void rotate_x(double pt[3], double a) {
     double theta = a * M_PI / 180;
     double c = cos(theta), s = sin(theta);
-    double tx, tz;
-    tx = pt[1] * c - pt[2] * s;
-    tz = pt[1] * s + pt[2] * c;
+    double ty, tz;
+    if (roffsets.respect_offsets) {
+        ty = (pt[1]-roffsets.y) * c - (pt[2]-roffsets.z) * s;
+        tz = (pt[1]-roffsets.y) * s + (pt[2]-roffsets.z) * c;
+    } else {
+        ty = pt[1] * c - pt[2] * s;
+        tz = pt[1] * s + pt[2] * c;
+    }
 
-    pt[1] = tx; pt[2] = tz;
+    pt[1] = ty; pt[2] = tz;
 }
 
 static void translate(double pt[3], double ox, double oy, double oz) {
@@ -1604,9 +1630,19 @@ static void vertex9(const double pt[9], double p[3], const char *geometry) {
             case 'U': translate(p, pt[6] * sign, 0, 0); sign=1; break;
             case 'V': translate(p, 0, pt[7] * sign, 0); sign=1; break;
             case 'W': translate(p, 0, 0, pt[8] * sign); sign=1; break;
-            case 'A': rotate_x(p, pt[3] * sign); sign=1; break;
-            case 'B': rotate_y(p, pt[4] * sign); sign=1; break;
-            case 'C': rotate_z(p, pt[5] * sign); sign=1; break;
+            case 'A': if (roffsets.axis_mask & AXIS_MASK_A) {
+                          rotate_x(p, pt[3] * sign);
+                      }
+                      sign=1; break;
+            case 'B': if (roffsets.axis_mask & AXIS_MASK_B) {
+                          rotate_y(p, pt[4] * sign);
+                      }
+                      sign=1; break;
+            case 'C': if (roffsets.axis_mask & AXIS_MASK_C) {
+                          rotate_z(p, pt[5] * sign);
+                      }
+                      sign=1; break;
+
         }
     }
 }
@@ -1696,6 +1732,29 @@ static PyObject *pyvertex9(PyObject *s, PyObject *o) {
 
     vertex9(pt, pt1, geometry);
     return Py_BuildValue("(ddd)", &pt[0], &pt[1], &pt[2]);
+}
+
+static PyObject *pygui_respect_offsets (PyObject *s, PyObject *o) {
+    char* coords;
+
+    if(!PyArg_ParseTuple(o, "si",&coords, &roffsets.respect_offsets)) {
+        return NULL;
+    }
+    // GEOMETRY rotations only if letters (ABC) included in [TRAJ]COORDINATES
+    if (strchr(coords,'A')) roffsets.axis_mask |= AXIS_MASK_A;
+    if (strchr(coords,'B')) roffsets.axis_mask |= AXIS_MASK_B;
+    if (strchr(coords,'C')) roffsets.axis_mask |= AXIS_MASK_C;
+
+    Py_INCREF(Py_None);
+    return Py_None;
+}
+
+static PyObject *pygui_rot_offsets(PyObject *s, PyObject *o) {
+    if(!PyArg_ParseTuple(o, "ddd", &roffsets.x,&roffsets.y,&roffsets.z)) {
+        return NULL;
+    }
+    Py_INCREF(Py_None);
+    return Py_None;
 }
 
 static PyObject *pydraw_lines(PyObject *s, PyObject *o) {
@@ -2185,6 +2244,8 @@ METH(draw_lines, "Draw a bunch of lines in the 'rs274.glcanon' format"),
 METH(draw_dwells, "Draw a bunch of dwell positions in the 'rs274.glcanon' format"),
 METH(line9, "Draw a single line in the 'rs274.glcanon' format; assumes glBegin(GL_LINES)"),
 METH(vertex9, "Get the 3d location for a 9d point"),
+METH(gui_rot_offsets, "Set x,y,z offsets for A,B,C rotations"),
+METH(gui_respect_offsets, "Enable rotations about g5x,g92 offsets"),
     {NULL}
 #undef METH
 };
