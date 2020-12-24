@@ -130,9 +130,13 @@ The THCAD is sensitive enough to see the ramp up in  circuit voltage as contact 
 
 The following circuit diagram shows how to implement a hypersensing circuit.
 
-image::images/primer_hypersensing.png[width=75%]
+image::images/primer_hypersensing2.png[width=75%]
 
-We used a 15W Mean Well HDR-15 Ultra Slim DIN Rail Supply 24V DIN rail based isolated power supply.. This is a double insulated  Isolation Class II device that will withstand any arc voltage that might be applied to the terminals.
+A 24V 15W Meanwell HDR-15-24 Ultra Slim DIN Rail Power Supply 24V or equivalent solated power supply is recommended. The HDR-15-24 is a double insulated  Isolation Class II device that will withstand any arc voltage that might be applied to the terminals. 
+
+Ohmic sensing requires use of the ohmic.comp component or the later ohmic3.comp which has more features to provide more reliable sensing on watertables.
+
+
 
 .Example HAL Code for Hypersensing
 
