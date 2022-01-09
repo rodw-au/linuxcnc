@@ -623,6 +623,12 @@ void do_homing(void)
 		/* This state is responsible for getting the homing process
 		   started.  It doesn't actually do anything, it simply
 		   determines what state is next */
+		   
+	    /* If external homing, jump to HOME_INDEX_SEARCH_START */
+	    if(H[joint_num].home_state & HOME_EXTERNAL){
+			H[joint_num].home_state = 	HOME_INDEX_SEARCH_START;
+			break;
+		}		   
 		if (H[joint_num].home_flags & HOME_IS_SHARED && home_sw_active) {
 		    reportError(
 			_("Cannot home while shared home switch is closed j=%d"),

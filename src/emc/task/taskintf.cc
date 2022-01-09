@@ -283,7 +283,7 @@ int emcJointSetMinFerror(int joint, double ferror)
 
 int emcJointSetHomingParams(int joint, double home, double offset, double home_final_vel,
 			   double search_vel, double latch_vel,
-			   int use_index, int encoder_does_not_reset,
+			   int use_index, int encoder_does_not_reset, int external_homing,
 			   int ignore_limits, int is_shared,
 			   int sequence,int volatile_home, int locking_indexer,int absolute_encoder)
 {
@@ -315,6 +315,10 @@ int emcJointSetHomingParams(int joint, double home, double offset, double home_f
     if (encoder_does_not_reset) {
 	emcmotCommand.flags |= HOME_INDEX_NO_ENCODER_RESET;
     }
+    if (external_homing) {
+	emcmotCommand.flags |= HOME_EXTERNAL;
+    }
+
     if (ignore_limits) {
 	emcmotCommand.flags |= HOME_IGNORE_LIMITS;
     }

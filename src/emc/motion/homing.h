@@ -12,6 +12,7 @@
 #define HOME_NO_REHOME               32
 #define HOME_NO_FINAL_MOVE           64
 #define HOME_INDEX_NO_ENCODER_RESET 128
+#define HOME_EXTERNAL               256
 
 // SEQUENCE states
 typedef enum {
