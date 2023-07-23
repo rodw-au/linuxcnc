@@ -29,6 +29,11 @@ STYLEEDITOR = SSE()
 WRITER = writer.Main()
 QHAL = Qhal()
 
+try:
+    from PyQt5.QtWebEngineWidgets import QWebEnginePage
+except:
+    LOG.warning('QtDragon warning with loading QtWebEngineWidget - is python3-pyqt5.qtwebengine installed?')
+
 # constants for tab pages
 # probe is not actually a separate tab now
 # but there is a button for showing it in stack
@@ -73,6 +78,7 @@ class HandlerClass:
 
         # some global variables
         self.factor = 1.0
+        self._spindle_wait = False
         self.probe = None
         self.default_setup = os.path.join(PATH.CONFIGPATH, "default_setup.html")
         self.docs = os.path.join(PATH.SCREENDIR, PATH.BASEPATH,'docs/getting_started.html')
@@ -104,6 +110,9 @@ class HandlerClass:
         STATUS.connect('state-on', lambda w: self.enable_onoff(True))
         STATUS.connect('state-off', lambda w: self.enable_onoff(False))
         STATUS.connect('mode-auto', lambda w: self.enable_auto(True))
+        STATUS.connect('mode-auto', lambda w: self.w.lineEdit_eoffset_count.setEnabled(False))
+        STATUS.connect('mode-mdi', lambda w: self.w.lineEdit_eoffset_count.setEnabled(True))
+        STATUS.connect('mode-manual', lambda w: self.w.lineEdit_eoffset_count.setEnabled(True))
         STATUS.connect('gcode-line-selected', lambda w, line: self.set_start_line(line))
         STATUS.connect('hard-limits-tripped', self.hard_limit_tripped)
         STATUS.connect('program-pause-changed', lambda w, state: self.w.btn_pause_spindle.setEnabled(state))
@@ -112,7 +121,7 @@ class HandlerClass:
         STATUS.connect('file-loaded', self.file_loaded)
         STATUS.connect('all-homed', self.all_homed)
         STATUS.connect('not-all-homed', self.not_all_homed)
-        STATUS.connect('periodic', lambda w: self.update_runtimer())
+        STATUS.connect('periodic', lambda w: self.periodic_update())
         STATUS.connect('interp-idle', lambda w: self.stop_timer())
         STATUS.connect('actual-spindle-speed-changed',self.update_spindle)
         STATUS.connect('requested-spindle-speed-changed',self.update_spindle_requested)
@@ -167,6 +176,7 @@ class HandlerClass:
     # set validators for lineEdit widgets
         for val in self.lineedit_list:
             self.w['lineEdit_' + val].setValidator(self.valid)
+        self.w.lineEdit_eoffset_count.setValidator(QtGui.QIntValidator(0,100))
     # set unit labels according to machine mode
         unit = "MM" if INFO.MACHINE_IS_METRIC else "IN"
         for i in self.unit_label_list:
@@ -221,11 +231,12 @@ class HandlerClass:
         # external offset control pins
         QHAL.newpin("eoffset-enable", QHAL.HAL_BIT, QHAL.HAL_OUT)
         QHAL.newpin("eoffset-clear", QHAL.HAL_BIT, QHAL.HAL_OUT)
+        self.h['eoffset-clear'] = True
         QHAL.newpin("eoffset-spindle-count", QHAL.HAL_S32, QHAL.HAL_OUT)
         QHAL.newpin("eoffset-count", QHAL.HAL_S32, QHAL.HAL_OUT)
 
-        pin = QHAL.newpin("eoffset-value", QHAL.HAL_S32, QHAL.HAL_IN)
-        pin.value_changed.connect(self.eoffset_changed)
+        # total external offsets
+        pin = QHAL.newpin("eoffset-value", QHAL.HAL_FLOAT, QHAL.HAL_IN)
 
         pin = QHAL.newpin("eoffset-zlevel-count", QHAL.HAL_S32, QHAL.HAL_IN)
         pin.value_changed.connect(self.comp_count_changed)
@@ -327,22 +338,29 @@ class HandlerClass:
                 self.toolBar = QtWidgets.QToolBar(self.w)
                 self.w.tabWidget_setup.setCornerWidget(self.toolBar)
 
+                self.homeBtn = QtWidgets.QPushButton(self.w)
+                self.homeBtn.setEnabled(True)
+                self.homeBtn.setIconSize(QtCore.QSize(48, 38))
+                self.homeBtn.setIcon(QtGui.QIcon(':/qt-project.org/styles/commonstyle/images/up-32.png'))
+                self.homeBtn.clicked.connect(self.homeWeb)
+                self.toolBar.addWidget(self.homeBtn)
+
                 self.backBtn = QtWidgets.QPushButton(self.w)
                 self.backBtn.setEnabled(True)
-                self.backBtn.setIconSize(QtCore.QSize(48, 48))
+                self.backBtn.setIconSize(QtCore.QSize(48, 38))
                 self.backBtn.setIcon(QtGui.QIcon(':/qt-project.org/styles/commonstyle/images/left-32.png'))
                 self.backBtn.clicked.connect(self.back)
                 self.toolBar.addWidget(self.backBtn)
 
                 self.forBtn = QtWidgets.QPushButton(self.w)
                 self.forBtn.setEnabled(True)
-                self.forBtn.setIconSize(QtCore.QSize(48, 48))
+                self.forBtn.setIconSize(QtCore.QSize(48, 38))
                 self.forBtn.setIcon(QtGui.QIcon(':/qt-project.org/styles/commonstyle/images/right-32.png'))
                 self.forBtn.clicked.connect(self.forward)
                 self.toolBar.addWidget(self.forBtn)
 
                 self.writeBtn = QtWidgets.QPushButton('SetUp\n Writer',self.w)
-                self.writeBtn.setMinimumSize(48,48)
+                self.writeBtn.setMinimumSize(48,38)
                 self.writeBtn.setEnabled(True)
                 self.writeBtn.clicked.connect(self.writer)
                 self.toolBar.addWidget(self.writeBtn)
@@ -352,6 +370,7 @@ class HandlerClass:
                     self.w.web_view.load(QtCore.QUrl.fromLocalFile(self.default_setup))
                 else:
                     self.w.web_view.setHtml(self.html)
+                self.w.web_view.page().urlChanged.connect(self.onLoadFinished)
         except Exception as e:
             print("No default setup file found - {}".format(e))
 
@@ -511,12 +530,8 @@ class HandlerClass:
         else:
             self.w.lbl_mb_errors.setStyleSheet('''background-color:rgb(202, 0, 0);''')
 
-    def eoffset_changed(self, data):
+    def comp_count_changed(self, data):
         self.w.z_comp_eoffset_value.setText(format(data*.001, '.3f'))
-
-    def comp_count_changed(self):
-        if self.w.btn_enable_comp.isChecked():
-            self.h['eoffset-count'] = self.h['eoffset-zlevel-count']
 
     def dialog_return(self, w, message):
         rtn = message.get('RETURN')
@@ -531,7 +546,10 @@ class HandlerClass:
         elif sensor_code and name == 'MESSAGE' and rtn is True:
             self.touchoff('sensor')
         elif wait_code and name == 'MESSAGE':
-            self.h['eoffset-clear'] = False
+            self.h['eoffset-clear'] = True
+            self.h['eoffset-spindle-count'] = 0
+            self.w.spindle_eoffset_value.setText('0')
+            self.add_status('Spindle lowered')
         elif unhome_code and name == 'MESSAGE' and rtn is True:
             ACTION.SET_MACHINE_UNHOMED(-1)
         elif overwrite and name == 'MESSAGE':
@@ -685,29 +703,33 @@ class HandlerClass:
         self.w.action_step.setEnabled(not state)
         if state:
         # set external offsets to lift spindle
+            self.h['eoffset-clear'] = False
             self.h['eoffset-enable'] = self.w.chk_eoffsets.isChecked()
-            fval = float(self.w.lineEdit_eoffset_count.text())
+            fval = int(self.w.lineEdit_eoffset_count.text())
             self.h['eoffset-spindle-count'] = int(fval)
             self.w.spindle_eoffset_value.setText(self.w.lineEdit_eoffset_count.text())
             self.h['spindle-inhibit'] = True
-            #self.w.btn_enable_comp.setChecked(False)
-            #self.w.widget_zaxis_offset.hide()
+            self.add_status("Spindle stopped and raised {}".format(fval))
             if not QHAL.hal.component_exists("z_level_compensation"):
                 self.add_status("Z level compensation HAL component not loaded", CRITICAL)
                 return
-            #self.h['comp-on'] = False
         else:
-            self.h['eoffset-spindle-count'] = 0
-            self.w.spindle_eoffset_value.setText('0')
-            #self.h['eoffset-clear'] = True
+            # turn spindle back on
             self.h['spindle-inhibit'] = False
-            if STATUS.is_auto_running():
-            # instantiate warning box
-                info = "Wait for spindle at speed signal before resuming"
-                mess = {'NAME':'MESSAGE', 'ICON':'WARNING',
-                        'ID':'_wait_resume_', 'MESSAGE':'CAUTION',
-                        'NONBLOCKING':'True', 'MORE':info, 'TYPE':'OK'}
-                ACTION.CALL_DIALOG(mess)
+            self.add_status('Spindle re-started')
+
+            # If spindle at speed is connected use it lower spindle
+            if self.h.hal.pin_has_writer('spindle.0.at-speed'):
+                self._spindle_wait=True
+                return
+            else:
+                # or wait for dialog to close before lowering spindle
+                if STATUS.is_auto_running():
+                    info = "Wait for spindle at speed signal before resuming"
+                    mess = {'NAME':'MESSAGE', 'ICON':'WARNING',
+                            'ID':'_wait_resume_', 'MESSAGE':'CAUTION',
+                            'NONBLOCKING':'True', 'MORE':info, 'TYPE':'OK'}
+                    ACTION.CALL_DIALOG(mess)
 
     def btn_enable_comp_clicked(self, state):
         if state:
@@ -978,6 +1000,32 @@ class HandlerClass:
         info = ACTION.GET_ABOUT_INFO()
         self.w.aboutDialog_.showdialog()
 
+    def btn_gcode_zoomin_clicked(self):
+        self.w.gcode_viewer.editor.zoomIn()
+    def btn_gcode_zoomout_clicked(self):
+        self.w.gcode_viewer.editor.zoomOut()
+
+    def btn_spindle_z_up_clicked(self):
+        fval = int(self.w.lineEdit_eoffset_count.text())
+        if INFO.MACHINE_IS_METRIC:
+            fval += 5
+        else:
+            fval += 1
+        self.w.lineEdit_eoffset_count.setText(str(fval))
+        if self.h['eoffset-clear'] != True:
+            self.h['eoffset-spindle-count'] = int(fval)
+
+    def btn_spindle_z_down_clicked(self):
+        fval = int(self.w.lineEdit_eoffset_count.text())
+        if INFO.MACHINE_IS_METRIC:
+            fval -= 5
+        else:
+            fval -= 1
+        if fval <0: fval = 0
+        self.w.lineEdit_eoffset_count.setText(str(fval))
+        if self.h['eoffset-clear'] != True:
+            self.h['eoffset-spindle-count'] = int(fval)
+
     #####################
     # GENERAL FUNCTIONS #
     #####################
@@ -998,12 +1046,14 @@ class HandlerClass:
 
             # adjust ending to check for related HTML setup files
             fname = filename+'.html'
-            if os.path.exists(fname):
-                self.w.web_view.load(QtCore.QUrl.fromLocalFile(fname))
-                self.add_status("Loaded HTML file : {}".format(fname))
-            else:
-                self.w.web_view.setHtml(self.html)
-
+            try:
+                if os.path.exists(fname):
+                    self.w.web_view.load(QtCore.QUrl.fromLocalFile(fname))
+                    self.add_status("Loaded HTML file : {}".format(fname))
+                else:
+                    self.w.web_view.setHtml(self.html)
+            except Exception as e:
+                self.add_status("Can not Load HTML file {} :()".format(fname,e))
             # look for PDF setup files
             fname = filename+'.pdf'
             if os.path.exists(fname):
@@ -1021,7 +1071,7 @@ class HandlerClass:
                 self.w.stackedWidget.setCurrentIndex(0)
                 self.w.btn_setup.setChecked(True)
             except Exception as e:
-                print("Error loading HTML file : {}".format(e))
+                self.add_status("Error loading HTML file {} : {}".format(fname,e))
         else:
             # load PDF into setup page
             if os.path.exists(fname):
@@ -1090,9 +1140,13 @@ class HandlerClass:
         retract = self.w.lineEdit_retract_distance.text()
         safe_z = self.w.lineEdit_z_safe_travel.text()
         rtn = ACTION.TOUCHPLATE_TOUCHOFF(search_vel, probe_vel, max_probe, 
-                z_offset, retract, safe_z)
+                z_offset, retract, safe_z, self.touchoff_return)
         if rtn == 0:
             self.add_status("Touchoff routine is already running", WARNING)
+
+    def touchoff_return(self, data):
+        self.add_status("Touchplate touchoff routine returned successfully")
+        self.add_status("Touchplate returned:"+data, CRITICAL)
 
     def kb_jog(self, state, joint, direction, fast = False, linear = True):
         ACTION.SET_MANUAL_MODE()
@@ -1161,6 +1215,18 @@ class HandlerClass:
         except Exception as e:
             self.add_status("Unable to copy file. %s" %e, WARNING)
 
+    def periodic_update(self):
+        # if waiting and up to speed, lower spindle
+        if self._spindle_wait:
+            if bool(self.h.hal.get_value('spindle.0.at-speed')):
+                self.h['eoffset-spindle-count'] = 0
+                self.h['eoffset-clear'] = True
+                self.add_status('Spindle lowered')
+                self.h['eoffset-clear'] = False
+                self._spindle_wait = False
+
+        self.update_runtimer()
+
     def update_runtimer(self):
         if not self.timer_on or STATUS.is_auto_paused():
             return
@@ -1184,24 +1250,64 @@ class HandlerClass:
             self.timer_on = False
             self.add_status("Run timer stopped at {}".format(self.w.lbl_runtime.text()))
 
+    # go directly the default HTML page
+    def homeWeb(self):
+        try:
+            if os.path.exists(self.default_setup):
+                self.w.web_view.load(QtCore.QUrl.fromLocalFile(self.default_setup))
+            else:
+                self.w.web_view.setHtml(self.html)
+        except:
+            pass
+    # setup tab's web page back button
     def back(self):
-        if os.path.exists(self.default_setup):
-            self.w.web_view.load(QtCore.QUrl.fromLocalFile(self.default_setup))
-        else:
-            self.w.web_view.setHtml(self.html)
-        #self.w.web_view.page().triggerAction(QWebEnginePage.Back)
+        try:
+            try:
+                self.w.web_view.page().triggerAction(QWebEnginePage.Back)
+            except:
+                if os.path.exists(self.default_setup):
+                    self.w.web_view.load(QtCore.QUrl.fromLocalFile(self.default_setup))
+                else:
+                    self.w.web_view.setHtml(self.html)
+        except:
+            pass
 
+    # setup tab's web page forward button
     def forward(self):
-        self.w.web_view.load(QtCore.QUrl.fromLocalFile(self.docs))
-        #self.w.web_view.page().triggerAction(QWebEnginePage.Forward)
+        try:
+            try:
+                self.w.web_view.page().triggerAction(QWebEnginePage.Forward)
+            except:
+                self.w.web_view.load(QtCore.QUrl.fromLocalFile(self.docs))
+        except:
+            pass
+
+    # setup tab's web page - enable/disable buttons
+    def onLoadFinished(self):
+        try:
+            if self.w.web_view.history().canGoBack():
+                self.backBtn.setEnabled(True)
+            else:
+                self.backBtn.setEnabled(False)
+
+            if self.w.web_view.history().canGoForward():
+                self.forBtn.setEnabled(True)
+            else:
+                self.forBtn.setEnabled(False)
+        except:
+            pass
 
     def writer(self):
         WRITER.show()
 
     def endcolor(self):
         self.timer = QtCore.QTimer()
-        self.timer.timeout.connect(self.set_style_default)
+        self.timer.timeout.connect(self.clear_status_bar)
         self.timer.start(self.statusbar_reset_time)
+
+    def clear_status_bar(self):
+        self.set_style_default()
+        self.w.statusbar.showMessage('')
 
     # change Status bar text color
     def set_style_default(self):
@@ -1230,7 +1336,7 @@ class HandlerClass:
                     TAB_CAMVIEW: (requestedIndex,PAGE_UNCHANGED,SHOW_DRO),
                     TAB_GCODES: (requestedIndex,PAGE_UNCHANGED,SHOW_DRO),
                     TAB_SETUP: (requestedIndex,PAGE_UNCHANGED,SHOW_DRO),
-                    TAB_SETTINGS: (TAB_MAIN,PAGE_GCODE,SHOW_DRO),
+                    TAB_SETTINGS: (requestedIndex,PAGE_GCODE,SHOW_DRO),
                     TAB_UTILS: (TAB_MAIN,PAGE_GCODE,SHOW_DRO),
                     TAB_USER: (requestedIndex,PAGE_UNCHANGED,IGNORE) }
         else:

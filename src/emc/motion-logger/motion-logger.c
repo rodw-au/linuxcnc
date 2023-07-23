@@ -284,12 +284,11 @@ int main(int argc, char* argv[]) {
     init_comm_buffers();
 
     while (1) {
-        if (c->commandNum != c->tail) {
-            // "split read"
-            continue;
-        }
+        rtapi_mutex_get(&emcmotStruct->command_mutex);
+
         if (c->commandNum == emcmotStatus->commandNumEcho) {
             // nothing new
+            rtapi_mutex_give(&emcmotStruct->command_mutex);
             maybe_reopen_logfile();
             usleep(10 * 1000);
             continue;
@@ -320,14 +319,6 @@ int main(int argc, char* argv[]) {
                 log_print("DISABLE\n");
                 SET_MOTION_ENABLE_FLAG(0);
                 update_motion_state();
-                break;
-
-            case EMCMOT_JOINT_ENABLE_AMPLIFIER:
-                log_print("ENABLE_AMPLIFIER\n");
-                break;
-
-            case EMCMOT_JOINT_DISABLE_AMPLIFIER:
-                log_print("DISABLE_AMPLIFIER\n");
                 break;
 
             case EMCMOT_ENABLE_WATCHDOG:
@@ -682,6 +673,8 @@ int main(int argc, char* argv[]) {
         emcmotStatus->commandNumEcho = c->commandNum;
         emcmotStatus->commandStatus = EMCMOT_COMMAND_OK;
         emcmotStatus->tail = emcmotStatus->head;
+
+        rtapi_mutex_give(&emcmotStruct->command_mutex);
     }
 
     return 0;

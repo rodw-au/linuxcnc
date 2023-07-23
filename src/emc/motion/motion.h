@@ -159,8 +159,6 @@ extern "C" {
 	EMCMOT_JOG_ABORT,               /* abort one joint num or axis num */
 	EMCMOT_JOINT_ACTIVATE,          /* make joint active */
 	EMCMOT_JOINT_DEACTIVATE,        /* make joint inactive */
-	EMCMOT_JOINT_ENABLE_AMPLIFIER,  /* enable amp outputs */
-	EMCMOT_JOINT_DISABLE_AMPLIFIER, /* disable amp outputs */
 	EMCMOT_JOINT_HOME,              /* home a joint or all joints */
 	EMCMOT_JOINT_UNHOME,            /* unhome a joint or all joints*/
 	EMCMOT_SET_JOINT_POSITION_LIMITS, /* set the joint position +/- limits */
@@ -206,7 +204,6 @@ extern "C" {
    memory, and all commands from higher level code come thru it.
 */
     typedef struct emcmot_command_t {
-	unsigned char head;	/* flag count for mutex detect */
 	cmd_code_t command;	/* command code (enum) */
 	int commandNum;		/* increment this for new command */
 	double motor_offset;    /* offset from joint to motor position */
@@ -260,7 +257,6 @@ extern "C" {
     char    direction;      /* CANON_DIRECTION flag for spindle orient */
     double  timeout;        /* of wait for spindle orient to complete */
     unsigned char wait_for_spindle_at_speed; // EMCMOT_SPINDLE_ON now carries this, for next feed move
-    unsigned char tail;	/* flag count for mutex detect */
     int arcBlendOptDepth;
     int arcBlendEnable;
     int arcBlendFallbackEnable;

@@ -206,8 +206,10 @@ class EditorBase(QsciScintilla):
 
         self.set_lexer("g-code")
 
+        self._marginWidth = '00000'
+
         # Margin 0 is used for line numbers
-        self.set_margin_width(1)
+        self.setMarginWidth(0, self._marginWidth)
         self.linesChanged.connect(self.on_lines_changed)
         self.setMarginLineNumbers(0, True)
 
@@ -215,8 +217,8 @@ class EditorBase(QsciScintilla):
         self.marginClicked.connect(self.on_margin_clicked)
         self.setMarginMarkerMask(0, 0b1111)
         self.setMarginSensitivity(0, True)
-        # setting marker margin width to zero make the marker highlight line
-        self.setMarginWidth(1, 5)
+        # setting _marker_ margin width
+        self.setMarginWidth(1, 0)
 
         # Gcode highlight current line
         self.currentHandle = self.markerDefine(QsciScintilla.Background,
@@ -286,12 +288,20 @@ class EditorBase(QsciScintilla):
             for i in range(0, self.lexer_num_styles):
                 self.lexer.setColor(self._styleColor.get(i, self._styleColor[0]), i)
 
-    def set_margin_width(self, width):
+    def set_margin_width(self):
+        self.setMarginWidth(0, self._marginWidth)
+
+    def set_margin_metric(self, width):
         fontmetrics = QFontMetrics(self.getFontMargins())
         self.setMarginWidth(0, fontmetrics.width("0" * width) + 6)
 
+    # reset margin width when number od lines change
     def on_lines_changed(self):
-        self.set_margin_width(len(str(self.lines())))
+        if len(str(self.lines())) < 3:
+            self._marginWidth = '0000'
+        else:
+            self._marginWidth = str(self.lines())+'0'
+        self.setMarginWidth(0, self._marginWidth)
 
     def on_margin_clicked(self, nmargin, nline, modifiers):
         # Toggle marker for the line the margin was clicked on
@@ -581,6 +591,7 @@ class GcodeDisplay(EditorBase, _HalWidgetBase):
         self.auto_show_manual = False
         self.auto_show_preference = True
         self.last_line = 0
+        self._last_auto_scroll = 0
 
     def _hal_init(self):
         self.cursorPositionChanged.connect(self.line_changed)
@@ -590,6 +601,7 @@ class GcodeDisplay(EditorBase, _HalWidgetBase):
             STATUS.connect('mode-auto', self.reload_last)
             STATUS.connect('move-text-lineup', self.select_lineup)
             STATUS.connect('move-text-linedown', self.select_linedown)
+            STATUS.connect('mode-manual', self.load_manual)
         if self.auto_show_manual:
             STATUS.connect('mode-manual', self.load_manual)
             STATUS.connect('machine-log-changed', self.load_manual)
@@ -614,22 +626,35 @@ class GcodeDisplay(EditorBase, _HalWidgetBase):
         self.setCursorPosition(0, 0)
         self.markerDeleteHandle(self.currentHandle)
         self.setModified(False)
+        self._lastUserLine = 0
 
     # when switching from MDI to AUTO we need to reload the
     # last (linuxcnc loaded) program.
     def reload_last(self, w):
         self.load_text(STATUS.old['file'])
         self.setCursorPosition(0, 0)
+        print(self._last_auto_scroll)
+        self.verticalScrollBar().setValue(self._last_auto_scroll)
+        if self._lastUserLine >0:
+            self.markerAdd(self._lastUserLine, self.USER_MARKER_NUM)
 
     # With the auto_show__mdi option, MDI history is shown
     def load_mdi(self, w):
+        # record scroll position in auto mode's gcode
+        if STATUS.get_previous_mode() == STATUS.AUTO: 
+            self._last_auto_scroll = self.verticalScrollBar().value()
+
         self.load_text(INFO.MDI_HISTORY_PATH)
         self._last_filename = INFO.MDI_HISTORY_PATH
         self.setCursorPosition(self.lines(), 0)
 
     # With the auto_show__mdi option, MDI history is shown
     def load_manual(self, w):
-        if STATUS.is_man_mode():
+        # record scroll position in auto mode's gcode
+        if STATUS.get_previous_mode() == STATUS.AUTO: 
+            self._last_auto_scroll = self.verticalScrollBar().value()
+
+        if self.auto_show_manual and STATUS.is_man_mode():
             self.load_text(INFO.MACHINE_LOG_HISTORY_PATH)
             self.setCursorPosition(self.lines(), 0)
 
@@ -713,6 +738,16 @@ class GcodeDisplay(EditorBase, _HalWidgetBase):
             line = self.lines()
         self.setCursorPosition(line, 0)
         self.highlight_line(None, line)
+
+    # overridden functions               #
+    #####################################
+    def zoomIn(self):
+        super().zoomIn()
+        self.set_margin_width()
+    def zoomOut(self):
+        super().zoomOut()
+        self.set_margin_width()
+    #####################################
 
     # designer recognized getter/setters
     # auto_show_mdi status
@@ -1065,8 +1100,8 @@ class GcodeEditor(QWidget, _HalWidgetBase):
     def get_line(self):
         return self.editor.getCursorPosition()[0] +1
 
-    def set_margin_width(self,width):
-        self.editor.set_margin_width(width)
+    def set_margin_metric(self,width):
+        self.editor.set_margin_metric(width)
 
     def set_font(self, font):
         self.editor.setDefaultFont(font)

@@ -179,7 +179,7 @@ static int sendCommand(RCS_CMD_MSG * msg)
     while (etime() < send_command_timeout) {
 	emcIoStatusBuffer->peek();
 	if (emcIoStatus->echo_serial_number != emcIoCommandSerialNumber ||
-	    emcIoStatus->status == RCS_EXEC) {
+	    emcIoStatus->status == RCS_STATUS::EXEC) {
 	    esleep(0.001);
 	    continue;
 	} else {
@@ -188,7 +188,7 @@ static int sendCommand(RCS_CMD_MSG * msg)
     }
 
     if (emcIoStatus->echo_serial_number != emcIoCommandSerialNumber ||
-	emcIoStatus->status == RCS_EXEC) {
+	emcIoStatus->status == RCS_STATUS::EXEC) {
 	// Still not done, must have timed out.
 	rcs_print_error
 	    ("Command to IO level (%s:%s) timed out waiting for last command done. \n",
@@ -284,8 +284,6 @@ int emcCoolantMistOn() { return task_methods->emcCoolantMistOn(); }
 int emcCoolantMistOff() { return task_methods->emcCoolantMistOff(); }
 int emcCoolantFloodOn() { return task_methods->emcCoolantFloodOn(); }
 int emcCoolantFloodOff() { return task_methods->emcCoolantFloodOff(); }
-int emcLubeOn() { return task_methods->emcLubeOn(); }
-int emcLubeOff() { return task_methods->emcLubeOff(); }
 int emcToolPrepare(int tool) { return task_methods->emcToolPrepare(tool); }
 int emcToolStartChange() { return task_methods->emcToolStartChange(); }
 int emcToolLoad() { return task_methods->emcToolLoad(); }
@@ -390,7 +388,7 @@ int return_int(const char *funcname, PyObject *retval)
     int status = python_plugin->plugin_status();
 
     if (status == PLUGIN_EXCEPTION) {
-	emcOperatorError(status,"return_int(%s): %s",
+	emcOperatorError("return_int(%s): %s",
 			 funcname, python_plugin->last_exception().c_str());
 	return -1;
     }
@@ -398,7 +396,7 @@ int return_int(const char *funcname, PyObject *retval)
     (PyLong_Check(retval))) {
     return PyLong_AsLong(retval);
     } else {
-	emcOperatorError(0, "return_int(%s): expected int return value, got '%s' (%s)",
+	emcOperatorError("return_int(%s): expected int return value, got '%s' (%s)",
 			 funcname,
             PyBytes_AsString(retval),
             Py_TYPE(retval)->tp_name);
@@ -418,18 +416,16 @@ int emcPluginCall(EMC_EXEC_PLUGIN_CALL *call_msg)
 	return return_int(PLUGIN_CALL, retval.ptr());
 
     } else {
-	emcOperatorError(0, "emcPluginCall: Python plugin not initialized");
+	emcOperatorError("emcPluginCall: Python plugin not initialized");
 	return -1;
     }
 }
 
-extern "C" PyObject* PyInit_emctask(void);
 extern "C" PyObject* PyInit_interpreter(void);
 extern "C" PyObject* PyInit_emccanon(void);
 struct _inittab builtin_modules[] = {
     { "interpreter", PyInit_interpreter },
     { "emccanon", PyInit_emccanon },
-    { "emctask", PyInit_emctask },
     // any others...
     { NULL, NULL }
 };
@@ -653,24 +649,6 @@ int Task::emcCoolantFloodOff()
     return 0;
 }
 
-int Task::emcLubeOn()
-{
-    EMC_LUBE_ON lubeOnMsg;
-
-    sendCommand(&lubeOnMsg);
-
-    return 0;
-}
-
-int Task::emcLubeOff()
-{
-    EMC_LUBE_OFF lubeOffMsg;
-
-    sendCommand(&lubeOffMsg);
-
-    return 0;
-}
-
 int Task::emcToolPrepare(int tool)
 {
     EMC_TOOL_PREPARE toolPrepareMsg;
@@ -787,9 +765,9 @@ int Task::emcIoUpdate(EMC_IO_STAT * stat)
        command, by comparing the command number we sent with the command
        number that emcio echoes. If they're different, then the command
        hasn't been acknowledged yet and the state should be forced to be
-       RCS_EXEC. */
+       RCS_STATUS::EXEC. */
     if (stat->echo_serial_number != emcIoCommandSerialNumber) {
-	stat->status = RCS_EXEC;
+	stat->status = RCS_STATUS::EXEC;
     }
     //commented out because it keeps resetting the spindle speed to some odd value
     //the speed gets set by the IO controller, no need to override it here (io takes care of increase/decrease speed too)

@@ -117,8 +117,6 @@ struct TaskWrap : public Task, public bp::wrapper<Task> {
     EXPAND(emcCoolantMistOff)
     EXPAND(emcCoolantFloodOn)
     EXPAND(emcCoolantFloodOff)
-    EXPAND(emcLubeOn)
-    EXPAND(emcLubeOff)
     EXPAND1(emcIoSetDebug,int,debug)
 
     EXPAND1(emcToolPrepare, int, tool)
@@ -221,13 +219,13 @@ static const char *get_command( EMC_TASK_STAT &t) { return t.command; }
 static const char *get_ini_filename( EMC_TASK_STAT &t) { return t.ini_filename; }
 
 static void operator_error(const char *message, int id = 0) {
-    emcOperatorError(id,"%s",message);
+    emcOperatorError("%s",message);
 }
 static void operator_text(const char *message, int id = 0) {
-    emcOperatorText(id,"%s",message);
+    emcOperatorText("%s",message);
 }
 static void operator_display(const char *message, int id = 0) {
-    emcOperatorDisplay(id,"%s",message);
+    emcOperatorDisplay("%s",message);
 }
 
 
@@ -268,40 +266,40 @@ BOOST_PYTHON_MODULE(emctask) {
 				   "send a message to the operator display"  ));
 
     BOOST_PYENUM_(RCS_STATUS)
-            .BOOST_PYENUM_VAL(RCS_EXEC)
-            .BOOST_PYENUM_VAL(RCS_DONE)
-            .BOOST_PYENUM_VAL(RCS_ERROR)
+            .BOOST_PYENUM_VAL(RCS_STATUS::EXEC)
+            .BOOST_PYENUM_VAL(RCS_STATUS::DONE)
+            .BOOST_PYENUM_VAL(RCS_STATUS::ERROR)
             ;
 
-    BOOST_PYENUM_(EMC_TASK_MODE_ENUM)
-            .BOOST_PYENUM_VAL(EMC_TASK_MODE_MANUAL)
-            .BOOST_PYENUM_VAL(EMC_TASK_MODE_AUTO)
-            .BOOST_PYENUM_VAL(EMC_TASK_MODE_MDI)
+    BOOST_PYENUM_(EMC_TASK_MODE)
+            .BOOST_PYENUM_VAL(EMC_TASK_MODE::MANUAL)
+            .BOOST_PYENUM_VAL(EMC_TASK_MODE::AUTO)
+            .BOOST_PYENUM_VAL(EMC_TASK_MODE::MDI)
             ;
 
-    BOOST_PYENUM_(EMC_TASK_STATE_ENUM)
-            .BOOST_PYENUM_VAL(EMC_TASK_STATE_ESTOP)
-            .BOOST_PYENUM_VAL(EMC_TASK_STATE_ESTOP_RESET)
-            .BOOST_PYENUM_VAL(EMC_TASK_STATE_OFF)
-            .BOOST_PYENUM_VAL(EMC_TASK_STATE_ON)
+    BOOST_PYENUM_(EMC_TASK_STATE)
+            .BOOST_PYENUM_VAL(EMC_TASK_STATE::ESTOP)
+            .BOOST_PYENUM_VAL(EMC_TASK_STATE::ESTOP_RESET)
+            .BOOST_PYENUM_VAL(EMC_TASK_STATE::OFF)
+            .BOOST_PYENUM_VAL(EMC_TASK_STATE::ON)
             ;
 
-    BOOST_PYENUM_(EMC_TASK_EXEC_ENUM)
-            .BOOST_PYENUM_VAL(EMC_TASK_EXEC_ERROR)
-            .BOOST_PYENUM_VAL(EMC_TASK_EXEC_DONE)
-            .BOOST_PYENUM_VAL(EMC_TASK_EXEC_WAITING_FOR_MOTION)
-            .BOOST_PYENUM_VAL(EMC_TASK_EXEC_WAITING_FOR_MOTION_QUEUE)
-            .BOOST_PYENUM_VAL(EMC_TASK_EXEC_WAITING_FOR_IO)
-            .BOOST_PYENUM_VAL(EMC_TASK_EXEC_WAITING_FOR_MOTION_AND_IO)
-            .BOOST_PYENUM_VAL(EMC_TASK_EXEC_WAITING_FOR_DELAY)
-            .BOOST_PYENUM_VAL(EMC_TASK_EXEC_WAITING_FOR_SYSTEM_CMD)
+    BOOST_PYENUM_(EMC_TASK_EXEC)
+            .BOOST_PYENUM_VAL(EMC_TASK_EXEC::ERROR)
+            .BOOST_PYENUM_VAL(EMC_TASK_EXEC::DONE)
+            .BOOST_PYENUM_VAL(EMC_TASK_EXEC::WAITING_FOR_MOTION)
+            .BOOST_PYENUM_VAL(EMC_TASK_EXEC::WAITING_FOR_MOTION_QUEUE)
+            .BOOST_PYENUM_VAL(EMC_TASK_EXEC::WAITING_FOR_IO)
+            .BOOST_PYENUM_VAL(EMC_TASK_EXEC::WAITING_FOR_MOTION_AND_IO)
+            .BOOST_PYENUM_VAL(EMC_TASK_EXEC::WAITING_FOR_DELAY)
+            .BOOST_PYENUM_VAL(EMC_TASK_EXEC::WAITING_FOR_SYSTEM_CMD)
             ;
 
-    BOOST_PYENUM_(EMC_TASK_INTERP_ENUM)
-            .BOOST_PYENUM_VAL(EMC_TASK_INTERP_IDLE)
-            .BOOST_PYENUM_VAL(EMC_TASK_INTERP_READING)
-            .BOOST_PYENUM_VAL(EMC_TASK_INTERP_PAUSED)
-            .BOOST_PYENUM_VAL(EMC_TASK_INTERP_WAITING)
+    BOOST_PYENUM_(EMC_TASK_INTERP)
+            .BOOST_PYENUM_VAL(EMC_TASK_INTERP::IDLE)
+            .BOOST_PYENUM_VAL(EMC_TASK_INTERP::READING)
+            .BOOST_PYENUM_VAL(EMC_TASK_INTERP::PAUSED)
+            .BOOST_PYENUM_VAL(EMC_TASK_INTERP::WAITING)
             ;
 
 
@@ -398,11 +396,6 @@ BOOST_PYTHON_MODULE(emctask) {
 	.def_readwrite("flood", &EMC_COOLANT_STAT::flood )
 	;
 
-    class_ <EMC_LUBE_STAT, boost::noncopyable>("EMC_LUBE_STAT",no_init)
-	.def_readwrite("on", &EMC_LUBE_STAT::on )
-	.def_readwrite("level", &EMC_LUBE_STAT::level )
-	;
-
     class_ <EMC_MOTION_STAT, boost::noncopyable>("EMC_MOTION_STAT",no_init)
 	.def_readwrite("traj", &EMC_MOTION_STAT::traj)
 	.add_property( "spindle",
@@ -482,7 +475,6 @@ BOOST_PYTHON_MODULE(emctask) {
 	.def_readwrite("tool", &EMC_IO_STAT::tool)
 	.def_readwrite("aux", &EMC_IO_STAT::aux)
 	.def_readwrite("coolant", &EMC_IO_STAT::coolant)
-	.def_readwrite("lube", &EMC_IO_STAT::lube)
 	.def_readwrite("status", &EMC_IO_STAT::status)
 	;
 
@@ -499,8 +491,6 @@ BOOST_PYTHON_MODULE(emctask) {
 
     // this assumes that at module init time emcStatus is valid (non-NULL)
     scope().attr("emcstat") = emcstatus_ptr(emcStatus);
-
-    implicitly_convertible<EMC_TASK_STATE_ENUM, int>();
 
     pp::register_array_1< double, EMCMOT_MAX_AIO> ("AnalogIoArray");
     pp::register_array_1< int, EMCMOT_MAX_DIO> ("DigitalIoArray");

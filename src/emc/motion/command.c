@@ -57,10 +57,12 @@
 #include <float.h>
 #include "posemath.h"
 #include "rtapi.h"
+#include "rtapi_mutex.h"
 #include "hal.h"
 #include "motion.h"
 #include "tp.h"
 #include "mot_priv.h"
+#include "motion_struct.h"
 #include "rtapi_math.h"
 #include "motion_types.h"
 #include "homing.h"
@@ -374,11 +376,14 @@ STATIC int is_feed_type(int motion_type)
     }
 }
 
+
 /*
   emcmotCommandHandler() is called each main cycle to read the
   shared memory buffer
+
+  This function runs with the emcmotCommand struct locked.
   */
-void emcmotCommandHandler(void *arg, long servo_period)
+void emcmotCommandHandler_locked(void *arg, long servo_period)
 {
     int joint_num, spindle_num;
     int n,s0,s1;
@@ -389,11 +394,6 @@ void emcmotCommandHandler(void *arg, long servo_period)
     int abort = 0;
     char* emsg = "";
 
-    /* check for split read */
-    if (emcmotCommand->head != emcmotCommand->tail) {
-	emcmotInternal->split++;
-	return;			/* not really an error */
-    }
     if (emcmotCommand->commandNum != emcmotStatus->commandNumEcho) {
 	/* increment head count-- we'll be modifying emcmotStatus */
 	emcmotStatus->head++;
@@ -1342,26 +1342,6 @@ void emcmotCommandHandler(void *arg, long servo_period)
 	    }
 	    SET_JOINT_ACTIVE_FLAG(joint, 0);
 	    break;
-	case EMCMOT_JOINT_ENABLE_AMPLIFIER:
-	    /* enable the amplifier directly, but don't enable calculations */
-	    /* can be done at any time */
-	    rtapi_print_msg(RTAPI_MSG_DBG, "JOINT_ENABLE_AMP");
-	    rtapi_print_msg(RTAPI_MSG_DBG, " %d", joint_num);
-	    if (joint == 0) {
-		break;
-	    }
-	    break;
-
-	case EMCMOT_JOINT_DISABLE_AMPLIFIER:
-	    /* disable the joint calculations and amplifier, but don't disable
-	       calculations */
-	    /* can be done at any time */
-	    rtapi_print_msg(RTAPI_MSG_DBG, "JOINT_DISABLE_AMP");
-	    rtapi_print_msg(RTAPI_MSG_DBG, " %d", joint_num);
-	    if (joint == 0) {
-		break;
-	    }
-	    break;
 
 	case EMCMOT_JOINT_HOME:
 	    /* home the specified joint */
@@ -1916,4 +1896,16 @@ void emcmotCommandHandler(void *arg, long servo_period)
     /* end of: if-new-command */
 
     return;
+}
+
+
+void emcmotCommandHandler(void *arg, long servo_period) {
+    if (rtapi_mutex_try(&emcmotStruct->command_mutex) != 0) {
+        // Failed to take the mutex, because it is held by Task.
+        // This means Task is in the process of updating the command.
+        // Give up for now, and try again on the next invocation.
+        return;
+    }
+    emcmotCommandHandler_locked(arg, servo_period);
+    rtapi_mutex_give(&emcmotStruct->command_mutex);
 }

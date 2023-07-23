@@ -92,8 +92,6 @@ struct iocontrol_str {
     hal_bit_t *user_request_enable;        /* output, used to reset ENABLE latch */
     hal_bit_t *coolant_mist;        /* coolant mist output pin */
     hal_bit_t *coolant_flood;        /* coolant flood output pin */
-    hal_bit_t *lube;                /* lube output pin */
-    hal_bit_t *lube_level;        /* lube level input pin */
 
 
     // the following pins are needed for toolchanging
@@ -162,10 +160,9 @@ static int emcIoNmlGet()
             retval = -1;
         } else {
             /* initialize and write status */
-            emcioStatus.heartbeat = 0;
             emcioStatus.command_type = 0;
             emcioStatus.echo_serial_number = 0;
-            emcioStatus.status = RCS_DONE;
+            emcioStatus.status = RCS_STATUS::DONE;
             emcioStatusBuffer->write(&emcioStatus);
         }
     }
@@ -345,16 +342,6 @@ static int iocontrol_hal_init(void)
         hal_exit(comp_id);
         return -1;
     }
-    // lube
-    retval = hal_pin_bit_newf(HAL_OUT, &(iocontrol_data->lube), comp_id,
-                              "iocontrol.%d.lube", n);
-    if (retval < 0) {
-        rtapi_print_msg(RTAPI_MSG_ERR,
-                        "IOCONTROL: ERROR: iocontrol %d pin lube export failed with err=%i\n",
-                        n, retval);
-        hal_exit(comp_id);
-        return -1;
-    }
     // tool-prepare
     retval = hal_pin_bit_newf(HAL_OUT, &(iocontrol_data->tool_prepare), comp_id,
                               "iocontrol.%d.tool-prepare", n);
@@ -459,16 +446,6 @@ static int iocontrol_hal_init(void)
         hal_exit(comp_id);
         return -1;
     }
-    // lube_level
-    retval = hal_pin_bit_newf(HAL_IN, &(iocontrol_data->lube_level), comp_id,
-                             "iocontrol.%d.lube_level", n);
-    if (retval < 0) {
-        rtapi_print_msg(RTAPI_MSG_ERR,
-                        "IOCONTROL: ERROR: iocontrol %d pin lube_level export failed with err=%i\n",
-                        n, retval);
-        hal_exit(comp_id);
-        return -1;
-    }
 
     hal_ready(comp_id);
 
@@ -489,7 +466,6 @@ static void hal_init_pins(void)
     *(iocontrol_data->user_request_enable)=0;/* output, used to reset HAL latch */
     *(iocontrol_data->coolant_mist)=0;       /* coolant mist output pin */
     *(iocontrol_data->coolant_flood)=0;      /* coolant flood output pin */
-    *(iocontrol_data->lube)=0;               /* lube output pin */
     *(iocontrol_data->tool_prepare)=0;       /* output, pin that notifies HAL it needs to prepare a tool */
     *(iocontrol_data->tool_prep_number)=0;   /* output, pin that holds the tool number to be prepared, only valid when tool-prepare=TRUE */
     *(iocontrol_data->tool_prep_pocket)=0;   /* output, pin that holds the pocketno for the tool to be prepared, only valid when tool-prepare=TRUE */
@@ -527,13 +503,6 @@ static int read_hal_inputs(void)
     if (oldval != emcioStatus.aux.estop) {
         retval = 1;
     }
-
-
-    oldval = emcioStatus.lube.level;
-    emcioStatus.lube.level = *(iocontrol_data->lube_level);        //check for lube_level from HW
-    if (oldval != emcioStatus.lube.level) {
-        retval = 1;
-    }
     return retval;
 }
 
@@ -562,7 +531,7 @@ void load_tool(int idx) {
         }
 
         if (0 != tooldata_save(io_tool_table_file)) {
-            emcioStatus.status = RCS_ERROR;
+            emcioStatus.status = RCS_STATUS::ERROR;
         }
     } else if(idx == 0) {
         // on non-random tool-changers, asking for pocket 0 is the secret
@@ -622,7 +591,7 @@ static int read_tool_inputs(void)
     if (*iocontrol_data->tool_prepare && *iocontrol_data->tool_prepared) {
         emcioStatus.tool.pocketPrepped = *iocontrol_data->tool_prep_index; //check if tool has been (idx) prepared
         *(iocontrol_data->tool_prepare) = 0;
-        emcioStatus.status = RCS_DONE;  // we finally finished to do tool-changing, signal task with RCS_DONE
+        emcioStatus.status = RCS_STATUS::DONE;  // we finally finished to do tool-changing, signal task with RCS_DONE
         return 10; //prepped finished
     }
 
@@ -649,7 +618,7 @@ static int read_tool_inputs(void)
         *(iocontrol_data->tool_prep_pocket) = 0; //likewise in HAL
         *(iocontrol_data->tool_prep_index)  = 0; //likewise in HAL
         *(iocontrol_data->tool_change) = 0; //also reset the tool change signal
-        emcioStatus.status = RCS_DONE;        // we finally finished to do tool-changing, signal task with RCS_DONE
+        emcioStatus.status = RCS_STATUS::DONE;        // we finally finished to do tool-changing, signal task with RCS_DONE
         return 11; //change finished
     }
     return 0;
@@ -791,8 +760,6 @@ int main(int argc, char *argv[])
     }
     emcioStatus.coolant.mist = 0;
     emcioStatus.coolant.flood = 0;
-    emcioStatus.lube.on = 0;
-    emcioStatus.lube.level = 1;
     *(iocontrol_data->tool_number) = emcioStatus.tool.toolInSpindle;
 
     while (!done) {
@@ -805,7 +772,6 @@ int main(int argc, char *argv[])
             emcioStatus.command_type = EMC_IO_STAT_TYPE;
             emcioStatus.echo_serial_number =
                 emcioCommand->serial_number+1; //need for different serial number, because we are pushing a new message
-            emcioStatus.heartbeat++;
             emcioStatusBuffer->write(&emcioStatus);
         }
         ;
@@ -813,7 +779,6 @@ int main(int argc, char *argv[])
             emcioStatus.command_type = EMC_IO_STAT_TYPE; // to RCS_DONE, no need for different serial_number
             emcioStatus.echo_serial_number =
                 emcioCommand->serial_number;
-            emcioStatus.heartbeat++;
             emcioStatusBuffer->write(&emcioStatus);
         }
 
@@ -835,15 +800,10 @@ int main(int argc, char *argv[])
         }
 
         type = emcioCommand->type;
-        emcioStatus.status = RCS_DONE;
+        emcioStatus.status = RCS_STATUS::DONE;
 
         switch (type) {
         case 0:
-            break;
-
-        case EMC_IO_INIT_TYPE:
-            rtapi_print_msg(RTAPI_MSG_DBG, "EMC_IO_INIT\n");
-            hal_init_pins();
             break;
 
         case EMC_TOOL_INIT_TYPE:
@@ -921,7 +881,7 @@ int main(int argc, char *argv[])
                 // the feedback logic is done inside read_hal_inputs()
                 // we only need to set RCS_EXEC if RCS_DONE is not already set by the above logic
                 if (tool_status != 10) //set above to 10 in case PREP already finished (HAL loopback machine)
-                    emcioStatus.status = RCS_EXEC;
+                    emcioStatus.status = RCS_STATUS::EXEC;
             }
             break;
         case EMC_TOOL_LOAD_TYPE:
@@ -952,7 +912,7 @@ int main(int argc, char *argv[])
                 if (tool_status != 11)
                     // set above to 11 in case LOAD already finished (HAL
                     // loopback machine)
-                    emcioStatus.status = RCS_EXEC;
+                    emcioStatus.status = RCS_STATUS::EXEC;
             }
             break;
         }
@@ -968,7 +928,7 @@ int main(int argc, char *argv[])
                 if(!strlen(filename)) filename = io_tool_table_file;
                 rtapi_print_msg(RTAPI_MSG_DBG, "EMC_TOOL_LOAD_TOOL_TABLE\n");
                 if (0 != tooldata_load(filename)) {
-                    emcioStatus.status = RCS_ERROR;
+                    emcioStatus.status = RCS_STATUS::ERROR;
                 } else {
                     reload_tool_number(emcioStatus.tool.toolInSpindle);
                 }
@@ -1007,7 +967,7 @@ int main(int argc, char *argv[])
                     UNEXPECTED_MSG;
                 }
                 if (0 != tooldata_save(io_tool_table_file)) {
-                    emcioStatus.status = RCS_ERROR;
+                    emcioStatus.status = RCS_STATUS::ERROR;
                 }
                 if (io_db_mode == DB_ACTIVE) {
                     int pno = idx; // for random_toolchanger
@@ -1085,24 +1045,6 @@ int main(int argc, char *argv[])
             *(iocontrol_data->user_request_enable) = 1;
             break;
 
-        case EMC_AUX_ESTOP_RESET_TYPE:
-            rtapi_print_msg(RTAPI_MSG_DBG, "EMC_AUX_ESTOP_RESET\n");
-            // doesn't do anything right now, this will need to come from GUI
-            // but that means task needs to be rewritten/rethinked
-            break;
-
-        case EMC_LUBE_ON_TYPE:
-            rtapi_print_msg(RTAPI_MSG_DBG, "EMC_LUBE_ON\n");
-            emcioStatus.lube.on = 1;
-            *(iocontrol_data->lube) = 1;
-            break;
-
-        case EMC_LUBE_OFF_TYPE:
-            rtapi_print_msg(RTAPI_MSG_DBG, "EMC_LUBE_OFF\n");
-            emcioStatus.lube.on = 0;
-            *(iocontrol_data->lube) = 0;
-            break;
-
         case EMC_SET_DEBUG_TYPE:
             rtapi_print_msg(RTAPI_MSG_DBG, "EMC_SET_DEBUG\n");
             emc_debug = ((EMC_SET_DEBUG *) emcioCommand)->debug;
@@ -1122,7 +1064,6 @@ int main(int argc, char *argv[])
         emcioStatus.echo_serial_number = emcioCommand->serial_number;
         //set above, to allow some commands to fail this
         //emcioStatus.status = RCS_DONE;
-        emcioStatus.heartbeat++;
         emcioStatusBuffer->write(&emcioStatus);
 
         esleep(emc_io_cycle_time);

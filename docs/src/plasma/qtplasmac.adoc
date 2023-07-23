@@ -1026,7 +1026,7 @@ The <<plasma:conversational-tab,CONVERSATIONAL Tab>> enables the user to quickly
 
 See <<plasma:shape-library,Conversational Shape Library>> for detailed information on the Conversational feature.
 
-It is possible to disable this tab so the conversational feature cannot be used by an operator. This may be achieved either by wiring the pin to a physical key-switch or similar or it may also be set in a HAL file using the following command:
+It is possible to hide this tab so the conversational feature cannot be used by an operator. This may be achieved either by wiring the pin to a physical key-switch or similar or it may also be set in a HAL file using the following command:
 
 [source,{hal}]
 ----
@@ -1044,7 +1044,7 @@ Some functions/features are only used for particular modes and are not displayed
 
 This tab is used to display configuration parameters that are modified infrequently.
 
-It is possible to disable this tab so machine settings cannot be modified by unauthorized personnel. This may be achieved either by wiring the pin to a physical key-switch or similar or it may also be set in a HAL file using the following command:
+It is possible to hide this tab so machine settings cannot be modified by unauthorized personnel. This may be achieved either by wiring the pin to a physical key-switch or similar or it may also be set in a HAL file using the following command:
 
 [source,{hal}]
 ----
@@ -1222,7 +1222,7 @@ image::images/qtplasmac_settings.png[width=800,align="center"]
 
 This tab is used to display GUI configuration parameters, button text, and shutdown text that are modified infrequently as well as some utility buttons.
 
-It is possible to disable this tab so machine settings cannot be modified by unauthorized personnel. This may be achieved either by wiring the pin to a physical key-switch or similar or it may also be set in a HAL file using the following command:
+It is possible to hide this tab so machine settings cannot be modified by unauthorized personnel. This may be achieved either by wiring the pin to a physical key-switch or similar or it may also be set in a HAL file using the following command:
 
 [source,{hal}]
 ----
@@ -2288,7 +2288,7 @@ It is possible to use near-end-of-life consumables for piercing and then they ca
 .*Puddle Jump*
 
 *Puddle Jump* is the height that the torch will move to after piercing and prior to moving to *Cut Height* and is expressed as a percentage of *Pierce Height*.
-This allows the torch to clear any puddle of molten material tht may be caused by piercing.
+This allows the torch to clear any puddle of molten material that may be caused by piercing.
 The maximum allowable height is 200% of the *Pierce Height*
 
 Setting for *Puddle Jump* are described in <<plasma:material,cut parameters>>
@@ -3138,17 +3138,17 @@ Preview = #000000
 === Custom Python Code
 
 It is possible to add custom Python code to change some existing functions or to add new ones.
-Custom code can be added in two different way, a user command file or a user periodic file.
+Custom code can be added in two different ways:  a user command file or a user periodic file.
 
-A user command file is specified in the DISPLAY section of the _<machine_name>_.ini file and contains Python code that is processed during startup.
+A user command file is specified in the DISPLAY section of the _<machine_name>_.ini file and contains Python code that is processed only once during startup.
 
 [source,{ini}]
 ----
-n USER_COMMAND_FILE = my_custom_code.py
+USER_COMMAND_FILE = my_custom_code.py
 ----
 
-A user periodic file must be named user_periodic.py and must be loated in the machines config directory.
-This file is processed every cycle (usually 100 ms) and is used for functions that require regular updating.
+A user periodic file must be named user_periodic.py and must be loaded in the machines config directory.
+This file is processed every cycle (usually 100 ms) and is used for functions that require regular updating.
 
 == QtPlasmaC Advanced Topics
 
@@ -3212,6 +3212,7 @@ Buttons can run the following:
 . <<plasma:button-mancut,Begin/End a manual cut>>
 . <<plasma:button-offsets,Display/Hide an offsets viewer>>
 . <<plasma:button-latest,Load the latest modified NGC file found in a directory>>
+. <<plasma:button-umanual,Display/Hide the online HTML user manual>>
 
 [[plasma:button-cmds]]
 .External Commands
@@ -3404,9 +3405,11 @@ n Code = cut-type
 
 Pressing this button moves the torch to the specified coordinates when the machine is paused to allow the user easy access to change the torch consumables.
 
-Valid entries are X__nnn__ Y__nnn__ F__nnn__. Feed Rate (F) is mandatory and at least one of the X or Y coordinates are required.
+Valid entries are X__nnn__ Y__nnn__ F__nnn__. At least one of the X or Y coordinates are required, Feed Rate (F) is optional.
 
 The X and Y coordinates are in absolute machine coordinates. If X or Y are missing then the current coordinate for that axis will be used.
+
+Feed Rate (F) is optional, if it is missing or invalid then the feed rate of the current material will be used.
 
 There are three methods to return to the previous coordinates:
 
@@ -3547,7 +3550,8 @@ n Code = manual-cut
 [[plasma:button-offsets]]
 .Offset Viewer
 
-This allows the showing/hiding of an offset viewing screen that displays all machine offsets. All relative offsets can be edited and the G54 ~ G59.3 work system coordinates are able to be given custom names.
+This allows the showing/hiding of an offset viewing screen that displays all machine offsets.
+All relative offsets can be edited and the G54 ~ G59.3 work system coordinates are able to be given custom names.
 
 [source,{ini}]
 ----
@@ -3557,12 +3561,23 @@ n Code = offsets-view
 [[plasma:button-latest]]
 .Load Latest File
 
-this allows the loading of the last modified file in a directory.
+This allows the loading of the last modified file in a directory.
 The directory name is optional and if omitted will default to the last directory a file was loaded from.
 
 [source,{ini}]
 ----
 n Code = latest-file /home/me/linuxcnc/nc_files/qtplasmac-test
+----
+
+[[plasma:button-umanual]]
+.User Manual
+
+This allows the showing/hiding of the online HTML user manual specific to the version of LinuxCNC currently running.
+Note that internet access is required for this functionality.
+
+[source,{ini}]
+----
+n Code = user-manual
 ----
 
 [[peripheral-offsets]]
