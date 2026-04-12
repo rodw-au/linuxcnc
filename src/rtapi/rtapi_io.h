@@ -13,10 +13,10 @@
 //    You should have received a copy of the GNU General Public License
 //    along with this program; if not, write to the Free Software
 //    Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
-#ifndef RTAPI_IO_H
-#define RTAPI_IO_H
+#ifndef __LINUXCNC_RTAPI_IO_H
+#define __LINUXCNC_RTAPI_IO_H
 
-#include <rtapi.h>
+#include "rtapi.h"
 
 #ifdef __KERNEL__
 #include <asm/io.h>
@@ -32,13 +32,17 @@
 #define rtapi_outb outb
 #define rtapi_outw outw
 #define rtapi_outl outl
+#define rtapi_ioperm ioperm
 #else
-#define rtapi_inb(x) (0)
-#define rtapi_inw(x) (0)
-#define rtapi_inl(x) (0)
-#define rtapi_outb(x,y) ((void)0)
-#define rtapi_outw(x,y) ((void)0)
-#define rtapi_outl(x,y) ((void)0)
+// The prototypes follow the x86 sys/io.h prototypes
+__attribute__((always_inline)) static inline unsigned char  rtapi_inb(unsigned short port) { (void)port; return 0; }
+__attribute__((always_inline)) static inline unsigned short rtapi_inw(unsigned short port) { (void)port; return 0; }
+__attribute__((always_inline)) static inline unsigned int   rtapi_inl(unsigned short port) { (void)port; return 0; }
+__attribute__((always_inline)) static inline void rtapi_outb(unsigned char  val, unsigned short port) { (void)port; (void)val; }
+__attribute__((always_inline)) static inline void rtapi_outw(unsigned short val, unsigned short port) { (void)port; (void)val; }
+__attribute__((always_inline)) static inline void rtapi_outl(unsigned int   val, unsigned short port) { (void)port; (void)val; }
+__attribute__((always_inline)) static inline int rtapi_ioperm(unsigned long from, unsigned long num, int turn_on)
+{ (void)from; (void)num; (void)turn_on; return 0; }
 #endif
 
 #endif

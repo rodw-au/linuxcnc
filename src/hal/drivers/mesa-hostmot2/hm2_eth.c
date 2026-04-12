@@ -36,19 +36,20 @@
 #include <rtapi_list.h>
 #include <rtapi_math64.h>
 
-#include "rtapi.h"
-#include "rtapi_app.h"
-#include "rtapi_string.h"
+#include <rtapi.h>
+#include <rtapi_app.h>
+#include <rtapi_string.h>
 
-#include "hal.h"
+#include <hal.h>
 
 #include "hostmot2-lowlevel.h"
 #include "hostmot2.h"
 #include "hm2_eth.h"
+#include "eshellf.h"
 
 struct kvlist {
     struct rtapi_list_head list;
-    char key[16];
+    char key[16+1];
     int value;
 };
 
@@ -62,7 +63,9 @@ static int *kvlist_lookup(struct rtapi_list_head *head, const char *name) {
         if(strncmp(name, ent->key, sizeof(ent->key)) == 0) return &ent->value;
     }
     struct kvlist *ent = rtapi_kzalloc(sizeof(struct kvlist), RTAPI_GPF_KERNEL);
-    strncpy(ent->key, name, sizeof(ent->key));
+    if(!ent)
+        return NULL;
+    strncpy(ent->key, name, sizeof(ent->key)-1);
     rtapi_list_add(&ent->list, head);
     return &ent->value;
 }
@@ -89,7 +92,7 @@ static char *board_ip[MAX_ETH_BOARDS];
 RTAPI_MP_ARRAY_STRING(board_ip, MAX_ETH_BOARDS, "ip address of ethernet board(s)");
 
 static char *config[MAX_ETH_BOARDS];
-RTAPI_MP_ARRAY_STRING(config, MAX_ETH_BOARDS, "config string for the AnyIO boards (see hostmot2(9) manpage)")
+RTAPI_MP_ARRAY_STRING(config, MAX_ETH_BOARDS, "config string for the AnyIO boards (see hostmot2(9) manpage)");
 
 int debug = 0;
 RTAPI_MP_INT(debug, "Developer/debug use only!  Enable debug logging.");
@@ -100,7 +103,7 @@ int comm_active = 0;
 
 static int comp_id;
 
-static char *hm2_7i96_pin_names[] = {
+static const char *hm2_7i96_pin_names[] = {
     "TB3-01",
     "TB3-02",
     "TB3-03",
@@ -128,7 +131,7 @@ static char *hm2_7i96_pin_names[] = {
     "TB1-20/TB1-21",
     "TB1-22-TB1-23",
 
-    "TB2-01/TB2-03",
+    "TB2-02/TB2-03",
     "TB2-04/TB2-05",
     "TB2-07/TB2-08",
     "TB2-10/TB2-11",
@@ -139,43 +142,43 @@ static char *hm2_7i96_pin_names[] = {
     "internal",  /* SSerial TXEN */
     "internal",  /* SSR AC Reference pin */
 
-    "P1-01",
-    "P1-02",
-    "P1-03",
-    "P1-04",
-    "P1-05",
-    "P1-06",
-    "P1-07",
-    "P1-08",
-    "P1-09",
-    "P1-11",
-    "P1-13",
-    "P1-15",
-    "P1-17",
-    "P1-19",
-    "P1-21",
-    "P1-23",
-    "P1-25"
+    "P1-01/DB25-01", /* P1 parallel expansion */
+    "P1-02/DB25-14",
+    "P1-03/DB25-02",
+    "P1-04/DB25-15",
+    "P1-05/DB25-03",
+    "P1-06/DB25-16",
+    "P1-07/DB25-04",
+    "P1-08/DB25-17",
+    "P1-09/DB25-05",
+    "P1-11/DB25-06",
+    "P1-13/DB25-07",
+    "P1-15/DB25-08",
+    "P1-17/DB25-09",
+    "P1-19/DB25-10",
+    "P1-21/DB25-11",
+    "P1-23/DB25-12",
+    "P1-25/DB25-13",
 };
 
-static char *hm2_7i94_pin_names[] = {
-    "P2-01",
-    "P2-02",
-    "P2-03",
-    "P2-04",
-    "P2-05",
-    "P2-06",
-    "P2-07",
-    "P2-08",
-    "P2-09",
-    "P2-11",
-    "P2-13",
-    "P2-15",
-    "P2-17",
-    "P2-19",
-    "P2-21",
-    "P2-23",
-    "P2-25",
+static const char *hm2_7i94_pin_names[] = {
+    "P2-01/DB25-01", /* P2 parallel expansion */
+    "P2-02/DB25-14",
+    "P2-03/DB25-02",
+    "P2-04/DB25-15",
+    "P2-05/DB25-03",
+    "P2-06/DB25-16",
+    "P2-07/DB25-04",
+    "P2-08/DB25-17",
+    "P2-09/DB25-05",
+    "P2-11/DB25-06",
+    "P2-13/DB25-07",
+    "P2-15/DB25-08",
+    "P2-17/DB25-09",
+    "P2-19/DB25-10",
+    "P2-21/DB25-11",
+    "P2-23/DB25-12",
+    "P2-25/DB25-13",
     "J6-RX0",
     "J6-TX0",
     "J6-TXEN0",
@@ -204,7 +207,7 @@ static char *hm2_7i94_pin_names[] = {
     "P2-/IOENA"
 };
 
-static char *hm2_7i95_pin_names[] = {
+static const char *hm2_7i95_pin_names[] = {
     "TB3-02/TB3-03", /* Step/Dir/Misc 5V out */
     "TB3-04/TB3-05",
     "TB3-08/TB3-09",
@@ -247,26 +250,26 @@ static char *hm2_7i95_pin_names[] = {
     "TB5-23/TB5-24",
     "internal",
 
-    "P1-01", /* P1 parallel expansion */
-    "P1-02",
-    "P1-03",
-    "P1-04",
-    "P1-05",
-    "P1-06",
-    "P1-07",
-    "P1-08",
-    "P1-09",
-    "P1-11",
-    "P1-13",
-    "P1-15",
-    "P1-17",
-    "P1-19",
-    "P1-21",
-    "P1-23",
-    "P1-25"
+    "P1-01/DB25-01",  /* P1 parallel expansion */
+    "P1-02/DB25-14",
+    "P1-03/DB25-02",
+    "P1-04/DB25-15",
+    "P1-05/DB25-03",
+    "P1-06/DB25-16",
+    "P1-07/DB25-04",
+    "P1-08/DB25-17",
+    "P1-09/DB25-05",
+    "P1-11/DB25-06",
+    "P1-13/DB25-07",
+    "P1-15/DB25-08",
+    "P1-17/DB25-09",
+    "P1-19/DB25-10",
+    "P1-21/DB25-11",
+    "P1-23/DB25-12",
+    "P1-25/DB25-13",
 };
 
-static char *hm2_7i97_pin_names[] = {
+static const char *hm2_7i97_pin_names[] = {
     "TB3-04", 		/* Analog out */
     "TB3-08",
     "TB3-12",
@@ -302,23 +305,150 @@ static char *hm2_7i97_pin_names[] = {
     "TB4-17/TB4-18",
     "TB4-17/TB4-18",
 
-    "P1-01", /* P1 parallel expansion */
-    "P1-02",
-    "P1-03",
-    "P1-04",
-    "P1-05",
-    "P1-06",
-    "P1-07",
-    "P1-08",
-    "P1-09",
-    "P1-11",
-    "P1-13",
-    "P1-15",
-    "P1-17",
-    "P1-19",
-    "P1-21",
-    "P1-23",
-    "P1-25"
+    "P1-01/DB25-01",  /* P1 parallel expansion */
+    "P1-02/DB25-14",
+    "P1-03/DB25-02",
+    "P1-04/DB25-15",
+    "P1-05/DB25-03",
+    "P1-06/DB25-16",
+    "P1-07/DB25-04",
+    "P1-08/DB25-17",
+    "P1-09/DB25-05",
+    "P1-11/DB25-06",
+    "P1-13/DB25-07",
+    "P1-15/DB25-08",
+    "P1-17/DB25-09",
+    "P1-19/DB25-10",
+    "P1-21/DB25-11",
+    "P1-23/DB25-12",
+    "P1-25/DB25-13",
+};
+
+static const char *hm2_Mc04_pin_names[] = {
+    "Relay2",
+    "Relay3",
+    "Relay4",
+    "Relay5",
+    "Relay1",
+    "Single led",
+    "Encoder #0, pin B (Input)",
+    "Encoder #0, pin A (Input)",
+    "Encoder #1, pin A (Input)",
+    "Encoder #0, pin Index (Input)",
+    "Servo0VRDY",
+    "StepGen #0, pin Step (Output)",
+    "StepGen #0, pin Direction (Output)",
+    "StepGen #1, pin Step (Output)",
+    "StepGen #1, pin Direction (Output)",
+    "StepGen #2, pin Step (Output)",
+    "StepGen #2, pin Direction (Output)",
+    "StepGen #3, pin Step (Output)",
+    "StepGen #3, pin Direction (Output)",
+    "Encoder #2, pin B (Input)",
+    "Encoder #2, pin A (Input)",
+    "Encoder #1, pin Index (Input)",
+    "Encoder #1, pin B (Input)",
+    "Servo1VRDY",
+    "Servo2VRDY",
+    "Encoder #3, pin Index (Input)",
+    "Encoder #3, pin B (Input)",
+    "Encoder #3, pin A (Input)",
+    "Encoder #2, pin Index (Input)",
+    "Servo3VRDY",
+    "Servo's on",
+    "Output0",
+    "Output1",
+    "Output2",
+    "Output3",
+    "Output4",
+    "Output5",
+    "Output6",
+    "Output7",
+    "Input7",
+    "Input6",
+    "Input5",
+    "Input4",
+    "Input3",
+    "Input2",
+    "Input1",
+    "Input0",
+    "PWMGen #0, pin Out0 (PWM or Up) (Output)",
+    "PWMGen #0, pin Not-Enable (Output)",
+    "Spindle-on",
+    "Spindle-ccw",
+    "Smart Serial Interface #0, pin txen2 (Output)",
+    "Smart Serial Interface #0, pin tx2 (Output)",
+    "Smart Serial Interface #0, pin rx2 (Input)",
+    "Smart Serial Interface #0, pin txen1 (Output)",
+    "Smart Serial Interface #0, pin tx1 (Output)",
+    "Smart Serial Interface #0, pin rx1 (Input)",
+    "Smart Serial Interface #0, pin txen0 (Output)",
+    "Smart Serial Interface #0, pin tx0 (Output)",
+    "Smart Serial Interface #0, pin rx0 (Input)"
+};
+
+static const char *hm2_8cSS_pin_names[] = {
+    "Not used",
+    "Not used",
+    "Not used",
+    "Not used",
+    "Not used",
+    "Not used",
+    "Smart Serial Interface #0, pin tx1 (Output)",
+    "Smart Serial Interface #0, pin rx1 (Input)",
+    "Smart Serial Interface #0, pin txen1 (Output)",
+    "Smart Serial Interface #0, pin tx2 (Output)",
+    "Smart Serial Interface #0, pin rx2 (Input)",
+    "Smart Serial Interface #0, pin txen2 (Output)",
+    "Smart Serial Interface #0, pin tx3 (Output)",
+    "Smart Serial Interface #0, pin rx3 (Input)",
+    "Smart Serial Interface #0, pin txen3 (Output)",
+    "Smart Serial Interface #0, pin tx4 (Output)",
+    "Smart Serial Interface #0, pin rx4 (Input)",
+    "Smart Serial Interface #0, pin txen4 (Output)",
+    "Input0",
+    "Input1",
+    "Input2",
+    "Input3",
+    "Input4",
+    "Input5",
+    "Input6",
+    "Input7",
+    "Not used",
+    "Not used",
+    "Not used",
+    "Not used",
+    "Not used",
+    "Not used",
+    "Output2",
+    "Output1",
+    "Output0",
+    "Output5",
+    "Output4",
+    "Output3",
+    "Output7",
+    "Output6",   
+    "Not used",
+    "Not used",
+    "Not used",
+    "Not used",
+    "Spindle CW",
+    "Spindle PWM",
+    "Spindle enable",
+    "Spindle CCW",
+    "Smart Serial Interface #0, pin tx8 (Output)", 
+    "Smart Serial Interface #0, pin rx8 (Input)",
+    "Smart Serial Interface #0, pin txen8 (Output)",
+    "Smart Serial Interface #0, pin rx7 (Input)",
+    "Smart Serial Interface #0, pin tx7 (Output)",
+    "Smart Serial Interface #0, pin txen5 (Output)",   
+    "Smart Serial Interface #0, pin rx5 (Input)",
+    "Smart Serial Interface #0, pin tx5 (Output)",
+    "Smart Serial Interface #0, pin txen6 (Output)",
+    "Smart Serial Interface #0, pin rx6 (Input)",   
+    "Smart Serial Interface #0, pin tx6 (Output)",
+    "Smart Serial Interface #0, pin txen7 (Output)",   
+
 };
 
 #define UDP_PORT 27181
@@ -333,34 +463,8 @@ static hm2_eth_t boards[MAX_ETH_BOARDS];
 static int eth_socket_send(int sockfd, const void *buffer, int len, int flags);
 static int eth_socket_recv(int sockfd, void *buffer, int len, int flags);
 
-#define IPTABLES "/sbin/iptables"
+#define IPTABLES "env \"PATH=/usr/sbin:/sbin:${PATH}\" iptables"
 #define CHAIN "hm2-eth-rules-output"
-
-static int shell(char *command) {
-    char *const argv[] = {"sh", "-c", command, NULL};
-    pid_t pid;
-    int res = rtapi_spawn_as_root(&pid, "/bin/sh", NULL, NULL, argv, environ);
-    if(res < 0) perror("rtapi_spawn_as_root");
-    int status;
-    waitpid(pid, &status, 0);
-    if(WIFEXITED(status)) return WEXITSTATUS(status);
-    else if(WIFSTOPPED(status)) return WTERMSIG(status)+128;
-    else return status;
-}
-
-static int eshellf(char *fmt, ...) {
-    char commandbuf[1024];
-    va_list ap;
-    va_start(ap, fmt);
-    vsnprintf(commandbuf, sizeof(commandbuf), fmt, ap);
-    va_end(ap);
-
-    int res = shell(commandbuf);
-    if(res == EXIT_SUCCESS) return 0;
-
-    LL_PRINT("ERROR: Failed to execute '%s'\n", commandbuf);
-    return -EINVAL;
-}
 
 static bool chain_exists() {
     int result =
@@ -372,14 +476,14 @@ static int iptables_state = -1;
 static bool use_iptables() {
     if(iptables_state == -1) {
         if(!chain_exists()) {
-            int res = shell("/sbin/iptables -N " CHAIN);
+            int res = shell(IPTABLES " -N " CHAIN);
             if(res != EXIT_SUCCESS) {
                 LL_PRINT("ERROR: Failed to create iptables chain "CHAIN);
                 return (iptables_state = 0);
             }
         }
         // now add a jump to our chain at the start of the OUTPUT chain if it isn't in the chain already
-        int res = shell("/sbin/iptables -C OUTPUT -j " CHAIN " 2>/dev/null || /sbin/iptables -I OUTPUT 1 -j " CHAIN);
+        int res = shell(IPTABLES "-C OUTPUT -j " CHAIN " 2>/dev/null || /sbin/iptables -I OUTPUT 1 -j " CHAIN);
         if(res != EXIT_SUCCESS) {
             LL_PRINT("ERROR: Failed to insert rule in OUTPUT chain");
             return (iptables_state = 0);
@@ -500,7 +604,7 @@ static int install_iptables_perinterface(const char *ifbuf) {
         ifbuf);
     if(res < 0) return res;
 
-    res = eshellf("/sbin/sysctl -q net.ipv6.conf.%s.disable_ipv6=1", ifbuf);
+    res = eshellf(HM2_LLIO_NAME, "/sbin/sysctl -q net.ipv6.conf.%s.disable_ipv6=1", ifbuf);
     if(res < 0) return res;
 
     return 0;
@@ -572,14 +676,14 @@ static int init_board(hm2_eth_t *board, const char *board_ip) {
 
     ret = setsockopt(board->sockfd, SOL_SOCKET, SO_RCVTIMEO, (char *)&timeout, sizeof(timeout));
     if (ret < 0) {
-        LL_PRINT("ERROR: can't set socket option: %s\n", strerror(errno));
+        LL_PRINT("ERROR: can't set receive timeout socket option: %s\n", strerror(errno));
         return -errno;
     }
 
     timeout.tv_usec = SEND_TIMEOUT_US;
-    setsockopt(board->sockfd, SOL_SOCKET, SO_SNDTIMEO, (char *)&timeout, sizeof(timeout));
+    ret = setsockopt(board->sockfd, SOL_SOCKET, SO_SNDTIMEO, (char *)&timeout, sizeof(timeout));
     if (ret < 0) {
-        LL_PRINT("ERROR: can't set socket option: %s\n", strerror(errno));
+        LL_PRINT("ERROR: can't set send timeout socket option: %s\n", strerror(errno));
         return -errno;
     }
 
@@ -618,19 +722,23 @@ static int init_board(hm2_eth_t *board, const char *board_ip) {
 }
 
 static int close_board(hm2_eth_t *board) {
-
+    int ret;
     board->llio.reset(&board->llio);
 
     if(use_iptables()) clear_iptables();
 
     if(board->req.arp_flags & ATF_PERM) {
-        int ret = ioctl_siocdarp(board);
+        ret = ioctl_siocdarp(board);
         if(ret < 0) perror("ioctl SIOCDARP");
     }
-    int ret = shutdown(board->sockfd, SHUT_RDWR);
-    if (ret < 0)
+    ret = shutdown(board->sockfd, SHUT_RDWR);
+    if (ret == -1)
+        LL_PRINT("ERROR: can't shutdown socket: %s\n", strerror(errno));
+    
+    ret = close(board->sockfd);
+    if (ret == -1)
         LL_PRINT("ERROR: can't close socket: %s\n", strerror(errno));
-
+    
     return ret < 0 ? -errno : 0;
 }
 
@@ -741,6 +849,7 @@ static bool record_soft_error(hm2_eth_t *board) {
     if(!board->hal) return 1; // still early in hm2_eth_probe
     board->llio.needs_soft_reset = 1;
     *board->hal->packet_error = 1;
+    *board->hal->packet_error_total += 1;
     int32_t increment = board->hal->packet_error_increment;
     if(increment < 1) increment = 1;
     board->comm_error_counter += increment;
@@ -768,7 +877,7 @@ static int hm2_eth_receive_queued_reads(hm2_lowlevel_io_t *this) {
     hm2_eth_t *board = this->private;
     int recv, i = 0;
     rtapi_u8 tmp_buffer[board->queue_buff_size];
-    long long t1, t2;
+    unsigned long long t1, t2;
     t1 = rtapi_get_time();
     
     // an error occurred in the past but the user has reset the io_error
@@ -860,7 +969,7 @@ static int hm2_eth_enqueue_read(hm2_lowlevel_io_t *this, rtapi_u32 addr, void *b
 static int hm2_eth_enqueue_write(hm2_lowlevel_io_t *this, rtapi_u32 addr, const void *buffer, int size);
 
 static int hm2_eth_write(hm2_lowlevel_io_t *this, rtapi_u32 addr, const void *buffer, int size) {
-    if(rtapi_task_self() >= 0)
+    if(rtapi_task_self() >= 0 || this->force_enqueue)
         return hm2_eth_enqueue_write(this, addr, buffer, size);
 
     int send;
@@ -928,8 +1037,20 @@ static int hm2_eth_enqueue_write(hm2_lowlevel_io_t *this, rtapi_u32 addr, const 
     return 1;
 }
 
+static int hm2_eth_set_force_enqueue(hm2_lowlevel_io_t *this, int do_enqueue) {
+    if (do_enqueue) {
+        this->force_enqueue = 1;
+        return 1;
+    } else {
+        this->force_enqueue = 0;
+        return hm2_eth_send_queued_writes(this);
+    }
+}
+
 static int llio_idx(const char *llio_name) {
     int *idx = kvlist_lookup(&board_num, llio_name);
+    if(!idx)
+        return -1;
     return (*idx)++;
 }
 
@@ -937,8 +1058,8 @@ static int hm2_eth_probe(hm2_eth_t *board) {
     lbp16_cmd_addr read_packet;
 
     int ret, send, recv;
-    char board_name[16] = {0, };
-    char llio_name[16] = {0, };
+    char board_name[16] = {};
+    char llio_name[16] = {};
 
     LBP16_INIT_PACKET4(read_packet, CMD_READ_BOARD_INFO_ADDR16_INCR(16/2), 0);
     send = eth_socket_send(board->sockfd, (void*) &read_packet, sizeof(read_packet), 0);
@@ -958,8 +1079,7 @@ static int hm2_eth_probe(hm2_eth_t *board) {
     board->llio.split_read = true;
 
     if (strncmp(board_name, "7I80DB-16", 9) == 0) {
-        strncpy(llio_name, board_name, 4);
-        llio_name[1] = tolower(llio_name[1]);
+        memcpy(llio_name, board_name, 4);
 
         board->llio.num_ioport_connectors = 4;
         board->llio.pins_per_connector = 17;
@@ -970,8 +1090,7 @@ static int hm2_eth_probe(hm2_eth_t *board) {
         board->llio.fpga_part_number = "XC6SLX16";
         board->llio.num_leds = 4;
     } else if (strncmp(board_name, "7I80DB-25", 9) == 0) {
-        strncpy(llio_name, board_name, 4);
-        llio_name[1] = tolower(llio_name[1]);
+        memcpy(llio_name, board_name, 4);
 
         board->llio.num_ioport_connectors = 4;
         board->llio.pins_per_connector = 17;
@@ -982,8 +1101,7 @@ static int hm2_eth_probe(hm2_eth_t *board) {
         board->llio.fpga_part_number = "XC6SLX25";
         board->llio.num_leds = 4;
     } else if (strncmp(board_name, "7I80HD-16", 9) == 0) {
-        strncpy(llio_name, board_name, 4);
-        llio_name[1] = tolower(llio_name[1]);
+        memcpy(llio_name, board_name, 4);
 
         board->llio.num_ioport_connectors = 3;
         board->llio.pins_per_connector = 24;
@@ -993,8 +1111,7 @@ static int hm2_eth_probe(hm2_eth_t *board) {
         board->llio.fpga_part_number = "XC6SLX16";
         board->llio.num_leds = 4;
     } else if (strncmp(board_name, "7I80HD-25", 9) == 0) {
-        strncpy(llio_name, board_name, 4);
-        llio_name[1] = tolower(llio_name[1]);
+        memcpy(llio_name, board_name, 4);
 
         board->llio.num_ioport_connectors = 3;
         board->llio.pins_per_connector = 24;
@@ -1003,10 +1120,18 @@ static int hm2_eth_probe(hm2_eth_t *board) {
         board->llio.ioport_connector_name[2] = "P3";
         board->llio.fpga_part_number = "XC6SLX25";
         board->llio.num_leds = 4;
+    } else if (strncmp(board_name, "7I80HDT", 7) == 0) {
+        memcpy(llio_name, board_name, 4);
+
+        board->llio.num_ioport_connectors = 3;
+        board->llio.pins_per_connector = 24;
+        board->llio.ioport_connector_name[0] = "P1";
+        board->llio.ioport_connector_name[1] = "P2";
+        board->llio.ioport_connector_name[2] = "P3";
+        board->llio.fpga_part_number = "T20F256";
+        board->llio.num_leds = 4;
     } else if (strncmp(board_name, "7I76E-16", 8) == 0) {
-        strncpy(llio_name, board_name, 5);
-        llio_name[1] = tolower(llio_name[1]);
-        llio_name[4] = tolower(llio_name[4]);
+        memcpy(llio_name, board_name, 5);
 
         board->llio.num_ioport_connectors = 3;
         board->llio.pins_per_connector = 17;
@@ -1015,9 +1140,18 @@ static int hm2_eth_probe(hm2_eth_t *board) {
         board->llio.ioport_connector_name[2] = "P3";
         board->llio.fpga_part_number = "XC6SLX16";
         board->llio.num_leds = 4;
+    } else if (strncmp(board_name, "7I76EU", 8) == 0) {
+        memcpy(llio_name, board_name, 5);
+
+        board->llio.num_ioport_connectors = 3;
+        board->llio.pins_per_connector = 17;
+        board->llio.ioport_connector_name[0] = "P1";
+        board->llio.ioport_connector_name[1] = "P2";
+        board->llio.ioport_connector_name[2] = "P3";
+        board->llio.fpga_part_number = "T20F256";
+        board->llio.num_leds = 4;
     } else if (strncmp(board_name, "7I92", 4) == 0) {
-        strncpy(llio_name, board_name, 4);
-        llio_name[1] = tolower(llio_name[1]);
+        memcpy(llio_name, board_name, 4);
 
         board->llio.num_ioport_connectors = 2;
         board->llio.pins_per_connector = 17;
@@ -1025,10 +1159,18 @@ static int hm2_eth_probe(hm2_eth_t *board) {
         board->llio.ioport_connector_name[1] = "P1";
         board->llio.fpga_part_number = "XC6SLX9";
         board->llio.num_leds = 4;
+    } else if (strncmp(board_name, "7I92T", 5) == 0) {
+        memcpy(llio_name, board_name, 4);
+
+        board->llio.num_ioport_connectors = 2;
+        board->llio.pins_per_connector = 17;
+        board->llio.ioport_connector_name[0] = "P2";
+        board->llio.ioport_connector_name[1] = "P1";
+        board->llio.fpga_part_number = "T20F256";
+        board->llio.num_leds = 4;
 
     } else if (strncmp(board_name, "7I93", 4) == 0) {
-        strncpy(llio_name, board_name, 4);
-        llio_name[1] = tolower(llio_name[1]);
+        memcpy(llio_name, board_name, 4);
         board->llio.num_ioport_connectors = 2;
         board->llio.pins_per_connector = 24;
         board->llio.ioport_connector_name[0] = "P2";
@@ -1037,8 +1179,7 @@ static int hm2_eth_probe(hm2_eth_t *board) {
         board->llio.num_leds = 4;
 
     } else if (strncmp(board_name, "7I94", 8) == 0) {
-        strncpy(llio_name, board_name, 8);
-        llio_name[1] = tolower(llio_name[1]);
+        memcpy(llio_name, board_name, 4);
         board->llio.num_ioport_connectors = 2;
         board->llio.pins_per_connector = 21;
         board->llio.io_connector_pin_names = hm2_7i94_pin_names;
@@ -1057,10 +1198,29 @@ static int hm2_eth_probe(hm2_eth_t *board) {
 
         board->llio.fpga_part_number = "6slx9tqg144";
         board->llio.num_leds = 4;
+    } else if (strncmp(board_name, "7I94T", 8) == 0) {
+        memcpy(llio_name, board_name, 4);
+        board->llio.num_ioport_connectors = 2;
+        board->llio.pins_per_connector = 21;
+        board->llio.io_connector_pin_names = hm2_7i94_pin_names;
+
+        // DB25, 17 pins used, IO 0 to IO 16
+        board->llio.ioport_connector_name[0] = "P2";
+
+        // Serial 0..3 IO 17 to IO 28
+        board->llio.ioport_connector_name[1] = "J1,J4";
+
+        // Serial 4..7 IO 29 to IO 41
+        board->llio.ioport_connector_name[2] = "J6,J9";
+
+        // P2 /IOENA
+        board->llio.ioport_connector_name[3] = "P2-ENA";
+
+        board->llio.fpga_part_number = "T20F256";
+        board->llio.num_leds = 4;
 
     } else if (strncmp(board_name, "7I95", 8) == 0) {
-        strncpy(llio_name, board_name, 8);
-        llio_name[1] = tolower(llio_name[1]);
+        memcpy(llio_name, board_name, 4);
         board->llio.num_ioport_connectors = 2;
         board->llio.pins_per_connector = 29;
         board->llio.io_connector_pin_names = hm2_7i95_pin_names;
@@ -1089,9 +1249,38 @@ static int hm2_eth_probe(hm2_eth_t *board) {
         board->llio.fpga_part_number = "6slx9tqg144";
         board->llio.num_leds = 4;
 
+    } else if (strncmp(board_name, "7I95T", 8) == 0) {
+        memcpy(llio_name, board_name, 4);
+        board->llio.num_ioport_connectors = 2;
+        board->llio.pins_per_connector = 29;
+        board->llio.io_connector_pin_names = hm2_7i95_pin_names;
+
+        // DB25, 17 pins used, IO 34 to IO 50
+        board->llio.ioport_connector_name[0] = "P1";
+
+        // terminal block, 10 pins used, enc 0-2
+        board->llio.ioport_connector_name[1] = "TB1";
+  
+        // terminal block, 10 pins used, enc 3-5
+        board->llio.ioport_connector_name[2] = "TB2";
+
+        // terminal block, 8 pins used, Step & Dir 0-3
+        board->llio.ioport_connector_name[3] = "TB3";
+ 
+        // terminal block, 10 pins used, Step & Dir 4,5, serial Rx/Tx/Txen 0,1
+        board->llio.ioport_connector_name[2] = "TB4";
+
+        // terminal block, 8 inputs, 6 SSR outputs
+        board->llio.ioport_connector_name[3] = "TB5";
+
+        // terminal block, 16 inputs
+        board->llio.ioport_connector_name[2] = "TB6";
+
+        board->llio.fpga_part_number = "T20F256";
+        board->llio.num_leds = 4;
+
     } else if (strncmp(board_name, "7I96", 8) == 0) {
-        strncpy(llio_name, board_name, 8);
-        llio_name[1] = tolower(llio_name[1]);
+        memcpy(llio_name, board_name, 4);
         board->llio.num_ioport_connectors = 3;
         board->llio.pins_per_connector = 17;
         board->llio.io_connector_pin_names = hm2_7i96_pin_names;
@@ -1111,9 +1300,29 @@ static int hm2_eth_probe(hm2_eth_t *board) {
         board->llio.fpga_part_number = "6slx9tqg144";
         board->llio.num_leds = 4;
 
+    } else if (strncmp(board_name, "7I96S", 8) == 0) {
+        memcpy(llio_name, board_name, 5);
+        board->llio.num_ioport_connectors = 3;
+        board->llio.pins_per_connector = 17;
+        board->llio.io_connector_pin_names = hm2_7i96_pin_names;
+
+        // DB25, 17 pins used, IO 34 to IO 50
+        board->llio.ioport_connector_name[0] = "P1";
+
+        // terminal block, 8 pins used, Step & Dir 0-3
+        board->llio.ioport_connector_name[1] = "TB1";
+
+        // terminal block, 7 pins used, Step & Dir 4, Enc A, B, Z, serial Rx/Tx, Spindle Analog
+        board->llio.ioport_connector_name[2] = "TB2";
+
+        // terminal block, 11 inputs, 6 SSR outputs
+        board->llio.ioport_connector_name[3] = "TB3";
+
+        board->llio.fpga_part_number = "T20F256";
+        board->llio.num_leds = 4;
+
     } else if (strncmp(board_name, "7I97", 8) == 0) {
-        strncpy(llio_name, board_name, 8);
-        llio_name[1] = tolower(llio_name[1]);
+        memcpy(llio_name, board_name, 4);
         board->llio.num_ioport_connectors = 3;
         board->llio.pins_per_connector = 17;
         board->llio.io_connector_pin_names = hm2_7i97_pin_names;
@@ -1139,10 +1348,36 @@ static int hm2_eth_probe(hm2_eth_t *board) {
         board->llio.fpga_part_number = "6slx9tqg144";
         board->llio.num_leds = 4;
 
+    } else if (strncmp(board_name, "7I97T", 8) == 0) {
+        memcpy(llio_name, board_name, 4);
+        board->llio.num_ioport_connectors = 3;
+        board->llio.pins_per_connector = 17;
+        board->llio.io_connector_pin_names = hm2_7i97_pin_names;
+
+        // DB25, 17 pins used, IO 34 to IO 50
+        board->llio.ioport_connector_name[0] = "P1";
+
+        // terminal block, 10 pins used, enc 0-2
+        board->llio.ioport_connector_name[1] = "TB1";
+  
+        // terminal block, 10 pins used, enc 3-5
+        board->llio.ioport_connector_name[2] = "TB2";
+
+        // terminal block, Analog
+        board->llio.ioport_connector_name[3] = "TB3";
+ 
+        // terminal block, 8 inputs + Serial
+        board->llio.ioport_connector_name[4] = "TB4";
+
+        // terminal block, 8 inputs, 6 SSR outputs
+        board->llio.ioport_connector_name[5] = "TB5";
+
+        board->llio.fpga_part_number = "T20F256";
+        board->llio.num_leds = 4;
+
 
     } else if (strncmp(board_name, "7I98", 4) == 0) {
-        strncpy(llio_name, board_name, 4);
-        llio_name[1] = tolower(llio_name[1]);
+        memcpy(llio_name, board_name, 4);
         board->llio.num_ioport_connectors = 3;
         board->llio.pins_per_connector = 17;
         board->llio.ioport_connector_name[0] = "P1";
@@ -1151,10 +1386,35 @@ static int hm2_eth_probe(hm2_eth_t *board) {
         board->llio.fpga_part_number = "6slx9tqg144";
         board->llio.num_leds = 4;
 
+
+    } else if (strncmp(board_name, "MC04", 4) == 0) {
+        memcpy(llio_name, board_name, 4);
+        board->llio.num_ioport_connectors = 2;
+        board->llio.pins_per_connector = 30;
+        board->llio.ioport_connector_name[0] = "P1";
+        board->llio.ioport_connector_name[1] = "P2";
+        board->llio.fpga_part_number = "6slx9tqg144";
+        board->llio.num_leds = 4;
+        board->llio.io_connector_pin_names = hm2_Mc04_pin_names;
+        board->llio.ioport_connector_name[0] = "P1";
+        board->llio.ioport_connector_name[1] = "P2";
+
+
+     } else if (strncmp(board_name, "8CSS", 4) == 0) {
+        memcpy(llio_name, board_name, 4);
+        board->llio.num_ioport_connectors = 2;
+        board->llio.pins_per_connector = 30;
+        board->llio.ioport_connector_name[0] = "P1";
+        board->llio.ioport_connector_name[1] = "P2";
+        board->llio.fpga_part_number = "6slx9tqg144";
+        board->llio.num_leds = 4;
+        board->llio.io_connector_pin_names = hm2_8cSS_pin_names;
+        board->llio.ioport_connector_name[0] = "P1";
+        board->llio.ioport_connector_name[1] = "P2";
+
     } else {
         LL_PRINT("Unrecognized ethernet board found: %.16s -- port names will be wrong\n", board_name);
-        strncpy(llio_name, board_name, 4);
-        llio_name[1] = tolower(llio_name[1]);
+        memcpy(llio_name, board_name, 4);
 
         // this is a layering violation.  it would be nice if special values
         // (such as 0 or -1) could be passed here and the layer which can
@@ -1169,16 +1429,24 @@ static int hm2_eth_probe(hm2_eth_t *board) {
 
         board->llio.num_ioport_connectors = idrom.io_ports;
         board->llio.pins_per_connector = idrom.port_width;
-        int i;
+        unsigned i;
         for(i=0; i<board->llio.num_ioport_connectors; i++)
             board->llio.ioport_connector_name[i] = "??";
         board->llio.fpga_part_number = "??";
         board->llio.num_leds = 0;
     }
 
+    // Make llio_name lower case
+    for(char *cptr = llio_name; *cptr; cptr++) {
+        *cptr = tolower(*cptr);
+    }
+
     LL_PRINT("discovered %.*s\n", 16, board_name);
 
-    rtapi_snprintf(board->llio.name, sizeof(board->llio.name), "hm2_%.*s.%d", (int)strlen(llio_name), llio_name, llio_idx(llio_name));
+    int llidx = llio_idx(llio_name);
+    if(llidx < 0)
+        return -ENOMEM;
+    rtapi_snprintf(board->llio.name, sizeof(board->llio.name), "hm2_%.*s.%d", (int)strlen(llio_name), llio_name, llidx);
 
     board->llio.comp_id = comp_id;
 
@@ -1189,6 +1457,8 @@ static int hm2_eth_probe(hm2_eth_t *board) {
     board->llio.receive_queued_reads = hm2_eth_receive_queued_reads;
     board->llio.queue_write = hm2_eth_enqueue_write;
     board->llio.send_queued_writes = hm2_eth_send_queued_writes;
+    if (strncmp(board_name, "litehm2", 7) == 0)
+	    board->llio.set_force_enqueue = hm2_eth_set_force_enqueue;
     board->llio.reset = hm2_eth_reset;
 
     ret = hm2_register(&board->llio, config[boards_count]);
@@ -1246,6 +1516,14 @@ static int hm2_eth_items(hm2_eth_t *board) {
             board->llio.name)) < 0)
         return r;
     *board->hal->packet_error = 0;
+
+    if((r = hal_pin_u32_newf(HAL_IO,
+            &board->hal->packet_error_total,
+            board->llio.comp_id,
+            "%s.packet-error-total",
+            board->llio.name)) < 0)
+        return r;
+    *board->hal->packet_error_total = 0;
 
     if((r = hal_pin_s32_newf(HAL_OUT,
             &board->hal->packet_error_level,
@@ -1314,6 +1592,8 @@ int rtapi_app_main(void) {
         } 
         boards[i].read_cnt = boards[i].write_cnt = 0;
         int *added = kvlist_lookup(&ifnames, ifptr);
+        if(!added)
+            goto error;
         if(*added) continue;
         install_iptables_perinterface(ifptr);
         *added = 1;

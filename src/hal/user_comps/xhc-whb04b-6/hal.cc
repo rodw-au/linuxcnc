@@ -26,6 +26,7 @@
 #include <string.h>
 #include <stdarg.h>
 #include <unistd.h>
+#include <fstream>
 
 // local library includes
 #include "./pendant.h"
@@ -57,7 +58,7 @@ void Hal::freeSimulatedPin(void** pin)
     if (*pin != nullptr)
     {
         free(*pin);
-        pin = nullptr;
+        *pin = nullptr;
     }
 }
 // ----------------------------------------------------------------------
@@ -67,6 +68,7 @@ Hal::Hal(Profiles::HalRequestProfile halRequestProfile) :
     mStepMode(HandwheelStepmodes::Mode::MPG),
     mHalRequestProfile(halRequestProfile)
 {
+    (void)mStepMode;
 }
 // ----------------------------------------------------------------------
 Hal::~Hal()
@@ -85,7 +87,6 @@ Hal::~Hal()
 
     freeSimulatedPin((void**)(&memory->in.floodIsOn));
     freeSimulatedPin((void**)(&memory->in.mistIsOn));
-    freeSimulatedPin((void**)(&memory->in.lubeIsOn));
 
     freeSimulatedPin((void**)(&memory->in.axisXPosition));
     freeSimulatedPin((void**)(&memory->in.axisYPosition));
@@ -118,6 +119,15 @@ Hal::~Hal()
     freeSimulatedPin((void**)(&memory->in.isModeMdi));
     freeSimulatedPin((void**)(&memory->in.isModeTeleop));
 
+    // If axis is not homed we need to ask Teleop mode but we need to bypass that if machine is homed
+    // https://forum.linuxcnc.org/49-basic-configuration/40581-how-to-configure-a-xhc-whb04b-pendant
+    freeSimulatedPin((void**)(&memory->in.JointXisHomed));
+    freeSimulatedPin((void**)(&memory->in.JointYisHomed));
+    freeSimulatedPin((void**)(&memory->in.JointZisHomed));
+    freeSimulatedPin((void**)(&memory->in.JointAisHomed));
+    freeSimulatedPin((void**)(&memory->in.JointBisHomed));
+    freeSimulatedPin((void**)(&memory->in.JointCisHomed));
+
     freeSimulatedPin((void**)(&memory->in.isMachineOn));
 
     constexpr size_t pinsCount = sizeof(memory->out.button_pin) / sizeof(hal_bit_t * );
@@ -130,8 +140,6 @@ Hal::~Hal()
     freeSimulatedPin((void**)(&memory->out.floodStart));
     freeSimulatedPin((void**)(&memory->out.mistStop));
     freeSimulatedPin((void**)(&memory->out.mistStart));
-    freeSimulatedPin((void**)(&memory->out.lubeStop));
-    freeSimulatedPin((void**)(&memory->out.lubeStart));
 
     freeSimulatedPin((void**)(&memory->out.axisXJogCounts));
     freeSimulatedPin((void**)(&memory->out.axisYJogCounts));
@@ -213,7 +221,7 @@ Hal::~Hal()
     delete memory;
 }
 // ----------------------------------------------------------------------
-int Hal::newSimulatedHalPin(char* pin_name, void** ptr, int s)
+int Hal::newSimulatedHalPin(char* /*pin_name*/, void** ptr, int s)
 {
     *ptr = calloc(s, 1);
     assert(*ptr != nullptr);
@@ -444,10 +452,6 @@ void Hal::init(const MetaButtonCodes* metaButtons, const KeyCodes& keyCodes)
     newHalBit(HAL_OUT, &(memory->out.mistStop), mHalCompId, "%s.halui.mist.off", mComponentPrefix);
     newHalBit(HAL_OUT, &(memory->out.mistStart), mHalCompId, "%s.halui.mist.on", mComponentPrefix);
 
-    newHalBit(HAL_IN, &(memory->in.lubeIsOn), mHalCompId, "%s.halui.lube.is-on", mComponentPrefix);
-    newHalBit(HAL_OUT, &(memory->out.lubeStop), mHalCompId, "%s.halui.lube.off", mComponentPrefix);
-    newHalBit(HAL_OUT, &(memory->out.lubeStart), mHalCompId, "%s.halui.lube.on", mComponentPrefix);
-
     newHalSigned32(HAL_OUT, &(memory->out.axisXJogCounts), mHalCompId, "%s.axis.x.jog-counts", mComponentPrefix);
     newHalBit(HAL_OUT, &(memory->out.axisXJogEnable), mHalCompId, "%s.axis.x.jog-enable", mComponentPrefix);
     newHalFloat(HAL_OUT, &(memory->out.axisXJogScale), mHalCompId, "%s.axis.x.jog-scale", mComponentPrefix);
@@ -543,6 +547,18 @@ void Hal::init(const MetaButtonCodes* metaButtons, const KeyCodes& keyCodes)
     newHalBit(HAL_IN, &(memory->in.isModeManual), mHalCompId, "%s.halui.mode.is-manual", mComponentPrefix);
     newHalBit(HAL_IN, &(memory->in.isModeMdi), mHalCompId, "%s.halui.mode.is-mdi", mComponentPrefix);
     newHalBit(HAL_IN, &(memory->in.isModeTeleop), mHalCompId, "%s.halui.mode.is-teleop", mComponentPrefix);
+
+
+    // If axis is not homed we need to ask Teleop mode but we need to bypass that if machine is homed
+    // https://forum.linuxcnc.org/49-basic-configuration/40581-how-to-configure-a-xhc-whb04b-pendant
+    newHalBit(HAL_IN, &(memory->in.JointXisHomed), mHalCompId, "%s.halui.joint.x.is-homed", mComponentPrefix);
+    newHalBit(HAL_IN, &(memory->in.JointYisHomed), mHalCompId, "%s.halui.joint.y.is-homed", mComponentPrefix);
+    newHalBit(HAL_IN, &(memory->in.JointZisHomed), mHalCompId, "%s.halui.joint.z.is-homed", mComponentPrefix);
+    newHalBit(HAL_IN, &(memory->in.JointAisHomed), mHalCompId, "%s.halui.joint.a.is-homed", mComponentPrefix);
+    newHalBit(HAL_IN, &(memory->in.JointBisHomed), mHalCompId, "%s.halui.joint.b.is-homed", mComponentPrefix);
+    newHalBit(HAL_IN, &(memory->in.JointCisHomed), mHalCompId, "%s.halui.joint.c.is-homed", mComponentPrefix);
+
+
     newHalBit(HAL_OUT, &(memory->out.doModeAuto), mHalCompId, "%s.halui.mode.auto", mComponentPrefix);
     newHalBit(HAL_OUT, &(memory->out.doModeJoint), mHalCompId, "%s.halui.mode.joint", mComponentPrefix);
     newHalBit(HAL_OUT, &(memory->out.doModeManual), mHalCompId, "%s.halui.mode.manual", mComponentPrefix);
@@ -559,12 +575,7 @@ void Hal::init(const MetaButtonCodes* metaButtons, const KeyCodes& keyCodes)
     mIsInitialized = true;
 }
 // ----------------------------------------------------------------------
-bool Hal::isInitialized()
-{
-    return mIsInitialized;
-}
-// ----------------------------------------------------------------------
-hal_float_t Hal::getAxisXPosition(bool absolute) const
+real_t Hal::getAxisXPosition(bool absolute) const
 {
     if (absolute)
     {
@@ -573,7 +584,7 @@ hal_float_t Hal::getAxisXPosition(bool absolute) const
     return *memory->in.axisXPositionRelative;
 }
 // ----------------------------------------------------------------------
-hal_float_t Hal::getAxisYPosition(bool absolute) const
+real_t Hal::getAxisYPosition(bool absolute) const
 {
     if (absolute)
     {
@@ -582,7 +593,7 @@ hal_float_t Hal::getAxisYPosition(bool absolute) const
     return *memory->in.axisYPositionRelative;
 }
 // ----------------------------------------------------------------------
-hal_float_t Hal::getAxisZPosition(bool absolute) const
+real_t Hal::getAxisZPosition(bool absolute) const
 {
     if (absolute)
     {
@@ -591,7 +602,7 @@ hal_float_t Hal::getAxisZPosition(bool absolute) const
     return *memory->in.axisZPositionRelative;
 }
 // ----------------------------------------------------------------------
-hal_float_t Hal::getAxisAPosition(bool absolute) const
+real_t Hal::getAxisAPosition(bool absolute) const
 {
     if (absolute)
     {
@@ -600,7 +611,7 @@ hal_float_t Hal::getAxisAPosition(bool absolute) const
     return *memory->in.axisAPositionRelative;
 }
 // ----------------------------------------------------------------------
-hal_float_t Hal::getAxisBPosition(bool absolute) const
+real_t Hal::getAxisBPosition(bool absolute) const
 {
     if (absolute)
     {
@@ -609,7 +620,7 @@ hal_float_t Hal::getAxisBPosition(bool absolute) const
     return *memory->in.axisBPositionRelative;
 }
 // ----------------------------------------------------------------------
-hal_float_t Hal::getAxisCPosition(bool absolute) const
+real_t Hal::getAxisCPosition(bool absolute) const
 {
     if (absolute)
     {
@@ -630,7 +641,7 @@ void Hal::enableVerbose(bool enable)
     }
 }
 // ----------------------------------------------------------------------
-void Hal::setNoAxisActive(bool enabled)
+void Hal::setNoAxisActive(bool /*enabled*/)
 {
     *mHalCout << "hal   OFF no axis active" << endl;
 }
@@ -677,7 +688,7 @@ void Hal::setAxisCActive(bool enabled)
     *mHalCout << "hal   C axis active" << endl;
 }
 // ----------------------------------------------------------------------
-void Hal::setStepSize(const hal_float_t stepSize)
+void Hal::setStepSize(const real_t stepSize)
 {
     *memory->out.axisXJogScale = stepSize;
     *memory->out.axisYJogScale = stepSize;
@@ -732,7 +743,7 @@ void Hal::setStart(bool enabled)
         toggleStartResumeProgram();
     }
     setPin(enabled, KeyCodes::Buttons.start.text);
-}
+    }
 
     if (!enabled)
     {
@@ -774,6 +785,24 @@ void Hal::clearStartResumeProgramStates()
     *memory->out.doRunProgram      = false;
     *memory->out.doResumeProgram   = false;
 }
+
+void Hal::checkState(bool state, hal_bit_t *pin)
+{
+    // 500 milliseconds timeout
+    unsigned int timeouts=500;
+    unsigned int timeoutMs=1;
+    do
+    {
+        if (state == *pin)
+        {
+            usleep(timeoutMs * 1000);
+        }
+        else
+        {
+            break;
+        }
+    } while ((state == *pin) && (--timeouts) > 0);
+}
 // ----------------------------------------------------------------------
 void Hal::toggleStartResumeProgram()
 {
@@ -782,17 +811,21 @@ void Hal::toggleStartResumeProgram()
         *memory->out.doPauseProgram  = false;
         *memory->out.doRunProgram    = false;
         *memory->out.doResumeProgram = true;
-    }
-    if (*memory->in.isProgramRunning)
+        checkState(true, memory->in.isProgramPaused);
+        *memory->out.doResumeProgram = false;
+    } else if (*memory->in.isProgramRunning)
     {
         *memory->out.doPauseProgram  = true;
+        checkState(false, memory->in.isProgramPaused);
+        *memory->out.doPauseProgram  = false;
         *memory->out.doRunProgram    = false;
         *memory->out.doResumeProgram = false;
-    }
-    if (*memory->in.isProgramIdle)
+    } else if (*memory->in.isProgramIdle)
     {
         *memory->out.doPauseProgram  = false;
         *memory->out.doRunProgram    = true;
+        checkState(false, memory->in.isProgramRunning);
+        *memory->out.doRunProgram    = false;
         *memory->out.doResumeProgram = false;
     }
 }
@@ -811,32 +844,32 @@ void Hal::setFeedMinus(bool enabled)
     setPin(enabled, KeyCodes::Buttons.feed_minus.text);
 }
 // ----------------------------------------------------------------------
-hal_float_t Hal::getspindleSpeedCmd() const
+real_t Hal::getspindleSpeedCmd() const
 {
     return *memory->in.spindleSpeedCmd;
 }
 // ----------------------------------------------------------------------
-hal_float_t Hal::getspindleSpeedChangeIncrease() const
+real_t Hal::getspindleSpeedChangeIncrease() const
 {
     return *memory->out.spindleDoIncrease;
 }
 // ----------------------------------------------------------------------
-hal_float_t Hal::getspindleSpeedChangeDecrease() const
+real_t Hal::getspindleSpeedChangeDecrease() const
 {
     return *memory->out.spindleDoDecrease;
 }
 // ----------------------------------------------------------------------
-hal_float_t Hal::getSpindleOverrideValue() const
+real_t Hal::getSpindleOverrideValue() const
 {
     return *memory->in.spindleOverrideValue;
 }
 // ----------------------------------------------------------------------
-hal_float_t Hal::getFeedOverrideMaxVel() const
+real_t Hal::getFeedOverrideMaxVel() const
 {
     return *memory->in.feedOverrideMaxVel;
 }
 // ----------------------------------------------------------------------
-hal_float_t Hal::getFeedOverrideValue() const
+real_t Hal::getFeedOverrideValue() const
 {
     return *memory->in.feedOverrideValue;
 }
@@ -876,7 +909,7 @@ void Hal::setFeedValueSelectedLead(bool selected)
     *memory->out.feedValueSelected_lead = selected;
 }
 // ----------------------------------------------------------------------
-void Hal::setFeedOverrideScale(hal_float_t scale)
+void Hal::setFeedOverrideScale(real_t scale)
 {
     *memory->out.feedOverrideScale = scale;
 }
@@ -986,7 +1019,7 @@ void Hal::toggleSpindleDirection(bool enabled)
             }
             else
             {
-                *memory->out.spindleDoRunReverse = true;               
+                *memory->out.spindleDoRunReverse = true;
                 *memory->out.spindleDoIncrease = true;
             }
         }
@@ -1015,24 +1048,25 @@ void Hal::toggleSpindleOnOff(bool enabled)
             {
                 *memory->out.spindleDoRunForward = true;
                 *memory->out.spindleDoIncrease = true;
+                *memory->out.spindleStart = true;
             }
             else
             {
                 *memory->out.spindleDoRunReverse = true;
                 *memory->out.spindleDoIncrease = true;
+                *memory->out.spindleStart = true;
                 
             }
-            *memory->out.spindleStart = true;
         }
     }
     else
     {
         // on button released
-        *memory->out.spindleStart        = false;
         *memory->out.spindleStop         = false;
         *memory->out.spindleDoRunForward = false;
         *memory->out.spindleDoRunReverse = false;
         *memory->out.spindleDoIncrease   = false;
+        *memory->out.spindleStart        = false;
     }
     setPin(enabled, KeyCodes::Buttons.spindle_on_off.text);
 }
@@ -1080,29 +1114,6 @@ void Hal::toggleMistOnOff(bool enabled)
         // on button released
         *memory->out.mistStop         = false;
         *memory->out.mistStart        = false;
-    }
-}
-// ----------------------------------------------------------------------
-void Hal::toggleLubeOnOff(bool enabled)
-{
-    if (enabled)
-    {
-        if (*memory->in.lubeIsOn)
-        {
-            // on lube stop
-            *memory->out.lubeStop = true;
-        }
-        else
-        {
-            // on lube start
-            *memory->out.lubeStart = true;
-        }
-    }
-    else
-    {
-        // on button released
-        *memory->out.lubeStop         = false;
-        *memory->out.lubeStart        = false;
     }
 }
 // ----------------------------------------------------------------------
@@ -1247,7 +1258,7 @@ void Hal::setMacro9(bool enabled)
 // ----------------------------------------------------------------------
 void Hal::setMacro10(bool enabled)
 {
-    setPin(enabled, KeyCodes::Buttons.macro10.text);                        // Hardcoded Absolue/relative Dro
+    setPin(enabled, KeyCodes::Buttons.macro10.text);                        // Hardcoded Absolute/relative Dro
 }
 // ----------------------------------------------------------------------
 void Hal::setMacro11(bool enabled)
@@ -1297,16 +1308,25 @@ void Hal::setPin(bool enabled, const char* pinName)
 // ----------------------------------------------------------------------
 void Hal::setJogCounts(const HandWheelCounters& counters)
 {
-        requestManualMode(true);
-        requestTeleopMode(true);
+    // If axis is not homed we need to ask Teleop mode but we need to bypass that if machine is homed
+    // https://forum.linuxcnc.org/49-basic-configuration/40581-how-to-configure-a-xhc-whb04b-pendant
+    if      (*memory->out.axisXSelect && false == *memory->in.JointXisHomed) {requestTeleopMode(true);}
+    else if (*memory->out.axisYSelect && false == *memory->in.JointYisHomed) {requestTeleopMode(true);}
+    else if (*memory->out.axisZSelect && false == *memory->in.JointZisHomed) {requestTeleopMode(true);}
+    else if (*memory->out.axisASelect && false == *memory->in.JointAisHomed) {requestTeleopMode(true);}
+    else if (*memory->out.axisBSelect && false == *memory->in.JointBisHomed) {requestTeleopMode(true);}
+    else if (*memory->out.axisCSelect && false == *memory->in.JointCisHomed) {requestTeleopMode(true);}
+    {requestManualMode(true);}
+
     *memory->out.axisXJogCounts = counters.counts(HandWheelCounters::CounterNameToIndex::AXIS_X);
     *memory->out.axisYJogCounts = counters.counts(HandWheelCounters::CounterNameToIndex::AXIS_Y);
     *memory->out.axisZJogCounts = counters.counts(HandWheelCounters::CounterNameToIndex::AXIS_Z);
     *memory->out.axisAJogCounts = counters.counts(HandWheelCounters::CounterNameToIndex::AXIS_A);
     *memory->out.axisBJogCounts = counters.counts(HandWheelCounters::CounterNameToIndex::AXIS_B);
     *memory->out.axisCJogCounts = counters.counts(HandWheelCounters::CounterNameToIndex::AXIS_C);
-        requestManualMode(false);
-        requestTeleopMode(false);
+    
+    requestManualMode(false);
+    requestTeleopMode(false);
 }
 // ----------------------------------------------------------------------
 void Hal::setFunction(bool enabled)
@@ -1321,6 +1341,13 @@ bool Hal::requestAutoMode(bool isRisingEdge)
 // ----------------------------------------------------------------------
 bool Hal::requestManualMode(bool isRisingEdge)
 {
+    if(isRisingEdge && !*memory->in.isProgramIdle)
+    {
+        //Don't try to change to manual when not idle
+        //When a program is running, this will fail
+        //When an MDI command is active, this would stop it
+        return false;
+    }
     return requestMode(isRisingEdge, memory->out.doModeManual, memory->in.isModeManual);
 }
 // ----------------------------------------------------------------------
@@ -1343,6 +1370,7 @@ bool Hal::requestMode(bool isRisingEdge, hal_bit_t *requestPin, hal_bit_t * mode
 {
     if (isRisingEdge)
     {
+        bool rv;
         if (true == *modeFeedbackPin)
         {
             // shortcut for mode request which is already active
@@ -1351,9 +1379,10 @@ bool Hal::requestMode(bool isRisingEdge, hal_bit_t *requestPin, hal_bit_t * mode
         // request mode
         *requestPin = true;
         usleep(mHalRequestProfile.mode.holdMs * 1000);
+        rv = waitForRequestedMode(modeFeedbackPin);
         *requestPin = false;
         usleep(mHalRequestProfile.mode.spaceMs * 1000);
-        return waitForRequestedMode(modeFeedbackPin);
+        return rv;
     }
     else
     {
@@ -1373,6 +1402,7 @@ bool Hal::waitForRequestedMode(volatile hal_bit_t * condition)
     useconds_t   timeoutMs   = mHalRequestProfile.mode.modeCheckLoopTimeoutMs;
     unsigned int maxTimeouts = mHalRequestProfile.mode.modeCheckLoops;
     unsigned int timeouts    = maxTimeouts;
+
     do
     {
         if (false == *condition)
@@ -1387,7 +1417,7 @@ bool Hal::waitForRequestedMode(volatile hal_bit_t * condition)
     if (false == *condition)
     {
         auto delay = (maxTimeouts - timeouts) * timeoutMs;
-        std::cerr << "hal   failed to wait for reqested mode. waited " << delay << "ms\n";
+        std::cerr << "hal   failed to wait for requested mode. waited " << delay << "ms\n";
         return false;
     }
     else

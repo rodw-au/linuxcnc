@@ -1,0 +1,39 @@
+component dbounce """alternative debounce component""";
+description """
+This component is similar to the *debounce*(9) component but uses settable
+delay pins for each instance and supports *count*= or *names*= parameters
+(groups are not used)
+""";
+
+pin in  bit in;
+pin out bit out;
+pin in  u32 delay = 5;
+
+variable unsigned state;
+option period no;
+function _;
+license "GPL";
+author "Dewey Garrett";
+;;
+FUNCTION(_) {
+
+    if (in) {
+        /* input true, is state at threshold? */
+        if (state < delay) {
+            /* no, increment */
+            state++;
+        } else {
+            /* yes, set output */
+            out = 1;
+        }
+    } else {
+        /* input false, is state at zero? */
+        if (state > 0) {
+            /* no, decrement */
+            state--;
+        } else {
+            /* yes, clear output */
+            out = 0;
+        }
+    }
+}

@@ -43,18 +43,19 @@
 #include <getopt.h>
 #include <string.h>
 
-#include "rcs.hh"
-#include "posemath.h"		// PM_POSE, TO_RAD
-#include "emc.hh"		// EMC NML
-#include "canon.hh"		// CANON_UNITS, CANON_UNITS_INCHES,MM,CM
-#include "emcglb.h"		// EMC_NMLFILE, TRAJ_MAX_VELOCITY, etc.
-#include "emccfg.h"		// DEFAULT_TRAJ_MAX_VELOCITY
-#include "inifile.hh"		// INIFILE
+#include <rtapi_string.h>
+#include <linuxcnc.h>
+#include <posemath.h>		// PM_POSE, TO_RAD
+#include "libnml/rcs/rcs.hh"
+#include "nml_intf/emc.hh"		// EMC NML
+#include "nml_intf/canon.hh"		// CANON_UNITS, CANON_UNITS_INCHES,MM,CM
+#include "nml_intf/emcglb.h"		// EMC_NMLFILE, TRAJ_MAX_VELOCITY, etc.
+#include "nml_intf/emccfg.h"		// DEFAULT_TRAJ_MAX_VELOCITY
+#include "libnml/inifile/inifile.hh"		// INIFILE
 #include "config.h"		// Standard path definitions
-#include "rcs_print.hh"
+#include "libnml/rcs/rcs_print.hh"
 #include "sockets.h"		// TCP/IP common socket functions
 #include "shcom.hh"		// Common NML messaging routines
-#include <rtapi_string.h>
 
 #define DEFAULT_SERVER		"localhost"
 #define DEFAULT_PORT            13666
@@ -490,7 +491,7 @@ static int createWidgets()
   int i;
 
   for (i=0; i<WIDGET_COUNT; i++) {
-    snprintf(sockStr, sizeof(sockStr), "widget_add %s %s %s\n", widgets[i].screenName,
+    snprintf(sockStr, sizeof(sockStr), "widget_add %.20s %s %s\n", widgets[i].screenName,
       widgets[i].widgetName, typeStrs[widgets[i].type]);
     sockSendStr(sockfd, sockStr);
     switch (widgets[i].type) {
@@ -816,9 +817,9 @@ static int createMenus()
 
   sockSendStr(sockfd, "menu_add_item setup language menu {Set Language}\n");
   sockSendStr(sockfd, "menu_add_item language english action {English}\n");
-  sockSendStr(sockfd, "menu_add_item language spanish action {Espanol}\n");
-  sockSendStr(sockfd, "menu_add_item language french action {Francais}\n");
-  sockSendStr(sockfd, "menu_add_item language german action {Deutch}\n");
+  sockSendStr(sockfd, "menu_add_item language spanish action {Español}\n");
+  sockSendStr(sockfd, "menu_add_item language french action {Français}\n");
+  sockSendStr(sockfd, "menu_add_item language german action {Deutsch}\n");
   sockSendStr(sockfd, "menu_add_item language italian action {Italiano}\n");
 
   sockSendStr(sockfd, "menu_add_item {} utility menu {Utilities}\n");
@@ -934,7 +935,7 @@ static int openProgram(char *s)
 
 static void displayJogMode(jogModeType mode)
 {
-  if (emcStatus->task.mode != EMC_TASK_MODE_MANUAL) {
+  if (emcStatus->task.mode != EMC_TASK_MODE::MANUAL) {
     widgetSetStr(JOGMODE_WIDGET, "    ", "");
     return;
     }
@@ -1138,7 +1139,7 @@ static int jog(int jnum, float speed)
 {
   float stepSize;
 
-  if (emcStatus->task.mode != EMC_TASK_MODE_MANUAL) return 0;
+  if (emcStatus->task.mode != EMC_TASK_MODE::MANUAL) return 0;
   if (units == unmm) stepSize = 10.0;
   else stepSize = 1.0;
   if ((jnum < 0) || (jnum > 5)) return -1;
@@ -1166,7 +1167,7 @@ static int jog(int jnum, float speed)
 
 static int jogStop(int jnum)
 {
-  if (emcStatus->task.mode != EMC_TASK_MODE_MANUAL) return 0;
+  if (emcStatus->task.mode != EMC_TASK_MODE::MANUAL) return 0;
   if ((jnum < 0) || (jnum > 5)) return -1;
   jogging = 0;
   if (jogMode != jtCont) return 0;
@@ -1244,9 +1245,9 @@ static int toggleMode()
 
 {
   switch (emcStatus->task.mode) {
-    case EMC_TASK_MODE_MANUAL: sendAuto(); break;
-    case EMC_TASK_MODE_AUTO: sendManual(); break;
-    case EMC_TASK_MODE_MDI: sendAuto(); break;
+    case EMC_TASK_MODE::MANUAL: sendAuto(); break;
+    case EMC_TASK_MODE::AUTO: sendManual(); break;
+    case EMC_TASK_MODE::MDI: sendAuto(); break;
     }
   return 0;
 }
@@ -1255,7 +1256,7 @@ static int nextKey()
 {
   int temp;
 
-  if ((curScreen == stMain) && (emcStatus->task.mode == EMC_TASK_MODE_MANUAL)) {
+  if ((curScreen == stMain) && (emcStatus->task.mode == EMC_TASK_MODE::MANUAL)) {
     temp = jogMode;
     temp--;
     if (temp < 0) temp = 4;
@@ -1270,7 +1271,7 @@ static int prevKey()
 {
   int temp;
 
-  if ((curScreen == stMain) && (emcStatus->task.mode == EMC_TASK_MODE_MANUAL)) {
+  if ((curScreen == stMain) && (emcStatus->task.mode == EMC_TASK_MODE::MANUAL)) {
     temp = jogMode;
     temp++;
     temp %= 5;
@@ -1366,14 +1367,14 @@ static int doKey(keyType k)
       break;
     case ktEnterRelease: break;
     case ktEStopPress: 
-      if (emcStatus->task.state == EMC_TASK_STATE_ESTOP)
+      if (emcStatus->task.state == EMC_TASK_STATE::ESTOP)
         sendEstopReset();
       else
         sendEstop();
       break;
     case ktEStopRelease: break;
     case ktPowerPress: 
-      if (emcStatus->task.state == EMC_TASK_STATE_ON)
+      if (emcStatus->task.state == EMC_TASK_STATE::ON)
         sendMachineOff();
       else
         sendMachineOn();
@@ -1479,29 +1480,29 @@ static void slowLoop()
     }
 
   switch (emcStatus->task.interpState) {
-      case EMC_TASK_INTERP_READING:
-      case EMC_TASK_INTERP_WAITING: 
+      case EMC_TASK_INTERP::READING:
+      case EMC_TASK_INTERP::WAITING: 
         rtapi_strxcpy(status, widgetSetStr(STATUSWIDGET, "  Run", status));
         if (runStatus != rsRun)
           widgetSetStr(JOG_WIDGET, "Step", "");
         runStatus = rsRun;
         break;
-      case EMC_TASK_INTERP_PAUSED: 
+      case EMC_TASK_INTERP::PAUSED: 
         rtapi_strxcpy(status, widgetSetStr(STATUSWIDGET, "Pause", status));
         runStatus = rsPause;
         break;
       default:
-        if (emcStatus->task.state == EMC_TASK_STATE_ESTOP) {
+        if (emcStatus->task.state == EMC_TASK_STATE::ESTOP) {
           rtapi_strxcpy(status, widgetSetStr(STATUSWIDGET, "EStop", status));
           widgetSetStr(JOG_WIDGET, "    ", "");
           }
         else
-          if (emcStatus->task.state != EMC_TASK_STATE_ON) {
+          if (emcStatus->task.state != EMC_TASK_STATE::ON) {
             rtapi_strxcpy(status, widgetSetStr(STATUSWIDGET, "  Off", status));
             widgetSetStr(JOG_WIDGET, "    ", "");
             }
           else
-            if (emcStatus->task.mode == EMC_TASK_MODE_MANUAL) {          
+            if (emcStatus->task.mode == EMC_TASK_MODE::MANUAL) {          
               rtapi_strxcpy(status, widgetSetStr(STATUSWIDGET, "  Man", status));
               widgetSetStr(JOG_WIDGET, "Jog ", "");
               }
@@ -1665,7 +1666,7 @@ static int sockMain()
   return 0;
 }
 
-static void sigQuit(int sig)
+static void sigQuit(int /*sig*/)
 {
 
   quitting = 1;
@@ -1704,9 +1705,9 @@ int main(int argc, char *argv[])
     while((opt = getopt_long(argc, argv, "p:d:a", longopts, NULL)) != -1) {
       switch(opt) {
         case 'a': autoStart = 1; break;
-        case 'd': strncpy(driver, optarg, strlen(optarg) + 1); break;
+        case 'd': snprintf(driver, sizeof(driver), "%s", optarg); break;
         case 'p': sscanf(optarg, "%d", &port); break;
-        case 's': strncpy(server, optarg, strlen(optarg) + 1); break;
+        case 's': snprintf(server, sizeof(server), "%s", optarg); break;
         case 'w': sscanf(optarg, "%f", &delay); break;
         }
       }

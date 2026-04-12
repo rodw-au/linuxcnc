@@ -34,9 +34,9 @@ extern "C" {
 };
 #endif
 
-#include "timer.hh"		/* etime(), esleep() */
+#include "libnml/os_intf/timer.hh"		/* etime(), esleep() */
 #include "memsem.hh"		/* struct mem_access_object */
-#include "rcs_print.hh"		// rcs_print_error()
+#include "libnml/rcs/rcs_print.hh"		// rcs_print_error()
 
 #define TIMEOUT_MIN ((double) 1.0E-6)
 
@@ -44,7 +44,7 @@ extern "C" {
 * Take the mutual exclusion semaphore.
 *
 * Parameters:
-* data should point to an area of memory accesable to all processes that
+* data should point to an area of memory accessible to all processes that
 *   is at least "total_connections" bytes long,
 * connection_number is a unique identifier for this process it should
 *  be between 0 and ("total_connections"-1)
@@ -246,7 +246,7 @@ int mem_get_access(void *data, long connection_number,
 * Give up the mutual exclusion semaphore.
 *
 * Parameters:
-* data should point to an area of memory accesable to all processes that
+* data should point to an area of memory accessible to all processes that
 *   is at least "total_connections" bytes long,
 * connection_number is a unique identifier for this process it should
 *  be between 0 and ("total_connections"-1)

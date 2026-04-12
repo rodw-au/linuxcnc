@@ -1,3 +1,5 @@
+#ifndef __LINUXCNC_RTAPI_VSNPRINTF_H
+#define __LINUXCNC_RTAPI_VSNPRINTF_H
 /********************************************************************
 * Description: rtapi_vsnprintf.h
 *   Implementation of vsnprintf for kernel space.
@@ -36,9 +38,9 @@ values (or floating point).
 
 #include <stdarg.h>
 #include <stddef.h>
-#include <rtapi_ctype.h>
-#include <rtapi_math.h>
-#include <rtapi_string.h>
+#include "rtapi_ctype.h"
+#include "rtapi_math.h"
+#include "rtapi_string.h"
 
 /* we use this so that we can do without the string library */
 static int strn_len(const char *s, int count)
@@ -216,7 +218,7 @@ static char *fnumber(char *buf, char *end, double num)
 
     if(mantissa) { buf = ch(buf, end, '.'); }
     while(mantissa) {
-        /* remaning digits, if any */
+        /* remaining digits, if any */
         i = next_digit(&mantissa);
         buf = ch(buf, end, large_digits[i]);
     }
@@ -247,7 +249,7 @@ static char *fnumber(char *buf, char *end, double num)
     /* radix point if any fractional digits */
     if(mantissa) { buf = ch(buf, end, '.'); }
     while(mantissa) {
-        /* remaning digits, if any */
+        /* remaining digits, if any */
         i = (int)floor(mantissa);
         buf = ch(buf, end, large_digits[i]);
         mantissa = 16 * (mantissa - i);
@@ -424,6 +426,7 @@ int rtapi_vsnprintf(char *buf, unsigned long size, const char *fmt, va_list args
 	    break;
 	case 'X':
 	    flags |= LARGE;
+	    /* Fallthrough */
 	case 'x':
 	    base = 16;
 	    break;
@@ -468,33 +471,5 @@ int rtapi_vsnprintf(char *buf, unsigned long size, const char *fmt, va_list args
     }
     /* the trailing null byte doesn't count towards the total * ++str; */
     return str - buf;
-}
-
-#ifdef MODULE
-/**
- * strsep - Split a string into tokens
- * @s: The string to be searched
- * @ct: The characters to search for
- *
- * strsep() updates @s to point after the token, ready for the next call.
- *
- * It returns empty tokens, too, behaving exactly like the libc function
- * of that name. It is reentrant and should be faster) than strtok.
- * Use only strsep() in new code, please.
- * Taken from 2.4 kernel file by Ingo Oeser <ioe@informatik.tu-chemnitz.de>
- */
-char *strsep(char **s, const char *ct)
-{
-    char *sbegin = *s, *end;
-
-    if (!sbegin)
-	return (char*)0;
-
-    end = strpbrk(sbegin, ct);
-    if (end)
-	*end++ = '\0';
-    *s = end;
-
-    return sbegin;
 }
 #endif

@@ -47,11 +47,13 @@
 
  ----------------------------------------------------------------------------*/
 
-#include "rtapi_math.h"
-#include "posemath.h"
+#include <rtapi.h>
+#include <rtapi_app.h>
+#include <rtapi_math.h>
+#include <hal.h>
+#include <kinematics.h>             /* these decls, KINEMATICS_FORWARD_FLAGS */
+
 #include "pentakins.h"
-#include "kinematics.h"             /* these decls, KINEMATICS_FORWARD_FLAGS */
-#include "hal.h"
 
 struct haldata {
     hal_float_t basex[NUM_STRUTS];
@@ -242,6 +244,8 @@ int kinematicsForward(const double * joints,
                       const KINEMATICS_FORWARD_FLAGS * fflags,
                       KINEMATICS_INVERSE_FLAGS * iflags)
 {
+  (void)fflags;
+  (void)iflags;
 
 //  PmCartesian aw;
 //  PmCartesian InvKinStrutVect,InvKinStrutVectUnit;
@@ -260,7 +264,7 @@ int kinematicsForward(const double * joints,
 
   int iterate = 1;
   int i, j;
-  int iteration = 0;
+  unsigned iteration = 0;
 
   pentakins_read_hal_pins();
 
@@ -372,6 +376,8 @@ int kinematicsInverse(const EmcPose * pos,
                       const KINEMATICS_INVERSE_FLAGS * iflags,
                       KINEMATICS_FORWARD_FLAGS * fflags)
 {
+  (void)iflags;
+  (void)fflags;
 
   double coord[NUM_STRUTS];
 
@@ -395,10 +401,7 @@ KINEMATICS_TYPE kinematicsType()
   return KINEMATICS_BOTH;
 }
 
-
-#include "rtapi.h"      /* RTAPI realtime OS API */
-#include "rtapi_app.h"      /* RTAPI realtime module decls */
-
+KINS_NOT_SWITCHABLE
 EXPORT_SYMBOL(kinematicsType);
 EXPORT_SYMBOL(kinematicsForward);
 EXPORT_SYMBOL(kinematicsInverse);

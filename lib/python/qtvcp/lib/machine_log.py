@@ -5,6 +5,7 @@ import time
 
 # Set up logging
 from qtvcp import logger
+
 log = logger.getLogger(__name__)
 # Set the log level for this module
 # log.setLevel(logger.INFO) # One of DEBUG, INFO, WARNING, ERROR, CRITICAL
@@ -18,51 +19,67 @@ class MachineLogger():
         STATUS.connect('update-machine-log', self.log_it)
         self.mlp = os.path.expanduser(INFO.MACHINE_LOG_HISTORY_PATH)
 
+        self.initialFormat = "%a, %b %d %Y %X ---"
+        self.timeFormat = "%H:%M:%S "
+        self.dateFormat = "%a, %b %d %Y %X: "
+
     def log_it(self, w, message, option=None):
-        if option == 'TIME':
-            self.log_message_time(message)
-        elif option == 'DATE':
-            self.log_message_date(message)
-        elif option == 'DELETE':
+        if option is None: option = ''
+
+        if option == 'DELETE':
             self.delete_log()
-        elif option == 'INITIAL':
-            self.initial_greeting()
-        else:
-            self.log_message(message)
+            return
+
+        try:
+            message = message.rstrip('\n')
+            if 'TIME' in option:
+                self.log_message_time(message)
+            elif 'DATE' in option:
+                self.log_message_date(message)
+            elif 'INITIAL' in option:
+                self.initial_greeting()
+            else:
+                self.log_message(message)
+        except Exception as e:
+            log.exception('log_it function: {}'.format(e))
 
     def initial_greeting(self):
         try:
-            timestamp = time.strftime("%a, %b %d %Y %X ---\n")
+            timestamp = time.strftime(self.initialFormat)
             fp = open(self.mlp, 'a')
 
-            #fp.write(""" $$$$$$\  $$$$$$$$\ """)
-            #fp.write('\n')
-            #fp.write('''$$  __$$\ \__$$  __|''')
-            #fp.write('\n')
-            #fp.write('$$ /  $$ |   $$ |  $$$$$$$\  $$$$$$$\  $$$$$$\   $$$$$$\   $$$$$$\  $$$$$$$\  ')
-            #fp.write('\n')
-            #fp.write('$$ |  $$ |   $$ | $$  _____|$$  _____|$$  __$$\ $$  __$$\ $$  __$$\ $$  __$$\ ')
-            #fp.write('\n')
-            #fp.write('$$ |  $$ |   $$ | \$$$$$$\  $$ /      $$ |  \__|$$$$$$$$ |$$$$$$$$ |$$ |  $$ |')
-            #fp.write('\n')
-            #fp.write('$$ $$\$$ |   $$ |  \____$$\ $$ |      $$ |      $$   ____|$$   ____|$$ |  $$ |')
-            #fp.write('\n')
-            #fp.write('\$$$$$$ /    $$ | $$$$$$$  |\$$$$$$$\ $$ |      \$$$$$$$\ \$$$$$$$\ $$ |  $$ |')
-            #fp.write('\n')
-            #fp.write(' \___$$$\    \__| \_______/  \_______|\__|       \_______| \_______|\__|  \__|')
-            #fp.write('\n')
-            #fp.write('     \___|        ')
+            # fp.write(""" $$$$$$\  $$$$$$$$\ """)
+            # fp.write('\n')
+            # fp.write('''$$  __$$\ \__$$  __|''')
+            # fp.write('\n')
+            # fp.write('$$ /  $$ |   $$ |  $$$$$$$\  $$$$$$$\  $$$$$$\   $$$$$$\   $$$$$$\  $$$$$$$\  ')
+            # fp.write('\n')
+            # fp.write('$$ |  $$ |   $$ | $$  _____|$$  _____|$$  __$$\ $$  __$$\ $$  __$$\ $$  __$$\ ')
+            # fp.write('\n')
+            # fp.write('$$ |  $$ |   $$ | \$$$$$$\  $$ /      $$ |  \__|$$$$$$$$ |$$$$$$$$ |$$ |  $$ |')
+            # fp.write('\n')
+            # fp.write('$$ $$\$$ |   $$ |  \____$$\ $$ |      $$ |      $$   ____|$$   ____|$$ |  $$ |')
+            # fp.write('\n')
+            # fp.write('\$$$$$$ /    $$ | $$$$$$$  |\$$$$$$$\ $$ |      \$$$$$$$\ \$$$$$$$\ $$ |  $$ |')
+            # fp.write('\n')
+            # fp.write(' \___$$$\    \__| \_______/  \_______|\__|       \_______| \_______|\__|  \__|')
+            # fp.write('\n')
+            # fp.write('     \___|        ')
 
-            fp.write('--- Qtvcp Screen Started on: ' + timestamp)
+            fp.write('--- QtVCP Screen Started on: ' + timestamp + "\n")
             fp.close()
         except:
             log.warning('machine log history: path valid?')
 
     def log_message_time(self, message):
         try:
-            timestamp = time.strftime("%a%d %H:%M ")
+            timestamp = time.strftime(self.timeFormat)
             fp = open(self.mlp, 'a')
-            fp.write(timestamp + message + "\n")
+            for num,i in enumerate(message.split('\\n')):
+                if num == 0:
+                    fp.write(timestamp + i + "\n")
+                else:
+                    fp.write(i + "\n")
             fp.close()
         except:
             log.warning('machine log history: path valid?: {}'.format(fp))
@@ -70,9 +87,13 @@ class MachineLogger():
 
     def log_message_date(self, message):
         try:
-            timestamp = time.strftime("%a, %b %d %Y %X ---\n")
+            timestamp = time.strftime(self.dateFormat)
             fp = open(self.mlp, 'a')
-            fp.write(timestamp + message)
+            for num,i in enumerate(message.split('\\n')):
+                if num == 0:
+                    fp.write(timestamp + i + "\n")
+                else:
+                    fp.write(i + "\n")
             fp.close()
         except:
             log.warning('machine log history: path valid?')
@@ -81,7 +102,8 @@ class MachineLogger():
     def log_message(self, message):
         try:
             fp = open(self.mlp, 'a')
-            fp.write(message)
+            for i in message.split('\\n'):
+                    fp.write(i + "\n")
             fp.close()
         except:
             log.warning('machine log history: path valid?')
@@ -92,5 +114,3 @@ class MachineLogger():
         fp.write('')
         fp.close()
         STATUS.emit('machine-log-changed')
-
-

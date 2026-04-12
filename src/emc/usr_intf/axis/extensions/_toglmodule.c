@@ -14,7 +14,6 @@
 //    along with this program; if not, write to the Free Software
 //    Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 #include <Python.h>
-#include "py3c/py3c.h"
 #include <emc/usr_intf/axis/extensions/togl.c>
 static int first_time = 1;
 
@@ -28,17 +27,18 @@ static Tcl_Interp *get_interpreter(PyObject *tkapp) {
 }
 
 PyObject *install(PyObject *s, PyObject *arg) {
+    (void)s;
     Tcl_Interp *trp = get_interpreter(arg);
     if(!trp) {
         PyErr_SetString(PyExc_TypeError, "get_interpreter() returned NULL");
         return NULL;
     }
-    if (Tcl_InitStubs(trp, "8.1", 0) == NULL) 
+    if (Tcl_InitStubs(trp, TCL_VERSION, 0) == NULL)
     {
         PyErr_SetString(PyExc_RuntimeError, "Tcl_InitStubs returned NULL");
         return NULL;
     }
-    if (Tk_InitStubs(trp, "8.1", 0) == NULL) 
+    if (Tk_InitStubs(trp, TK_VERSION, 0) == NULL)
     {
         PyErr_SetString(PyExc_RuntimeError, "Tk_InitStubs returned NULL");
         return NULL;
@@ -66,18 +66,23 @@ PyObject *install(PyObject *s, PyObject *arg) {
 
 PyMethodDef togl_methods[] = {
     {"install", (PyCFunction)install, METH_O, "install togl in a tkinter application"},
-    {NULL}
+    {}
 };
 
 static struct PyModuleDef togl_moduledef = {
-    PyModuleDef_HEAD_INIT,
-    "_togl",
-    "togl extension for Tkinter",
-    -1,
-    togl_methods
+    PyModuleDef_HEAD_INIT, /* m_base */
+    "_togl",               /* m_name */
+    "togl extension for Tkinter", /* m_doc */
+    -1,                    /* m_size */
+    togl_methods,          /* m_methods */
+    NULL,                  /* m_slots */
+    NULL,                  /* m_traverse */
+    NULL,                  /* m_clear */
+    NULL,                  /* m_free */
 };
 
-MODULE_INIT_FUNC(_togl)
+PyMODINIT_FUNC PyInit__togl(void);
+PyMODINIT_FUNC PyInit__togl(void)
 {
     PyObject *m = PyModule_Create(&togl_moduledef);
     return m;

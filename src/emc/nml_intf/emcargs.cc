@@ -15,10 +15,10 @@
 
 #include <string.h>		/* strcpy() */
 #include <stdio.h>		/* fgets() */
-#include "nml.hh"               /* nmlSetHostAlias */
+#include "libnml/nml/nml.hh"               /* nmlSetHostAlias */
 #include "emcglb.h"		/* these decls */
 #include "emccfg.h"		/* their initial values */
-#include "rcs_print.hh"
+#include "libnml/rcs/rcs_print.hh"
 #include <rtapi_string.h>
 
 int emcGetArgs(int argc, char *argv[])
@@ -32,7 +32,7 @@ int emcGetArgs(int argc, char *argv[])
 		return -1;
 	    } else {
                 if (strlen(argv[t+1]) >= LINELEN) {
-                    fprintf(stderr, "ini file name too long (max %d):\n", LINELEN);
+                    fprintf(stderr, "INI file name too long (max %d):\n", LINELEN);
                     fprintf(stderr, "    %s\n", argv[t+1]);
                     return -1;
                 }
@@ -61,7 +61,7 @@ int emcGetArgs(int argc, char *argv[])
 	    nmlSetHostAlias(qhost, "localhost");	/* If localhost
 							   appears in .nml
 							   file it will
-							   overriden by this
+							   overridden by this
 							   argument. */
 	    nmlForceRemoteConnection();
 	    /* The only good reason for aliasing the host that I know of is
@@ -79,7 +79,7 @@ int emcGetArgs(int argc, char *argv[])
 								   appears in 
 								   .nml file
 								   it will
-								   overriden
+								   overridden
 								   by this
 								   argument. */
 		nmlForceRemoteConnection();

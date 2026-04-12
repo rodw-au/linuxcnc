@@ -23,7 +23,7 @@
 #include <inttypes.h>
 
 /* There are two types of posix semaphores named and unnamed.
-   unamed semaphores can either have the pshared flag set or not
+   unnamed semaphores can either have the pshared flag set or not
    determining whether it can be shared between processes.
    Currently (12/27/02), Linux implements only unnamed posix semaphores
    that are not shared between processes. This is useless to RCSLIB so
@@ -40,7 +40,7 @@ typedef int rcs_sem_t;
 
 #include "_sem.h"
 #include "_timer.h"		/* etime() */
-#include "rcs_print.hh"
+#include "libnml/rcs/rcs_print.hh"
 
 #define SEM_TAKE (-1)		/* decrement sembuf.sem_op */
 #define SEM_GIVE (1)		/* increment sembuf.sem_op */
@@ -76,6 +76,7 @@ int rcs_sem_destroy(rcs_sem_t * sem)
 int sem_clear_bus_errors = 0;
 void sem_clear_bus_error_handler(int sig)
 {
+    (void)sig;
     sem_clear_bus_errors++;
 }
 
@@ -98,7 +99,7 @@ rcs_sem_t *rcs_sem_open(key_t name, int oflag, /* int mode */ ...)
     rcs_sem_t semid, *retval;	/* semaphore id returned */
     int semflg = 0;		/* flag for perms, create, etc. */
 
-    /* if IPC_CREAT is specified for creating the sempahore, then the
+    /* if IPC_CREAT is specified for creating the semaphore, then the
        optional arg is the mode */
     if (oflag & IPC_CREAT) {
 	va_start(ap, oflag);
@@ -118,7 +119,7 @@ rcs_sem_t *rcs_sem_open(key_t name, int oflag, /* int mode */ ...)
     }
 
     if ((semid = (rcs_sem_t) semget((key_t) key, 1, semflg)) == -1) {
-	rcs_print_error("semget");
+	rcs_print_error("semget: ");
 	rcs_puts((char *) strerror(errno));
 	return NULL;
     }
@@ -127,6 +128,10 @@ rcs_sem_t *rcs_sem_open(key_t name, int oflag, /* int mode */ ...)
        so we need to allocate space that users will free later with
        rcs_sem_close */
     retval = (rcs_sem_t *) malloc(sizeof(rcs_sem_t));
+    if(!retval) {
+        rcs_print_error("rcs_sem_open: %s\n", strerror(errno));
+        return NULL;
+    }
     *retval = semid;
     return retval;
 }
@@ -173,7 +178,7 @@ int rcs_sem_trywait(rcs_sem_t * sem)
 }
 
 #ifndef _GNU_SOURCE
-#error Must compile with -D_GNU_SOURCE else impliment your own semtimedop() \
+#error Must compile with -D_GNU_SOURCE else implement your own semtimedop() \
        function. 
 #endif
 

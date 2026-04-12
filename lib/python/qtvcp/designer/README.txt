@@ -1,57 +1,59 @@
-These folders hold the required library (in binary form) for designer to use 
-python2 widgets.
+Installation requirements for using QtVCP screens and panels.
 
-need for displayimg pyqt widgets:
-python-pyqt5
-python-pyqt5.qsci
-python.pyqt5.qtopengl
-python-pyqt5.qtsvg
-python-opengl
-python-opencv
+All the requirements listed below can be installed by using the install_script located in the same directory as this file.
 
-optional:
+Recommended packages for viewing QtVCP screens or panels:
+gstreamer1.0-tools
 espeak
-espeak-ng-espeak
-python-dbus.mainloop.pyqt
+espeak-ng
+sound-theme-freedesktop
+python3-qtpy
+python3-opengl
+python3-pyqt5
+python3-pyqt5.qsci
+python3-pyqt5.qtsvg
+python3-pyqt5.qtopengl
+python3-opencv
+python3-dbus
+python3-dbus.mainloop.pyqt5
+python3-espeak
+python3-pyqt5.qtwebengine
+python3-xlib
+python3-numpy
+python3-cairo
+python3-gi-cairo
+python3-poppler-qt5
+pyqt5-dev-tools
 
-you must have designer installed:
-sudo apt-get install qttools5-dev-tools
-sudo apt-get install qttools5.dev
+-------------------------------------------------------------------------------
 
-you must copy that proper version of libpyqt5_py2.so to the folder:
-/usr/lib/x86_64-linux-gnu/qt5/plugins/designer
-(x86_64-linux-gnu might be called something slightly different 
-on different systems)
+Below are requirements for using Designer to edit or create new QtVCP screens or panels:
 
-You will require super user privileges to copy the file to the folder.
+Required packages:
+qttools5-dev
+qttools5-dev-tools
+libpython3-dev
 
-This file might be included in linuxcnc at this location:
+To enable LinuxCNC specific widgets to appear in Designer:
 
-in a RIP version:
-lib/python/qtvcp/designer/x86_64
-or in an installed version:
-/usr/lib/python2.7/dist-packages/qtvcp/designer/x86_64/
+1. Create the plugin directory for designer to search:
+    mkdir -p ~/.designer/plugins/python
 
-You must pick the series 5.5 or 5.7 or 5.9 of Qt
-currently Debian stretch uses 5.7, Mint 12 uses 5.5
-if in doubt check the version qt5 on the system
-If you need to build the library for a certain version see:
-https://gist.github.com/KurtJacobson/34a2e45ea2227ba58702fc1cb0372c40
+2. Copy the <pluginfile> to the above directory:
+    cp <pluginfile> ~/.designer/plugins/python/
 
-then you must link the qtvcp_plugin.py to the folder that designer will search.
-(The link name must have .py as an ending.)
-Qtvcp_plugin can be found at:
-in RIP version:
-lib/python/qtvcp/plugins
-in an installed version:
-/usr/lib/python2.7/dist-packages/qtvcp/plugins
+The <pluginfile> is dependent on the type of LinuxCNC installation.
 
-The link can be placed in:
-/usr/lib/x86_64-linux-gnu/qt5/plugins/designer/python
-or 
-~/.designer/plugins/python
+For a package installation:
+    /usr/lib/python3/dist-packages/qtvcp/plugins/qtvcp_plugin.py
 
-open a terminal, set the environment for linuxcnc (. scripts/rip-environment if RIP)
-then load designer with : designer -qt=5
+For a RIP installation:
+    ~/linuxcnc-dev/lib/python/qtvcp/plugins/qtvcp_plugin.py
 
+Designer can now be run and the LinuxCNC widgets will be available.
 
+For a RIP install only:
+    source ~/linuxcnc-dev/scripts/rip-environment
+
+Start designer with:
+    designer -qt=5

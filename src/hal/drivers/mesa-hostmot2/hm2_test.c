@@ -26,11 +26,11 @@
 //
 
 
-#include "rtapi.h"
-#include "rtapi_app.h"
-#include "rtapi_string.h"
+#include <rtapi.h>
+#include <rtapi_app.h>
+#include <rtapi_string.h>
 
-#include "hal.h"
+#include <hal.h>
 
 #include "hostmot2.h"
 #include "hostmot2-lowlevel.h"
@@ -83,16 +83,23 @@ static int hm2_test_read(hm2_lowlevel_io_t *this, rtapi_u32 addr, void *buffer, 
 
 
 static int hm2_test_write(hm2_lowlevel_io_t *this, rtapi_u32 addr, const void *buffer, int size) {
+    (void)this;
+    (void)addr;
+    (void)buffer;
+    (void)size;
     return 1;  // success
 }
 
 
 static int hm2_test_program_fpga(hm2_lowlevel_io_t *this, const bitfile_t *bitfile) {
+    (void)this;
+    (void)bitfile;
     return 0;
 }
 
 
 static int hm2_test_reset(hm2_lowlevel_io_t *this) {
+    (void)this;
     return 0;
 }
 
@@ -293,7 +300,7 @@ int rtapi_app_main(void) {
         // 
         // good IO Cookie, Config Name, and IDROM Type
         // the IDROM offset is the usual, 0x400, and there's a good IDROM type there
-        // good PortWidth, but IOPorts doesnt match what the llio said
+        // good PortWidth, but IOPorts doesn't match what the llio said
         // 
 
         case 8: {

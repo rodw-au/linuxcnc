@@ -14,7 +14,7 @@
 /** This file, 'threads.c', is a HAL component that provides a way to 
     create realtime threads but contains no other functionality.
     It will mostly be used for testing - when EMC is run normally,
-    the motion module creates all the neccessary threads.
+    the motion module creates all the necessary threads.
     
     The module has three pairs of parameters, "name1, period1", etc.
 */
@@ -48,10 +48,10 @@
     information, go to www.linuxcnc.org.
 */
 
-#include "rtapi.h"		/* RTAPI realtime OS API */
-#include "rtapi_app.h"		/* RTAPI realtime module decls */
-#include "hal.h"		/* HAL public API decls */
-#include "rtapi_string.h"
+#include <rtapi.h>		/* RTAPI realtime OS API */
+#include <rtapi_app.h>		/* RTAPI realtime module decls */
+#include <hal.h>		/* HAL public API decls */
+#include <rtapi_string.h>
 
 /* module information */
 MODULE_AUTHOR("John Kasunich");
@@ -59,20 +59,20 @@ MODULE_DESCRIPTION("Thread Module for HAL");
 MODULE_LICENSE("GPL");
 static char *name1 = "thread1";	/* name of thread */
 RTAPI_MP_STRING(name1, "name of thread 1");
-static int fp1 = 1;		/* use floating point? default = yes */
-RTAPI_MP_INT(fp1, "thread1 uses floating point");
+static int fp1 = 1;		/* deprecated: fp is always enabled, kept for API compat */
+RTAPI_MP_INT(fp1, "thread1 uses floating point (deprecated, ignored)");
 static long period1 = 1000000;	/* thread period - default = 1ms thread */
 RTAPI_MP_LONG(period1,  "thread1 period (nsecs)");
 static char *name2 = NULL;	/* name of thread */
 RTAPI_MP_STRING(name2, "name of thread 2");
-static int fp2 = 1;		/* use floating point? default = yes */
-RTAPI_MP_INT(fp2, "thread2 uses floating point");
+static int fp2 = 1;		/* deprecated: fp is always enabled, kept for API compat */
+RTAPI_MP_INT(fp2, "thread2 uses floating point (deprecated, ignored)");
 static long period2 = 0;	/* thread period - default = no thread */
 RTAPI_MP_LONG(period2, "thread2 period (nsecs)");
 static char *name3 = NULL;	/* name of thread */
 RTAPI_MP_STRING(name3, "name of thread 3");
-static int fp3 = 1;		/* use floating point? default = yes */
-RTAPI_MP_INT(fp3, "thread1 uses floating point");
+static int fp3 = 1;		/* deprecated: fp is always enabled, kept for API compat */
+RTAPI_MP_INT(fp3, "thread3 uses floating point (deprecated, ignored)");
 static long period3 = 0;	/* thread period - default = no thread */
 RTAPI_MP_LONG(period3, "thread3 period (nsecs)");
 
@@ -107,7 +107,7 @@ int rtapi_app_main(void)
     /* was 'period' specified in the insmod command? */
     if ((period1 > 0) && (name1 != NULL) && (*name1 != '\0')) {
 	/* create a thread */
-	thread1_id = hal_create_thread(name1, period1, fp1);
+	thread1_id = hal_create_thread(name1, period1, 1);
 	if (thread1_id < 0) {
 	    rtapi_print_msg(RTAPI_MSG_ERR,
 		"THREADS: ERROR: could not create thread '%s'\n", name1);
@@ -119,7 +119,7 @@ int rtapi_app_main(void)
     }
     if ((period2 > 0) && (name2 != NULL) && (*name2 != '\0')) {
 	/* create a thread */
-	thread2_id = hal_create_thread(name2, period2, fp2);
+	thread2_id = hal_create_thread(name2, period2, 1);
 	if (thread2_id < 0) {
 	    rtapi_print_msg(RTAPI_MSG_ERR,
 		"THREADS: ERROR: could not create thread '%s'\n", name2);
@@ -132,7 +132,7 @@ int rtapi_app_main(void)
     }
     if ((period3 > 0) && (name3 != NULL) && (*name3 != '\0')) {
 	/* create a thread */
-	thread3_id = hal_create_thread(name3, period3, fp3);
+	thread3_id = hal_create_thread(name3, period3, 1);
 	if (thread3_id < 0) {
 	    rtapi_print_msg(RTAPI_MSG_ERR,
 		"THREADS: ERROR: could not create thread '%s'\n", name3);

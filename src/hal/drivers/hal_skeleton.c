@@ -20,7 +20,7 @@
  which is also a good starting point for new drivers.
 
  This driver supports only for demonstration how to write a byte (char)
- to a hardware adress, here we use the parallel port (0x378).
+ to a hardware address, here we use the parallel port (0x378).
 
  This driver support no configuration strings so installing is easy:
  realtime: halcmd loadrt hal_skeleton
@@ -75,10 +75,10 @@
     information, go to www.linuxcnc.org.
 */
 
-#include "rtapi.h"		/* RTAPI realtime OS API */
-#include "rtapi_app.h"		/* RTAPI realtime module decls */
+#include <rtapi.h>		/* RTAPI realtime OS API */
+#include <rtapi_app.h>		/* RTAPI realtime module decls */
 
-#include "hal.h"		/* HAL public API decls */
+#include <hal.h>		/* HAL public API decls */
 
 /* If FASTIO is defined, uses outb() and inb() from <asm.io>,
    instead of rtapi_outb() and rtapi_inb() - the <asm.io> ones
@@ -137,7 +137,6 @@ static void write_port(void *arg, long period);
 
 int rtapi_app_main(void)
 {
-    char name[HAL_NAME_LEN + 1];
     int n, retval;
 
     /* only one port at the moment */
@@ -173,9 +172,8 @@ int rtapi_app_main(void)
     }
 
     /* STEP 4: export write function */
-    rtapi_snprintf(name, sizeof(name), "skeleton.%d.write", n);
-    retval = hal_export_funct(name, write_port, &(port_data_array[n]), 0, 0,
-	comp_id);
+    retval = hal_export_functf(write_port, &(port_data_array[n]), 0, 0,
+	comp_id, "skeleton.%d.write", n);
     if (retval < 0) {
 	rtapi_print_msg(RTAPI_MSG_ERR,
 	    "SKELETON: ERROR: port %d write funct export failed\n", n);

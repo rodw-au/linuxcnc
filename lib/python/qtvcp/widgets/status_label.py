@@ -1,4 +1,4 @@
-#!/usr/bin/python2.7
+#!/usr/bin/env python3
 # QTVcp Widget
 #
 # Copyright (c) 2017 Chris Morley
@@ -16,7 +16,7 @@
 
 import time
 import os
-from PyQt5 import QtCore, QtWidgets
+from qtpy import QtCore
 
 from qtvcp import logger
 from qtvcp.widgets.simple_widgets import ScaledLabel
@@ -42,9 +42,13 @@ class StatusLabel(ScaledLabel, _HalWidgetBase):
         self._actual_RPM = 0
         self._diameter = 1
         self._index = 0
+        self._tool_dia = 0
+        self._tool_offset = 0
         self._state_label_list = ['Estopped','Running','Stopped','Paused','Waiting','Reading']
+        self._motion_label_list = ['None','Rapid','Feed','Arc','Tool Change','Probe','Rotaty Index']
+        self._halpin_name = 'remapStat.tool'
 
-        self.feed_override = True
+        self.feed_override = False
         self.rapid_override = False
         self.max_velocity_override = False
         self.spindle_override = False
@@ -59,21 +63,46 @@ class StatusLabel(ScaledLabel, _HalWidgetBase):
         self.actual_spindle_speed = False
         self.actual_surface_speed = False
         self.user_system = False
+        self.blendcode = False
+        self.fcode = False
         self.gcodes = False
+        self.gcode_group0 = False
+        self.gcode_group1 = False
+        self.gcode_group2 = False
+        self.gcode_group3 = False
+        self.gcode_group4 = False
+        self.gcode_group5 = False
+        self.gcode_group6 = False
+        self.gcode_group7 = False
+        self.gcode_group8 = False
+        self.gcode_group10 = False
+        self.gcode_group12 = False
+        self.gcode_group13 = False
+        self.gcode_group14 = False
+        self.gcode_group15 = False
         self.mcodes = False
         self.tool_diameter = False
         self.tool_comment = False
         self.filename = False
         self.filepath = False
         self.machine_state = False
+        self.motion_type = False
         self.time_stamp = False
         self.tool_offset = False
         self.gcode_selected = False
+        self.halpin = False
 
     def _hal_init(self):
         super(StatusLabel, self)._hal_init()
         def _f(data):
             self._set_text(data)
+
+        for g in ('group0','group1','group2','group3','group4','group5',
+                'group6','group7','group8','group10','group12','group13','group14','group15'):
+            if self['gcode_{}'.format(g)]:
+                STATUS.connect('gcode-{}-changed'.format(g), lambda w, data: _f(data))
+                break
+                return
 
         if self.feed_override:
             STATUS.connect('feed-override-changed', lambda w, data: _f(data))
@@ -108,12 +137,17 @@ class StatusLabel(ScaledLabel, _HalWidgetBase):
             STATUS.connect('actual-spindle-speed-changed', lambda w, data: _f(data))
         elif self.user_system:
             STATUS.connect('user-system-changed', self._set_user_system_text)
+        elif self.blendcode:
+            STATUS.connect('blend-code-changed', lambda w, blend, cam: self._set_blend_text(blend, cam))
+        elif self.fcode:
+            STATUS.connect('f-code-changed', lambda w, data: self._set_fcode_text(data))
         elif self.gcodes:
             STATUS.connect('g-code-changed', lambda w, data: _f(data))
         elif self.mcodes:
             STATUS.connect('m-code-changed', lambda w, data: _f(data))
         elif self.tool_diameter:
             STATUS.connect('tool-info-changed', lambda w, data: self._tool_info(data, 'diameter'))
+            STATUS.connect('metric-mode-changed', lambda w, data: self._switch_tool_diam_units(data))
         elif self.tool_comment:
             STATUS.connect('tool-info-changed', lambda w, data: self._tool_file_info(data, TOOL.COMMENTS))
         elif self.actual_surface_speed:
@@ -134,14 +168,19 @@ class StatusLabel(ScaledLabel, _HalWidgetBase):
             STATUS.connect('interp-paused', lambda w: self._machine_state(self._state_label_list[3]))
             STATUS.connect('interp-waiting', lambda w: self._machine_state(self._state_label_list[4]))
             STATUS.connect('interp-reading', lambda w: self._machine_state(self._state_label_list[5]))
+        elif self.motion_type:
+            STATUS.connect('motion-type-changed', lambda w, data: self._set_motion_type(data))
         elif self.time_stamp:
             STATUS.connect('periodic', self._set_timestamp)
         elif self.tool_offset:
             STATUS.connect('current-tool-offset', self._set_tool_offset_text)
+            STATUS.connect('metric-mode-changed', lambda w, data: self._switch_tool_offsets_units(data))
         elif self.gcode_selected:
             STATUS.connect('gcode-line-selected', lambda w, line: _f(int(line)+1))
+        elif self.halpin:
+            STATUS.connect('periodic', lambda w: self._set_halpin_text())
         else:
-            LOG.warning('{} : no option recognised'.format(self.HAL_NAME_))
+            LOG.debug('{} : no option recognised'.format(self.HAL_NAME_))
 
     def _set_text(self, data):
             tmpl = lambda s: str(self._textTemplate) % s
@@ -149,6 +188,14 @@ class StatusLabel(ScaledLabel, _HalWidgetBase):
     def _set_alt_text(self, data):
             tmpl = lambda s: str(self._alt_textTemplate) % s
             self.setText(tmpl(data))
+
+    def _set_blend_text(self, blend, cam):
+        tmpl = lambda s: str(self._textTemplate) % s
+        alttmpl = lambda s: str(self._alt_textTemplate) % s
+        self.setText(tmpl(blend) + alttmpl(cam))
+
+    def _set_fcode_text(self, data):
+        self._set_text(data)
 
     def _set_feedrate_text(self, widget, data):
         if self.display_units_mm != INFO.MACHINE_IS_METRIC:
@@ -162,7 +209,7 @@ class StatusLabel(ScaledLabel, _HalWidgetBase):
         if self.display_units_mm != INFO.MACHINE_IS_METRIC:
             data = INFO.convert_units(data)
         try:
-            data = (data/self._actual_RPM)
+            data = abs(data/self._actual_RPM)
             if self.display_units_mm:
                 self._set_alt_text(data)
             else:
@@ -189,14 +236,35 @@ class StatusLabel(ScaledLabel, _HalWidgetBase):
         self.display_units_mm = data
         self._set_jograte(STATUS.get_jograte())
 
+    def _switch_tool_diam_units(self, units):
+        self.display_units_mm = units
+        data = self.conversion(self._tool_dia)
+        if self.display_units_mm:
+           self._set_alt_text(data)
+        else:
+           self._set_text(data)
+
+    def _switch_tool_offsets_units(self, units):
+        self.display_units_mm = units
+        data = self.conversion(self._tool_offset)
+        if self.display_units_mm:
+           self._set_alt_text(data)
+        else:
+           self._set_text(data)
+
     def _switch_max_velocity_units(self, widget, data):
         self.display_units_mm = data
         self._set_max_velocity(STATUS.get_max_velocity())
 
     def _tool_info(self, data, field):
-        if data.id is not -1:
+        if data.id != -1:
             if field == 'diameter':
-                self._set_text(data.diameter)
+                data = self.conversion(data.diameter)
+                self._tool_dia = data
+                if self.display_units_mm:
+                    self._set_alt_text(data)
+                else:
+                    self._set_text(data)
                 return
         self._set_text(0)
 
@@ -227,10 +295,15 @@ class StatusLabel(ScaledLabel, _HalWidgetBase):
             self._set_text('')
 
     def _set_tool_offset_text(self, w, offsets):
-        self._set_text(offsets[self._index])
+        data = self.conversion(offsets[self._index])
+        self._tool_offset = offsets[self._index]
+        if self.display_units_mm:
+           self._set_alt_text(data)
+        else:
+           self._set_text(data)
 
     def _ss_tool_diam(self, data):
-        if data.id is not -1:
+        if data.id != -1:
             self._diameter = data.diameter
         else:
             self._diameter = 1
@@ -243,7 +316,7 @@ class StatusLabel(ScaledLabel, _HalWidgetBase):
         self._set_surface_speed()
     def _set_surface_speed(self):
         diam = self.conversion(self._diameter)
-        circ = 3.14 * self._actual_RPM * diam
+        circ = abs(3.14 * self._actual_RPM * diam)
         if self.display_units_mm:
             self._set_alt_text(circ/1000) # meters per minute
         else:
@@ -282,9 +355,22 @@ class StatusLabel(ScaledLabel, _HalWidgetBase):
         else:
             self._set_text(rate)
 
+    def _set_halpin_text(self):
+        try:
+            rate = self.HAL_GCOMP_.hal.get_value(self._halpin_name)
+        except Exception as e:
+            return
+        if self.display_units_mm:
+            self._set_alt_text(rate)
+        else:
+            self._set_text(rate)
+
+    def _set_motion_type(self, data):
+        self._set_text(self._motion_label_list[data])
+
     #########################################################################
     # This is how designer can interact with our widget properties.
-    # designer will show the pyqtProperty properties in the editor
+    # designer will show the Property properties in the editor
     # it will use the get set and reset calls to do those actions
     #
     # _toggle_properties makes it so we can only select one option
@@ -293,12 +379,12 @@ class StatusLabel(ScaledLabel, _HalWidgetBase):
     def _toggle_properties(self, picked):
         data = ('feed_override', 'rapid_override', 'spindle_override', 'jograte',
                 'jograte_angular', 'jogincr', 'jogincr_angular', 'tool_number',
-                'current_feedrate', 'current_feedunit',
+                'current_feedrate', 'current_FPU',
                 'requested_spindle_speed', 'actual_spindle_speed',
                 'user_system', 'gcodes', 'mcodes', 'tool_diameter',
                 'tool_comment',  'actual_surface_speed', 'filename', 'filepath',
-                'machine_state', 'time_stamp', 'max_velocity', 'tool_offset',
-                'gcode_selected')
+                'machine_state', 'motion_type', 'time_stamp', 'max_velocity_override', 'tool_offset',
+                'gcode_selected', 'fcode', 'blendcode', 'halpin')
 
         for i in data:
             if not i == picked:
@@ -330,7 +416,13 @@ class StatusLabel(ScaledLabel, _HalWidgetBase):
         self._alt_textTemplate = data
         try:
             self._set_text(200.0)
-        except:
+        except TypeError:
+            try:
+                self.setText(data)
+            except ValueError:
+                raise
+        except Exception as e:
+            LOG.error("altTextTemplate: {}, Data: {}".format(self._textTemplate, data), exc_info=e)
             self.setText('Error 2')
     def get_alt_textTemplate(self):
         return self._alt_textTemplate
@@ -451,7 +543,7 @@ class StatusLabel(ScaledLabel, _HalWidgetBase):
     def set_current_feedunit(self, data):
         self.current_feedunit = data
         if data:
-            self._toggle_properties('current_feedunit')
+            self._toggle_properties('current_FPU')
     def get_current_feedunit(self):
         return self.current_feedunit
     def reset_current_feedunit(self):
@@ -487,6 +579,26 @@ class StatusLabel(ScaledLabel, _HalWidgetBase):
     def reset_user_system(self):
         self.user_system = False
 
+    # fcode status
+    def set_fcode(self, data):
+        self.fcode = data
+        if data:
+            self._toggle_properties('fcode')
+    def get_fcode(self):
+        return self.fcode
+    def reset_fcode(self):
+        self.fcode = False
+
+    # blendcode status
+    def set_blendcode(self, data):
+        self.blendcode = data
+        if data:
+            self._toggle_properties('blendcode')
+    def get_blendcode(self):
+        return self.blendcode
+    def reset_blendcode(self):
+        self.blendcode = False
+
     # gcodes status
     def set_gcodes(self, data):
         self.gcodes = data
@@ -496,6 +608,146 @@ class StatusLabel(ScaledLabel, _HalWidgetBase):
         return self.gcodes
     def reset_gcodes(self):
         self.gcodes = False
+
+    # gcode_group0 status
+    def set_gcode_group0(self, data):
+        self.gcode_group0 = data
+        if data:
+            self._toggle_properties('gcode_group0')
+    def get_gcode_group0(self):
+        return self.gcode_group0
+    def reset_gcode_group0(self):
+        self.gcode_group0 = False
+
+    # gcode_group1 status
+    def set_gcode_group1(self, data):
+        self.gcode_group1 = data
+        if data:
+            self._toggle_properties('gcode_group1')
+    def get_gcode_group1(self):
+        return self.gcode_group1
+    def reset_gcode_group1(self):
+        self.gcode_group1 = False
+
+    # gcode_group2 status
+    def set_gcode_group2(self, data):
+        self.gcode_group2 = data
+        if data:
+            self._toggle_properties('gcode_group2')
+    def get_gcode_group2(self):
+        return self.gcode_group2
+    def reset_gcode_group2(self):
+        self.gcode_group2 = False
+
+    # gcode_group3 status
+    def set_gcode_group3(self, data):
+        self.gcode_group3 = data
+        if data:
+            self._toggle_properties('gcode_group3')
+    def get_gcode_group3(self):
+        return self.gcode_group3
+    def reset_gcode_group3(self):
+        self.gcode_group3 = False
+
+    # gcode_group4 status
+    def set_gcode_group4(self, data):
+        self.gcode_group4 = data
+        if data:
+            self._toggle_properties('gcode_group4')
+    def get_gcode_group4(self):
+        return self.gcode_group4
+    def reset_gcode_group4(self):
+        self.gcode_group4 = False
+
+    # gcode_group5 status
+    def set_gcode_group5(self, data):
+        self.gcode_group5 = data
+        if data:
+            self._toggle_properties('gcode_group5')
+    def get_gcode_group5(self):
+        return self.gcode_group5
+    def reset_gcode_group5(self):
+        self.gcode_group5 = False
+
+    # gcode_group6 status
+    def set_gcode_group6(self, data):
+        self.gcode_group6 = data
+        if data:
+            self._toggle_properties('gcode_group6')
+    def get_gcode_group6(self):
+        return self.gcode_group6
+    def reset_gcode_group6(self):
+        self.gcode_group6 = False
+
+    # gcode_group7 status
+    def set_gcode_group7(self, data):
+        self.gcode_group7 = data
+        if data:
+            self._toggle_properties('gcode_group7')
+    def get_gcode_group7(self):
+        return self.gcode_group7
+    def reset_gcode_group7(self):
+        self.gcode_group7 = False
+
+    # gcode_group8 status
+    def set_gcode_group8(self, data):
+        self.gcode_group8 = data
+        if data:
+            self._toggle_properties('gcode_group8')
+    def get_gcode_group8(self):
+        return self.gcode_group8
+    def reset_gcode_group8(self):
+        self.gcode_group8 = False
+
+    # gcode_group10 status
+    def set_gcode_group10(self, data):
+        self.gcode_group10 = data
+        if data:
+            self._toggle_properties('gcode_group10')
+    def get_gcode_group10(self):
+        return self.gcode_group10
+    def reset_gcode_group10(self):
+        self.gcode_group10 = False
+
+    # gcode_group12 status
+    def set_gcode_group12(self, data):
+        self.gcode_group12 = data
+        if data:
+            self._toggle_properties('gcode_group12')
+    def get_gcode_group12(self):
+        return self.gcode_group12
+    def reset_gcode_group12(self):
+        self.gcode_group12 = False
+
+    # gcode_group13 status
+    def set_gcode_group13(self, data):
+        self.gcode_group13 = data
+        if data:
+            self._toggle_properties('gcode_group13')
+    def get_gcode_group13(self):
+        return self.gcode_group13
+    def reset_gcode_group13(self):
+        self.gcode_group13 = False
+
+    # gcode_group14 status
+    def set_gcode_group14(self, data):
+        self.gcode_group14 = data
+        if data:
+            self._toggle_properties('gcode_group14')
+    def get_gcode_group14(self):
+        return self.gcode_group14
+    def reset_gcode_group14(self):
+        self.gcode_group14 = False
+
+    # gcode_group15 status
+    def set_gcode_group15(self, data):
+        self.gcode_group15 = data
+        if data:
+            self._toggle_properties('gcode_group15')
+    def get_gcode_group15(self):
+        return self.gcode_group15
+    def reset_gcode_group15(self):
+        self.gcode_group15 = False
 
     # mcodes status
     def set_mcodes(self, data):
@@ -567,6 +819,16 @@ class StatusLabel(ScaledLabel, _HalWidgetBase):
     def reset_machine_state(self):
         self.machine_state = False
 
+    # motion_type status
+    def set_motion_type(self, data):
+        self.motion_type = data
+        if data:
+            self._toggle_properties('motion_type')
+    def get_motion_type(self):
+        return self.motion_type
+    def reset_motion_type(self):
+        self.motion_type = False
+
     # time_stamp status
     def set_time_stamp(self, data):
         self.time_stamp = data
@@ -594,6 +856,13 @@ class StatusLabel(ScaledLabel, _HalWidgetBase):
     def reset_state_label_l(self):
         self._state_label_list = ['Estopped','Running','Stopped','Paused','Waiting','Reading']
 
+    def set_motion_label_l(self, data):
+        self._motion_label_list = data
+    def get_motion_label_l(self):
+        return self._motion_label_list
+    def reset_motion_label_l(self):
+        self._motion_label_list = ['None','Rapid','Feed','Arc','Tool Change','Probe','Rotaty Index']
+
     # gcode line selected
     def set_gcode_selected(self, data):
         self.gcode_selected = data
@@ -604,46 +873,97 @@ class StatusLabel(ScaledLabel, _HalWidgetBase):
     def reset_gcode_selected(self):
         self.gcode_selected = False
 
-    textTemplate = QtCore.pyqtProperty(str, get_textTemplate, set_textTemplate, reset_textTemplate)
-    alt_textTemplate = QtCore.pyqtProperty(str, get_alt_textTemplate, set_alt_textTemplate, reset_alt_textTemplate)
-    index_number = QtCore.pyqtProperty(int, get_index, set_index, reset_index)
+    # gcode line selected
+    def set_halpin(self, data):
+        self.halpin = data
+        if data:
+            self._toggle_properties('halpin')
+    def get_halpin(self):
+        return self.halpin
+    def reset_halpin(self):
+        self.halpin = False
 
-    feed_override_status = QtCore.pyqtProperty(bool, get_feed_override, set_feed_override, reset_feed_override)
-    rapid_override_status = QtCore.pyqtProperty(bool, get_rapid_override, set_rapid_override, reset_rapid_override)
-    max_velocity_override_status = QtCore.pyqtProperty(bool, get_max_velocity_override, set_max_velocity_override, reset_max_velocity_override)
-    spindle_override_status = QtCore.pyqtProperty(bool, get_spindle_override, set_spindle_override,
+    def set_halpin_name(self, data):
+        self._halpin_name = data
+    def get_halpin_name(self):
+        return self._halpin_name
+    def reset_halpin_name(self):
+        self._halpin_name = ''
+
+    textTemplate = QtCore.Property(str, get_textTemplate, set_textTemplate, reset_textTemplate)
+    alt_textTemplate = QtCore.Property(str, get_alt_textTemplate, set_alt_textTemplate, reset_alt_textTemplate)
+    index_number = QtCore.Property(int, get_index, set_index, reset_index)
+
+    feed_override_status = QtCore.Property(bool, get_feed_override, set_feed_override, reset_feed_override)
+    rapid_override_status = QtCore.Property(bool, get_rapid_override, set_rapid_override, reset_rapid_override)
+    max_velocity_override_status = QtCore.Property(bool, get_max_velocity_override, set_max_velocity_override, reset_max_velocity_override)
+    spindle_override_status = QtCore.Property(bool, get_spindle_override, set_spindle_override,
                                                   reset_spindle_override)
-    jograte_status = QtCore.pyqtProperty(bool, get_jograte, set_jograte, reset_jograte)
-    jograte_angular_status = QtCore.pyqtProperty(bool, get_jograte_angular, set_jograte_angular, reset_jograte_angular)
-    jogincr_status = QtCore.pyqtProperty(bool, get_jogincr, set_jogincr, reset_jogincr)
-    jogincr_angular_status = QtCore.pyqtProperty(bool, get_jogincr_angular, set_jogincr_angular, reset_jogincr_angular)
-    current_feedrate_status = QtCore.pyqtProperty(bool, get_current_feedrate, set_current_feedrate,
+    jograte_status = QtCore.Property(bool, get_jograte, set_jograte, reset_jograte)
+    jograte_angular_status = QtCore.Property(bool, get_jograte_angular, set_jograte_angular, reset_jograte_angular)
+    jogincr_status = QtCore.Property(bool, get_jogincr, set_jogincr, reset_jogincr)
+    jogincr_angular_status = QtCore.Property(bool, get_jogincr_angular, set_jogincr_angular, reset_jogincr_angular)
+    current_feedrate_status = QtCore.Property(bool, get_current_feedrate, set_current_feedrate,
                                                   reset_current_feedrate)
-    current_FPU_status = QtCore.pyqtProperty(bool, get_current_feedunit, set_current_feedunit, reset_current_feedunit)
-    requested_spindle_speed_status = QtCore.pyqtProperty(bool, get_requested_spindle_speed,
+    current_FPU_status = QtCore.Property(bool, get_current_feedunit, set_current_feedunit, reset_current_feedunit)
+    requested_spindle_speed_status = QtCore.Property(bool, get_requested_spindle_speed,
                                                          set_requested_spindle_speed, reset_requested_spindle_speed)
-    actual_spindle_speed_status = QtCore.pyqtProperty(bool, get_actual_spindle_speed, set_actual_spindle_speed,
+    actual_spindle_speed_status = QtCore.Property(bool, get_actual_spindle_speed, set_actual_spindle_speed,
                                                       reset_actual_spindle_speed)
-    user_system_status = QtCore.pyqtProperty(bool, get_user_system, set_user_system, reset_user_system)
-    gcodes_status = QtCore.pyqtProperty(bool, get_gcodes, set_gcodes, reset_gcodes)
-    mcodes_status = QtCore.pyqtProperty(bool, get_mcodes, set_mcodes, reset_mcodes)
-    tool_diameter_status = QtCore.pyqtProperty(bool, get_tool_diameter, set_tool_diameter, reset_tool_diameter)
-    tool_comment_status = QtCore.pyqtProperty(bool, get_tool_comment, set_tool_comment, reset_tool_comment)
-    tool_number_status = QtCore.pyqtProperty(bool, get_tool_number, set_tool_number, reset_tool_number)
-    tool_offset_status = QtCore.pyqtProperty(bool, get_tool_offset, set_tool_offset, reset_tool_offset)
-    gcode_selected_status = QtCore.pyqtProperty(bool, get_gcode_selected, set_gcode_selected, reset_gcode_selected)
-    actual_surface_speed_status = QtCore.pyqtProperty(bool, get_actual_surface_speed, set_actual_surface_speed,
+    user_system_status = QtCore.Property(bool, get_user_system, set_user_system, reset_user_system)
+    blendcode_status = QtCore.Property(bool, get_blendcode, set_blendcode, reset_blendcode)
+    fcode_status = QtCore.Property(bool, get_fcode, set_fcode, reset_fcode)
+    gcodes_status = QtCore.Property(bool, get_gcodes, set_gcodes, reset_gcodes)
+    gcode_group0_status = QtCore.Property(bool, get_gcode_group0,
+                                              set_gcode_group0, reset_gcode_group0)
+    gcode_group1_status = QtCore.Property(bool, get_gcode_group1,
+                                              set_gcode_group1, reset_gcode_group1)
+    gcode_group2_status = QtCore.Property(bool, get_gcode_group2,
+                                              set_gcode_group2, reset_gcode_group2)
+    gcode_group3_status = QtCore.Property(bool, get_gcode_group3,
+                                              set_gcode_group3, reset_gcode_group3)
+    gcode_group4_status = QtCore.Property(bool, get_gcode_group4,
+                                              set_gcode_group4, reset_gcode_group4)
+    gcode_group5_status = QtCore.Property(bool, get_gcode_group5,
+                                              set_gcode_group5, reset_gcode_group5)
+    gcode_group6_status = QtCore.Property(bool, get_gcode_group6,
+                                              set_gcode_group6, reset_gcode_group6)
+    gcode_group7_status = QtCore.Property(bool, get_gcode_group7,
+                                              set_gcode_group7, reset_gcode_group7)
+    gcode_group8_status = QtCore.Property(bool, get_gcode_group8,
+                                              set_gcode_group8, reset_gcode_group8)
+    gcode_group10_status = QtCore.Property(bool, get_gcode_group10,
+                                              set_gcode_group10, reset_gcode_group10)
+    gcode_group12_status = QtCore.Property(bool, get_gcode_group12,
+                                              set_gcode_group12, reset_gcode_group12)
+    gcode_group13_status = QtCore.Property(bool, get_gcode_group13,
+                                              set_gcode_group13, reset_gcode_group13)
+    gcode_group14_status = QtCore.Property(bool, get_gcode_group14,
+                                              set_gcode_group14, reset_gcode_group14)
+    gcode_group15_status = QtCore.Property(bool, get_gcode_group15,
+                                              set_gcode_group15, reset_gcode_group15)
+    mcodes_status = QtCore.Property(bool, get_mcodes, set_mcodes, reset_mcodes)
+    tool_diameter_status = QtCore.Property(bool, get_tool_diameter, set_tool_diameter, reset_tool_diameter)
+    tool_comment_status = QtCore.Property(bool, get_tool_comment, set_tool_comment, reset_tool_comment)
+    tool_number_status = QtCore.Property(bool, get_tool_number, set_tool_number, reset_tool_number)
+    tool_offset_status = QtCore.Property(bool, get_tool_offset, set_tool_offset, reset_tool_offset)
+    gcode_selected_status = QtCore.Property(bool, get_gcode_selected, set_gcode_selected, reset_gcode_selected)
+    actual_surface_speed_status = QtCore.Property(bool, get_actual_surface_speed, set_actual_surface_speed,
                                                       reset_actual_surface_speed)
-    filename_status = QtCore.pyqtProperty(bool, get_filename, set_filename,
+    filename_status = QtCore.Property(bool, get_filename, set_filename,
                                                       reset_filename)
-    filepath_status = QtCore.pyqtProperty(bool, get_filepath, set_filepath,
+    filepath_status = QtCore.Property(bool, get_filepath, set_filepath,
                                                       reset_filepath)
-    machine_state_status = QtCore.pyqtProperty(bool, get_machine_state, set_machine_state,
+    machine_state_status = QtCore.Property(bool, get_machine_state, set_machine_state,
                                                       reset_machine_state)
-    time_stamp_status = QtCore.pyqtProperty(bool, get_time_stamp, set_time_stamp,
+    motion_type_status = QtCore.Property(bool, get_motion_type, set_motion_type,
+                                                      reset_motion_type)
+    time_stamp_status = QtCore.Property(bool, get_time_stamp, set_time_stamp,
                                                       reset_time_stamp)
-    state_label_list = QtCore.pyqtProperty(QtCore.QVariant.typeToName(QtCore.QVariant.StringList), get_state_label_l, set_state_label_l, reset_state_label_l)
-
+    halpin_status = QtCore.Property(bool, get_halpin, set_halpin, reset_halpin)
+    state_label_list = QtCore.Property(QtCore.QVariant.typeToName(QtCore.QVariant.StringList), get_state_label_l, set_state_label_l, reset_state_label_l)
+    motion_type_list = QtCore.Property(QtCore.QVariant.typeToName(QtCore.QVariant.StringList), get_motion_label_l, set_motion_label_l, reset_motion_label_l)
+    halpin_name = QtCore.Property(str, get_halpin_name, set_halpin_name, reset_halpin_name)
     # boilder code
     def __getitem__(self, item):
         return getattr(self, item)
@@ -651,10 +971,15 @@ class StatusLabel(ScaledLabel, _HalWidgetBase):
         return setattr(self, item, value)
 
 if __name__ == "__main__":
+    from qtpy.QtWidgets import *
+    from qtpy.QtCore import *
+    from qtpy.QtGui import *
 
     import sys
 
     app = QApplication(sys.argv)
-    label = Lcnc_State_Label()
+    label = StatusLabel()
+    label.setProperty('motion_type_status',True)
+    label._hal_init()
     label.show()
     sys.exit(app.exec_())

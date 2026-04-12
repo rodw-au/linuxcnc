@@ -17,8 +17,8 @@
 #ifndef EMCSCHED_HH
 #define EMCSCHED_HH
 
-#include "emc_nml.hh"
-#include "nml_oi.hh"            // NML_ERROR_LEN
+#include "nml_intf/emc_nml.hh"
+#include "libnml/nml/nml_oi.hh"            // NML_ERROR_LEN
 #include <string>
 
 using namespace std;
@@ -37,7 +37,7 @@ typedef struct {
     int tool;
     } qRecType;
 
-extern int addProgram(int pri, int tag, float x, float y, float z, int azone, string progName, float feedOvr, float spindleOvr, int toolNum);
+extern int addProgram(int pri, int tag, float x, float y, float z, int azone, const string& progName, float feedOvr, float spindleOvr, int toolNum);
 extern void updateQueue();
 extern int getQueueSize();
 extern void clearQueue();

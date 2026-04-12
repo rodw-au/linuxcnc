@@ -58,11 +58,11 @@
 #include <signal.h>
 #include <stdarg.h>
 
-#include "rtapi.h"
-#include "hal.h"
+#include <rtapi.h>
+#include <hal.h>
 #include <modbus.h>
 #include <modbus-tcp.h>
-#include "inifile.h"
+#include "libnml/inifile/inifile.h"
 
 /*
  * VFS-11 parameters:
@@ -360,17 +360,20 @@ void  windup(param_pointer p)
 
 static void toggle_modbus_debug(int sig)
 {
+    (void)sig;
     param.modbus_debug = !param.modbus_debug;
     modbus_set_debug(param.ctx, param.modbus_debug);
 }
 
 static void toggle_debug(int sig)
 {
+    (void)sig;
     param.debug = !param.debug;
 }
 
 static void quit(int sig) 
 {
+    (void)sig;
     if (param.debug)
 	fprintf(stderr,"quit(connection_state=%d)\n",connection_state);
 
@@ -395,11 +398,12 @@ enum kwdresult {NAME_NOT_FOUND, KEYWORD_INVALID, KEYWORD_FOUND};
 int findkwd(param_pointer p, const char *name, int *result, const char *keyword, int value, ...)
 {
     const char *word;
+    char wordbuf[INI_MAX_LINELEN];
     va_list ap;
     const char *kwds[MAX_KWD], **s;
     int nargs = 0;
 
-    if ((word = iniFind(p->fp, name, p->section)) == NULL)
+    if ((word = iniFindString(p->fp, name, p->section, wordbuf, sizeof(wordbuf))) == NULL)
 	return NAME_NOT_FOUND;
 
     kwds[nargs++] = keyword;
@@ -428,6 +432,7 @@ int findkwd(param_pointer p, const char *name, int *result, const char *keyword,
 int read_ini(param_pointer p)
 {
     const char *s;
+    char sbuf[INI_MAX_LINELEN];
     double f;
     int value;
 
@@ -444,10 +449,10 @@ int read_ini(param_pointer p)
 	iniFindInt(p->fp, "PORT", p->section, &p->tcp_portno);
 	iniFindInt(p->fp, "RECONNECT_DELAY", p->section, &p->reconnect_delay);
 
-	if ((s = iniFind(p->fp, "TCPDEST", p->section))) {
+	if ((s = iniFindString(p->fp, "TCPDEST", p->section, sbuf, sizeof(sbuf)))) {
 	    p->tcp_destip = strdup(s);
 	}
-	if ((s = iniFind(p->fp, "DEVICE", p->section))) {
+	if ((s = iniFindString(p->fp, "DEVICE", p->section, sbuf, sizeof(sbuf)))) {
 	    p->device = strdup(s);
 	}
 	if (iniFindDouble(p->fp, "RESPONSE_TIMEOUT", p->section, &f)) {
@@ -463,7 +468,7 @@ int read_ini(param_pointer p)
 		    "even",'E', 
 		    "odd", 'O', 
 		    "none", 'N',
-		    NULL) == KEYWORD_INVALID)
+		    (void *)NULL) == KEYWORD_INVALID)
 	    return -1;
 	p->parity = value;
 
@@ -472,33 +477,33 @@ int read_ini(param_pointer p)
 		    "up", MODBUS_RTU_RTS_UP,
 		    "down", MODBUS_RTU_RTS_DOWN, 
 		    "none", MODBUS_RTU_RTS_NONE,
-		    NULL) == KEYWORD_INVALID)
+		    (void *)NULL) == KEYWORD_INVALID)
 	    return -1;
 #else
-	if (iniFind(p->fp, "RTS_MODE", p->section) != NULL) {
+	if (iniFindString(p->fp, "RTS_MODE", p->section, sbuf, sizeof(sbuf)) != NULL) {
 	    fprintf(stderr,"%s: warning - the RTS_MODE feature is not available with the installed libmodbus version (%s).\n"
 		    "to enable it, uninstall libmodbus-dev and rebuild with "
-		    "libmodbus built http://github.com/stephane/libmodbus:master .\n", 
+		    "libmodbus built http://github.com/stephane/libmodbus:master .\n",
 		    LIBMODBUS_VERSION_STRING, p->progname);
 	}
 #endif
 	if (findkwd(p,"SERIAL_MODE", &p->serial_mode,
 		    "rs232", MODBUS_RTU_RS232,
 		    "rs485", MODBUS_RTU_RS485,
-		    NULL) == KEYWORD_INVALID)
+		    (void *)NULL) == KEYWORD_INVALID)
 	    return -1;
 
 	if (findkwd(p, "TYPE", &p->type,
 		    "rtu", TYPE_RTU, 
 		    "tcpserver", TYPE_TCP_SERVER, 
 		    "tcpclient", TYPE_TCP_CLIENT, 
-		    NULL) == NAME_NOT_FOUND) {
+		    (void *)NULL) == NAME_NOT_FOUND) {
 	    fprintf(stderr, "%s: missing required TYPE in section %s\n", 
 		    p->progname, p->section);
 	    return -1;
 	}
     } else {
-	fprintf(stderr, "%s:cant open inifile '%s'\n", 
+	fprintf(stderr, "%s:can not open inifile '%s'\n", 
 		p->progname, p->inifile);
 	return -1;
     }
@@ -506,18 +511,19 @@ int read_ini(param_pointer p)
 }
 
 void usage(int argc, char **argv) {
+    (void)argc;
     printf("Usage:  %s [options]\n", argv[0]);
     printf("This is a userspace HAL program, typically loaded using the halcmd \"loadusr\" command:\n"
 	   "    loadusr vfs11_vfd [options]\n"
 	   "Options are:\n"
-	   "-I or --ini <inifile>\n"
-	   "    Use <inifile> (default: take ini filename from environment variable INI_FILE_NAME)\n"
+	   "-I or --ini <INI file>\n"
+	   "    Use <INI file> (default: take INI file name from environment variable INI_FILE_NAME)\n"
 	   "-S or --section <section-name> (default 8)\n"
 	   "    Read parameters from <section_name> (default 'VFS11')\n"
 	   "-d or --debug\n"
 	   "    Turn on debugging messages. Toggled by USR1 signal.\n"
 	   "-m or --modbus-debug\n"
-	   "    Turn on modbus debugging.  This will cause all modbus messages\n"
+	   "    Turn on Modbus debugging.  This will cause all Modbus messages\n"
 	   "    to be printed in hex on the terminal. Toggled by USR2 signal.\n"	   
 	   "-r or --report-device\n"
 	   "    Report device properties on console at startup\n");
@@ -611,7 +617,7 @@ int write_data(modbus_t *ctx, haldata_t *haldata, param_pointer p)
     DBG("write_data: cmd1_reg=0x%4.4X old cmd1_reg=0x%4.4X\n", cmd1_reg,p->old_cmd1_reg);
 
     if (modbus_write_register(ctx, REG_COMMAND1, cmd1_reg) < 0) {
-	// modbus transaction timed out. This may happen if VFD is in E-Stop.
+	// Modbus transaction timed out. This may happen if VFD is in E-Stop.
 	// if VFD was in E-Stop, and a fault reset was sent, wait about 2 seconds for recovery
 	// we must assume that any command and frequency values sent were cleared, so we restart
 	// the operation.
@@ -916,7 +922,7 @@ int main(int argc, char **argv)
 	if (!p->modname)
 	    p->modname = "vfs11_vfd";
     } else {
-	fprintf(stderr, "%s: ERROR: no inifile - either use '--ini inifile' or set INI_FILE_NAME environment variable\n", p->progname);
+	fprintf(stderr, "%s: ERROR: no INI file - either use '--ini <INI_file>' or set INI_FILE_NAME environment variable\n", p->progname);
 	goto finish;
     }
 

@@ -1,4 +1,4 @@
-//   This is a component for EMC2 HAL
+//   This is a component for LinuxCNC HAL
 //   Copyright 2006 Jeff Epler <jepler@unpythonic.net>
 //
 //   This program is free software; you can redistribute it and/or modify
@@ -24,8 +24,10 @@ pin out float out "Output value.";
 
 param rw bit open "If true, select values outside the range 0.0 to 1.0 give values outside the range in2 to in1.  If false, outputs are clamped to the the range in2 to in1";
 
+option period no;
 function _;
 license "GPL";
+author "Jeff Epler";
 
 ;;
 

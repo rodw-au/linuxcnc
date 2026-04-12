@@ -1,5 +1,5 @@
-/** This file, 'halscope_rt.c', is a HAL component that together with
-    'halscope.c' provides an oscilloscope to view HAL pins, signals,
+/** This file, 'scope_rt.c', is a HAL component that together with
+    'scope.c' provides an oscilloscope to view HAL pins, signals,
     and parameters
 */
 
@@ -29,7 +29,7 @@
     any responsibility for such compliance.
 
     This code was written as part of the EMC HAL project.  For more
-    information, go to www.linuxcnc.org.
+    information, go to https://linuxcnc.org.
 */
 
 #include <rtapi.h>		/* RTAPI realtime OS API */
@@ -37,16 +37,16 @@
 #include <hal.h>		/* HAL public API decls */
 #include "../hal_priv.h"	/* HAL private API decls */
 #include "scope_rt.h"		/* scope related declarations */
-#include "rtapi_string.h"
+#include <rtapi_string.h>
 
 /* module information */
 MODULE_AUTHOR("John Kasunich");
 MODULE_DESCRIPTION("Oscilloscope for EMC HAL");
 MODULE_LICENSE("GPL");
 
-long num_samples = 16000;
+long num_samples = 32000;
 long shm_size;
-RTAPI_MP_LONG(num_samples, "Number of samples in the shared memory block")
+RTAPI_MP_LONG(num_samples, "Number of samples in the shared memory block");
 
 /***********************************************************************
 *                         GLOBAL VARIABLES                             *
@@ -88,6 +88,19 @@ int rtapi_app_main(void)
     if (comp_id < 0) {
 	rtapi_print_msg(RTAPI_MSG_ERR, "SCOPE: ERROR: hal_init() failed\n");
 	return -1;
+    }
+    /* sanity check num_samples */
+    if (num_samples < SCOPE_NUM_SAMPLES_MIN) {
+	rtapi_print_msg(RTAPI_MSG_WARN,
+	    "SCOPE_RT: num_samples %ld too small, using %d\n",
+	    num_samples, SCOPE_NUM_SAMPLES_MIN);
+	num_samples = SCOPE_NUM_SAMPLES_MIN;
+    }
+    if (num_samples > SCOPE_NUM_SAMPLES_MAX) {
+	rtapi_print_msg(RTAPI_MSG_WARN,
+	    "SCOPE_RT: num_samples %ld too large, using %d\n",
+	    num_samples, SCOPE_NUM_SAMPLES_MAX);
+	num_samples = SCOPE_NUM_SAMPLES_MAX;
     }
     /* connect to scope shared memory block */
     skip = (sizeof(scope_shm_control_t) + 3) & ~3;
@@ -145,6 +158,8 @@ void rtapi_app_exit(void)
 
 static void sample(void *arg, long period)
 {
+    (void)arg;
+    (void)period;
     int n;
 
     ctrl_shm->watchdog = 0;
@@ -391,7 +406,7 @@ static void init_rt_control_struct(void *shmem)
 
     /* first clear entire struct to all zeros */
     cp = (char *) ctrl_rt;
-    for (n = 0; n < sizeof(scope_rt_control_t); n++) {
+    for (n = 0; n < (int)sizeof(scope_rt_control_t); n++) {
 	cp[n] = 0;
     }
     /* save pointer to shared control structure */
@@ -413,7 +428,7 @@ static void init_shm_control_struct(void)
 
     /* first clear entire struct to all zeros */
     cp = (char *) ctrl_shm;
-    for (n = 0; n < sizeof(scope_shm_control_t); n++) {
+    for (n = 0; n < (int)sizeof(scope_shm_control_t); n++) {
 	cp[n] = 0;
     }
     /* round size of shared struct up to a multiple of 4 for alignment */

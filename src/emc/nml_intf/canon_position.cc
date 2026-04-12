@@ -12,9 +12,9 @@
  *
  ********************************************************************/
 
+#include <math.h>
+#include <posemath.h>
 #include "canon_position.hh"
-#include "math.h"
-#include "posemath.h"
 
 static double noElement = 0.0;
 
@@ -165,7 +165,7 @@ const CANON_POSITION CANON_POSITION::operator-(const EmcPose &o) const {
     return result;
 }
 
-const double CANON_POSITION::max() const{
+double CANON_POSITION::max() const{
     double res = x;
     res = fmax(res, this->y);
     res = fmax(res, this->z);

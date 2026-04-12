@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 #
 # QTVcp Widget
 # Copyright (c) 2018 Chris Morley
@@ -14,14 +14,14 @@
 # GNU General Public License for more details.
 ###############################################################################
 
-import os
 import hal
 
-from PyQt5.QtWidgets import QWidget, QToolButton, QMenu, QAction
-from PyQt5.QtCore import Qt, QEvent, pyqtProperty, QBasicTimer, pyqtSignal
-from PyQt5.QtGui import QIcon
+from qtpy.QtWidgets import QToolButton, QMenu, QAction
+from qtpy.QtCore import Property
+from qtpy.QtGui import QIcon
 
 from qtvcp.widgets.widget_baseclass import _HalWidgetBase
+from qtvcp.widgets.indicatorMixIn import IndicatedMixIn
 from qtvcp.core import Status, Action, Info
 from qtvcp import logger
 
@@ -35,22 +35,27 @@ STATUS = Status()
 INFO = Info()
 ACTION = Action()
 LOG = logger.getLogger(__name__)
-# Set the log level for this module
-LOG.setLevel(logger.DEBUG) # One of DEBUG, INFO, WARNING, ERROR, CRITICAL
+# Force the log level for this module
+#LOG.setLevel(logger.DEBUG) # One of DEBUG, INFO, WARNING, ERROR, CRITICAL
 
-class AxisToolButton(QToolButton, _HalWidgetBase):
+class AxisToolButton(QToolButton, IndicatedMixIn):
     def __init__(self, parent=None):
         super(AxisToolButton, self).__init__(parent)
         self._joint = 0
         self._axis = ''
-        self._last = 0
         self._block_signal = False
         self._halpin_option = True
         self.dialog_code = 'ENTRY'
         self.display_units_mm = 0
         homeOption = False
 
-        SettingMenu = QMenu()
+        self._showGoto = False
+        self._showZero = True
+        self._showSet = True
+        self._showLast = True
+        self._showDivide = True
+
+        SettingMenu = QMenu(self)
         self.settingMenu = SettingMenu
         self.zeroButton = QAction(QIcon('exit24.png'), 'Zero', self)
         self.zeroButton.triggered.connect(self.Zero)
@@ -64,6 +69,12 @@ class AxisToolButton(QToolButton, _HalWidgetBase):
         self.lastButton = QAction(QIcon('exit24.png'), 'Set To Last', self)
         self.lastButton.triggered.connect(self.Last)
         SettingMenu.addAction(self.lastButton)
+        self.goToG53Button = QAction(self)
+        self.goToG53Button.triggered.connect(self.goToG53)
+        SettingMenu.addAction(self.goToG53Button)
+        self.goToG5xButton = QAction(self)
+        self.goToG5xButton.triggered.connect(self.goToG5x)
+        SettingMenu.addAction(self.goToG5xButton)
 
         # option for later - should put a sub menu in for joints homing though
         if homeOption:
@@ -80,40 +91,62 @@ class AxisToolButton(QToolButton, _HalWidgetBase):
 
         self.setMenu(SettingMenu)
         self.clicked.connect(self.selectJoint)
+        self.toggled.connect(self.selectJoint)
 
+    # Override setText function so we can toggle displayed text
+    def setText(self, text):
+        if not self._state_text:
+            super(AxisToolButton,self).setText(text)
+            return
+        if self.isCheckable():
+            if self.isChecked():
+                super(AxisToolButton,self).setText(self._true_string)
+            else:
+                super(AxisToolButton,self).setText(self._false_string)
+        elif self._indicator_state:
+            super(AxisToolButton,self).setText(self._true_string)
+        else:
+            super(AxisToolButton,self).setText(self._false_string)
 
     def _hal_init(self):
+        super(AxisToolButton, self)._hal_init()
         def homed_on_test():
             return (STATUS.machine_is_on()
                     and (STATUS.is_all_homed() or INFO.NO_HOME_REQUIRED))
 
         STATUS.connect('metric-mode-changed', self._switch_units)
-        STATUS.connect('state-off', lambda w: self.settingMenu.setEnabled(False))
-        STATUS.connect('state-on', lambda w: self.settingMenu.setEnabled(True))
-        STATUS.connect('interp-idle', lambda w: self._enableGroup(homed_on_test()))
-        STATUS.connect('interp-run', lambda w: self._enableGroup(False))
-        STATUS.connect('all-homed', lambda w: self._enableGroup(homed_on_test()))
-        STATUS.connect('not-all-homed', lambda w, data: self._enableGroup(False))
-        STATUS.connect('interp-paused', lambda w: self._enableGroup(homed_on_test()))
+        STATUS.connect('state-off', lambda w: self._enableGroup(True,False))
+        STATUS.connect('state-on', lambda w: self._enableGroup(True, True))
+        STATUS.connect('interp-idle', lambda w: self._enableGroup(homed_on_test(),STATUS.machine_is_on()))
+        STATUS.connect('interp-run', lambda w: self._enableGroup(False, False))
+        STATUS.connect('all-homed', lambda w: self._enableGroup(homed_on_test(), STATUS.machine_is_on()))
+        STATUS.connect('not-all-homed', lambda w, data: self._enableGroup(False,STATUS.machine_is_on()))
+        STATUS.connect('interp-paused', lambda w: self._enableGroup(False,False))
         STATUS.connect('motion-mode-changed', lambda w,data: self.modeChanged(data))
         STATUS.connect('joint-selection-changed', lambda w,data: self.ChangeState(joint = data, axis= STATUS.get_selected_axis()))
         STATUS.connect('axis-selection-changed', lambda w,data: self.ChangeState(joint = STATUS.get_selected_joint(), axis = data))
         if self._halpin_option and self._joint != -1:
-            self.hal_pin_joint = self.HAL_GCOMP_.newpin(str(self.HAL_NAME_ + '-joint'), hal.HAL_BIT, hal.HAL_OUT)
-            self.hal_pin_axis = self.HAL_GCOMP_.newpin(str(self.HAL_NAME_ + '-axis'), hal.HAL_BIT, hal.HAL_OUT)
+            if self._pin_name_ == '':
+                pname = self.HAL_NAME_
+            else:
+                pname = self._pin_name_
+
+            self.hal_pin_joint = self.HAL_GCOMP_.newpin(str(pname + '-joint'), hal.HAL_BIT, hal.HAL_OUT)
+            self.hal_pin_axis = self.HAL_GCOMP_.newpin(str(pname + '-axis'), hal.HAL_BIT, hal.HAL_OUT)
         STATUS.connect('general',self.return_value)
 
-    def _enableGroup(self, state):
+    def _enableGroup(self, state,bstate):
         for i in(self.zeroButton, self.setButton,self.divideButton,
-                self.lastButton, ):
+                self.lastButton,self.goToG53Button, self.goToG5xButton ):
             i.setEnabled(state)
+
+        self.setEnabled(bstate)
 
     def Zero(self):
         axis, now = self._a_from_j(self._axis)
         if axis:
-            self._last = now
             ACTION.SET_AXIS_ORIGIN(axis, 0)
-            STATUS.emit('update-machine-log', 'Zeroed Axis %s' % axis, 'TIME')
+            STATUS.emit('update-machine-log', 'Zeroed Axis %s' % axis, 'TIME,SUCCESS')
 
     def SetOrigin(self):
         axis, now = self._a_from_j(self._axis)
@@ -134,43 +167,49 @@ class AxisToolButton(QToolButton, _HalWidgetBase):
         if code and name and num is not None:
             LOG.debug('message return:{}'.format (message))
             axis = message.get('AXIS')
-            self._last = message.get('CURRENT')
             ACTION.SET_AXIS_ORIGIN(axis, num)
-            STATUS.emit('update-machine-log', 'Set Origin of Axis %s to %f' %(axis, num), 'TIME')
+            STATUS.emit('update-machine-log', 'Set Origin of Axis %s to %f' %(axis, num), 'TIME,SUCCESS')
 
     def Divide(self):
         axis, now = self._a_from_j(self._axis)
         if axis:
-            self._last = now
             try:
                 x = now/2.0
                 ACTION.SET_AXIS_ORIGIN(axis, x)
                 text = 'Divided Axis %s in Half - %f'% (axis, x)
-                STATUS.emit('update-machine-log', text, 'TIME')
+                STATUS.emit('update-machine-log', text, 'TIME,SUCCESS')
             except ZeroDivisionError:
                 pass
 
     def Last(self):
         axis, now = self._a_from_j(self._axis)
         if axis:
-            ACTION.SET_AXIS_ORIGIN(axis, self._last)
-            text = 'Reset Axis %s from %f to Last Value: %f' %(axis, now, self._last)
-            STATUS.emit('update-machine-log', text, 'TIME')
-            self._last = now
+            last = ACTION.GET_LAST_RECORDED_ORIGIN(axis)
+            ACTION.SET_AXIS_ORIGIN(axis, last)
+            text = 'Reset Axis %s from %f to Last Value: %f' %(axis, now, last)
+            STATUS.emit('update-machine-log', text, 'TIME,SUCCESS')
 
     def Home(self):
         #axis, now = self._a_from_j(self._axis)
         #if axis:
             ACTION.SET_MACHINE_HOMING(self._joint)
-            STATUS.emit('update-machine-log', 'Homed Axis %s' % self._joint, 'TIME')
+            STATUS.emit('update-machine-log', 'Homed Axis %s' % self._joint, 'TIME,SUCCESS')
 
     def Unhome(self):
         #axis, now = self._a_from_j(self._axis)
         #if axis:
             ACTION.SET_MACHINE_UNHOMED(self._joint)
-            STATUS.emit('update-machine-log', 'Unhomed Axis %s' % self._joint, 'TIME')
+            STATUS.emit('update-machine-log', 'Unhomed Axis %s' % self._joint, 'TIME,WARNING')
 
+    def goToG53(self):
+        ACTION.CALL_MDI('G53 G0 {}0'.format(self._axis))
 
+    def goToG5x(self):
+        ACTION.CALL_MDI('G0 {}0'.format(self._axis))
+
+    # if in joint mode -nope
+    # if axis is '' the find the selected axis from gstat
+    # find the joint number so we can get current position
     def _a_from_j(self, axis):
         if STATUS.is_joint_mode():
             return None, None
@@ -195,7 +234,7 @@ class AxisToolButton(QToolButton, _HalWidgetBase):
                     self.hal_pin_joint.set(self.isChecked())
             else:
                 ACTION.SET_SELECTED_AXIS(self._axis)
-                # set this whithout causing a STATUS message output
+                # set this without causing a STATUS message output
                 # in case we are selecting an axis to un/home
                 STATUS.selected_joint = self._joint
                 if self._halpin_option:
@@ -205,13 +244,15 @@ class AxisToolButton(QToolButton, _HalWidgetBase):
                 ACTION.SET_SELECTED_JOINT(-1)
             else:
                 ACTION.SET_SELECTED_AXIS('None')
-                # set this whithout causing a STATUS message output
+                # set this without causing a STATUS message output
                 # in case we are selecting an axis to un/home
                 STATUS.selected_joint = -1
             if self._halpin_option:
                 self.hal_pin_axis.set(False)
 
     def ChangeState(self, joint = None, axis = None):
+        #print(self.objectName(),'change',joint,axis,self._axis)
+        # joint mode
         if STATUS.is_joint_mode():
             if int(joint) != self._joint:
                 self._block_signal = True
@@ -219,30 +260,36 @@ class AxisToolButton(QToolButton, _HalWidgetBase):
                 self._block_signal = False
                 if self._halpin_option and self._joint != -1:
                     self.hal_pin_joint.set(False)
+            else:
+                self._block_signal = True
+                self.setChecked(True)
+                self._block_signal = False
+                if self._halpin_option and self._axis != '':
+                    self.hal_pin_joint.set(True)
+        # axis mode
         else:
-            if str(axis) != self._axis:
+            if str(axis) != self._axis and self.isChecked():
                 self._block_signal = True
                 self.setChecked(False)
                 self._block_signal = False
                 if self._halpin_option and self._axis != '':
                     self.hal_pin_joint.set(False)
+            elif str(axis) == self._axis and not self.isChecked():
+                self._block_signal = True
+                self.setChecked(True)
+                self._block_signal = False
+                if self._halpin_option and self._axis != '':
+                    self.hal_pin_joint.set(True)
 
     def modeChanged(self, mode):
         self.selectJoint()
-        return
-        if mode == STATUS.linuxcnc.TRAJ_MODE_FREE:
-            ACTION.SET_SELECTED_JOINT(self._joint)
-        else:
-            ACTION.SET_SELECTED_AXIS(self._axis)
 
     def _switch_units(self, widget, data):
         self.display_units_mm = data
-        if self.display_units_mm != INFO.MACHINE_IS_METRIC:
-            self._last = INFO.convert_units(self._last)
 
     #########################################################################
     # This is how designer can interact with our widget properties.
-    # designer will show the pyqtProperty properties in the editor
+    # designer will show the Property properties in the editor
     # it will use the get set and reset calls to do those actions
     #
     ########################################################################
@@ -255,16 +302,23 @@ class AxisToolButton(QToolButton, _HalWidgetBase):
         return self._joint
     def reset_joint(self):
         self._joint = -1
-    joint_number = pyqtProperty(int, get_joint, set_joint, reset_joint)
+    joint_number = Property(int, get_joint, set_joint, reset_joint)
 
     def set_axis(self, data):
         if data.upper() in('X','Y','Z','A','B','C','U','V','W'):
             self._axis = str(data.upper())
+            text = 'Go To G53 Origin in {}'.format(self._axis)
+            self.goToG53Button.setText(text)
+            text = 'Go To G5x Origin in {}'.format(self._axis)
+            self.goToG5xButton.setText(text)
+        else:
+             self._axis = str('')
+
     def get_axis(self):
         return self._axis
     def reset_axis(self):
         self._axis = 'X'
-    axis_letter = pyqtProperty(str, get_axis, set_axis, reset_axis)
+    axis_letter = Property(str, get_axis, set_axis, reset_axis)
 
     def set_halpin_option(self, value):
         self._halpin_option = value
@@ -272,7 +326,7 @@ class AxisToolButton(QToolButton, _HalWidgetBase):
         return self._halpin_option
     def reset_halpin_option(self):
         self._halpin_option = True
-    halpin_option = pyqtProperty(bool, get_halpin_option, set_halpin_option, reset_halpin_option)
+    halpin_option = Property(bool, get_halpin_option, set_halpin_option, reset_halpin_option)
 
     def set_dialog_code(self, data):
         self.dialog_code = data
@@ -280,7 +334,57 @@ class AxisToolButton(QToolButton, _HalWidgetBase):
         return self.dialog_code
     def reset_dialog_code(self):
         self.dialog_code = 'ENTRY'
-    dialog_code_string = pyqtProperty(str, get_dialog_code, set_dialog_code, reset_dialog_code)
+    dialog_code_string = Property(str, get_dialog_code, set_dialog_code, reset_dialog_code)
+
+    ####################
+    ## menu properties
+    ####################
+
+    def set_showSet(self, data):
+        self._showSet = data
+        self.setButton.setVisible(data)
+    def get_showSet(self):
+        return self._showSet
+    def reset_showSet(self):
+        self._showSet = True
+    showSetOrigin = Property(bool, get_showSet, set_showSet, reset_showSet)
+
+    def set_showZero(self, data):
+        self._showZero = data
+        self.zeroButton.setVisible(data)
+    def get_showZero(self):
+        return self._showZero
+    def reset_showZero(self):
+        self._showZero = True
+    showZeroOrigin = Property(bool, get_showZero, set_showZero, reset_showZero)
+
+    def set_showGoto(self, data):
+        self._showGoto = data
+        self.goToG53Button.setVisible(data)
+        self.goToG5xButton.setVisible(data)
+    def get_showGoto(self):
+        return self._showGoto
+    def reset_showGoto(self):
+        self._showGoto = False
+    showGotoOrigin = Property(bool, get_showGoto, set_showGoto, reset_showGoto)
+
+    def set_showLast(self, data):
+        self._showLast = data
+        self.lastButton.setVisible(data)
+    def get_showLast(self):
+        return self._showLast
+    def reset_showLast(self):
+        self._showLast = True
+    showLast = Property(bool, get_showLast, set_showLast, reset_showLast)
+
+    def set_showDivide(self, data):
+        self._showDivide = data
+        self.divideButton.setVisible(data)
+    def get_showDivide(self):
+        return self._showDivide
+    def reset_showDivide(self):
+        self._showDivide = True
+    showDivide = Property(bool, get_showDivide, set_showDivide, reset_showDivide)
 
     def __getitem__(self, item):
         return getattr(self, item)
@@ -290,7 +394,7 @@ class AxisToolButton(QToolButton, _HalWidgetBase):
 # for testing without editor:
 def main():
     import sys
-    from PyQt5.QtWidgets import QApplication
+    from qtpy.QtWidgets import QApplication
     app = QApplication(sys.argv)
     widget = AxisToolButton()
     widget.show()

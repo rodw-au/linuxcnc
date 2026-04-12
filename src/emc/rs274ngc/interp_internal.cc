@@ -6,7 +6,7 @@
 * Author:
 * License: GPL Version 2
 * System: Linux
-*    
+*
 * Copyright (c) 2004 All rights reserved.
 *
 * Last change:
@@ -44,7 +44,7 @@ Side effects: See below
 Called by:  read_text
 
 To simplify handling upper case letters, spaces, and tabs, this
-function removes spaces and and tabs and downcases everything on a
+function removes spaces and tabs and downcases everything on a
 line which is not part of a comment.
 
 Comments are left unchanged in place. Comments are anything
@@ -119,14 +119,14 @@ Returned Value:
       NCE_CANNOT_USE_AXIS_VALUES_WITH_G80
    2. A g52 g92 is in the block and no axis value is given:
       NCE_ALL_AXES_MISSING_WITH_G52_OR_G92
-   3. One g-code from group 1 and one from group 0, both of which can use
+   3. One G-code from group 1 and one from group 0, both of which can use
       axis values, are in the block:
       NCE_CANNOT_USE_TWO_G_CODES_THAT_BOTH_USE_AXIS_VALUES
-   4. A g-code (other than 0 or 1, for which we are allowing all axes
+   4. A G-code (other than 0 or 1, for which we are allowing all axes
       missing) from group 1 which can use axis values is in the block,
       but no axis value is given: NCE_ALL_AXES_MISSING_WITH_MOTION_CODE
-   5. Axis values are given, but there is neither a g-code in the block
-      nor an active previously given modal g-code that uses axis values:
+   5. Axis values are given, but there is neither a G-code in the block
+      nor an active previously given modal G-code that uses axis values:
       NCE_CANNOT_USE_AXIS_VALUES_WITHOUT_A_G_CODE_THAT_USES_THEM
 
 Side effects:
@@ -134,9 +134,9 @@ Side effects:
 
 Called by: parse_line
 
-If there is a g-code for motion in the block (in g_modes[1]),
+If there is a G-code for motion in the block (in g_modes[1]),
 set motion_to_be to that. Otherwise, if there is an axis value in the
-block and no g-code to use it (any such would be from group 0 in
+block and no G-code to use it (any such would be from group 0 in
 g_modes[0]), set motion_to_be to be the last motion saved (in
 settings->motion mode).
 
@@ -144,8 +144,8 @@ This also make the checks described above.
 
 */
 
-int Interp::enhance_block(block_pointer block,   //!< pointer to a block to be checked 
-                         setup_pointer settings)        //!< pointer to machine settings      
+int Interp::enhance_block(block_pointer block,   //!< pointer to a block to be checked
+                         setup_pointer settings)        //!< pointer to machine settings
 {
   int axis_flag;
   int ijk_flag;
@@ -157,7 +157,7 @@ int Interp::enhance_block(block_pointer block,   //!< pointer to a block to be c
   if(block->radius_flag || block->theta_flag) {
       // someday, tediously add polar support for other planes here:
       CHKS((!_readers[(int)'x'] || !_readers[(int)'y']), _("Cannot use polar coordinate on a machine lacking X or Y axes"));
-      CHKS(((settings->plane != CANON_PLANE_XY)), _("Cannot use polar coordinate except in G17 plane"));
+      CHKS(((settings->plane != CANON_PLANE::XY)), _("Cannot use polar coordinate except in G17 plane"));
       CHKS(((block->x_flag)), _("Cannot specify both polar coordinate and X word"));
       CHKS(((block->y_flag)), _("Cannot specify both polar coordinate and Y word"));
   }
@@ -184,15 +184,16 @@ int Interp::enhance_block(block_pointer block,   //!< pointer to a block to be c
       CHKS(((!axis_flag) && (mode0 == G_52 || mode0 == G_92)),
 	   NCE_ALL_AXES_MISSING_WITH_G52_OR_G92);
     } else {
-      CHKS(mode_zero_covets_axes,
-          NCE_CANNOT_USE_TWO_G_CODES_THAT_BOTH_USE_AXIS_VALUES);
-      CHKS(((!axis_flag && !polar_flag) && 
-            mode1 != G_0 && mode1 != G_1 && 
-            mode1 != G_2 && mode1 != G_3 && mode1 != G_5_2 &&
+      CHKS(mode_zero_covets_axes, NCE_CANNOT_USE_TWO_G_CODES_THAT_BOTH_USE_AXIS_VALUES);
+      CHKS(((!axis_flag && !polar_flag) &&
+            mode1 != G_0 && mode1 != G_1 &&
+            mode1 != G_2 && mode1 != G_3 && 
+            mode1 != G_5_2 &&
+            mode1 != G_6_2 &&
             mode1 != G_70 &&
             mode1 != G_71 && mode1 != G_71_1 && mode1 != G_71_2 &&
             mode1 != G_72 && mode1 != G_72_1 && mode1 != G_72_2 &&
-	    ! IS_USER_GCODE(mode1)),
+                  !is_user_defined_g_code(mode1)),
           NCE_ALL_AXES_MISSING_WITH_MOTION_CODE);
     }
     block->motion_to_be = mode1;
@@ -273,7 +274,7 @@ int Interp::init_block(block_pointer block)      //!< pointer to a block to be i
   block->dollar_flag = false;
   block->e_flag = false;
   block->f_flag = false;
-  for (n = 0; n < 17; n++) {
+  for (n = 0; n < GM_MAX_MODAL_GROUPS; n++) {
     block->g_modes[n] = -1;
   }
   block->h_flag = false;
@@ -337,9 +338,9 @@ Called by:  Interp::read
 
 */
 
-int Interp::parse_line(char *line,       //!< array holding a line of RS274 code  
-                      block_pointer block,      //!< pointer to a block to be filled     
-                      setup_pointer settings)   //!< pointer to machine settings         
+int Interp::parse_line(char *line,       //!< array holding a line of RS274 code
+                      block_pointer block,      //!< pointer to a block to be filled
+                      setup_pointer settings)   //!< pointer to machine settings
 {
   CHP(init_block(block));
   CHP(read_items(block, line, settings->parameters));
@@ -407,7 +408,7 @@ int Interp::precedence(int an_operator)
 }
 
 
-int Interp::refresh_actual_position(setup_pointer settings) 
+int Interp::refresh_actual_position(setup_pointer settings)
 {
   settings->current_x = GET_EXTERNAL_POSITION_X();
   settings->current_y = GET_EXTERNAL_POSITION_Y();

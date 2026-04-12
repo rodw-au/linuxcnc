@@ -14,10 +14,9 @@
 #ifndef SEMAPHORE_HH
 #define SEMAPHORE_HH
 
-extern "C" {
 #include "_sem.h"		/* rcs_sem_t */
 #include <sys/stat.h>		/* S_IRUSR, etc. */
-}
+
 /* rw-rw-rw- permissions */
 #define DEFAULT_SEM_MODE (S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH | S_IWOTH)
 #define RCS_SEMAPHORE_NOCREATE 0x00	/* just attach to existing semaphore */
@@ -52,6 +51,11 @@ class RCS_SEMAPHORE {
        The _state will be ignored if the process is not creating the
        semaphore. */
      ~RCS_SEMAPHORE();
+
+    // Don't copy me.
+    RCS_SEMAPHORE(const RCS_SEMAPHORE & sem) = delete;
+    RCS_SEMAPHORE& operator=(const RCS_SEMAPHORE & sem) = delete;
+
     int wait();
     /* Wait for the semaphore to be available and then take it. See the
        constructors parameters for several options affecting its behavior.
@@ -85,10 +89,6 @@ class RCS_SEMAPHORE {
     int state;
     rcs_sem_t *sem;
     unsigned int sval;
-
-  private:
-      RCS_SEMAPHORE(RCS_SEMAPHORE & sem);	// Don't copy me.
-
 };
 
 #endif

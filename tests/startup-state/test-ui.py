@@ -1,4 +1,4 @@
-#!/usr/bin/env linuxcnc-python
+#!/usr/bin/env python3
 
 import linuxcnc
 import linuxcnc_util
@@ -26,8 +26,6 @@ def print_status(status):
     print("ain: {}".format(status.ain))
     print("angular_units: {}".format(status.angular_units))
     print("aout: {}".format(status.aout))
-    print("axes: {}".format(status.axes))
-    print("axis: {}".format(status.axis))
     print("axis_mask: {}".format(status.axis_mask))
     print("block_delete: {}".format(status.block_delete))
     print("call_level: {}".format(status.call_level))
@@ -55,7 +53,7 @@ def print_status(status):
     print("g92_offset: {}".format(status.g92_offset))
     print("gcodes: {}".format(status.gcodes))
     print("homed: {}".format(status.homed))
-    print("id: {}".format(status.id))
+    print("id: {}".format(status.motion_id))
     print("inpos: {}".format(status.inpos))
     print("input_timeout: {}".format(status.input_timeout))
     print("interp_state: {}".format(status.interp_state))
@@ -67,8 +65,6 @@ def print_status(status):
     print("kinematics_type: {}".format(status.kinematics_type))
     print("limit: {}".format(status.limit))
     print("linear_units: {}".format(status.linear_units))
-    print("lube: {}".format(status.lube))
-    print("lube_level: {}".format(status.lube_level))
     print("max_acceleration: {}".format(status.max_acceleration))
     print("max_velocity: {}".format(status.max_velocity))
     print("mcodes: {}".format(status.mcodes))
@@ -192,7 +188,6 @@ assert(s.adaptive_feed_enabled == False)
 assert(s.ain == (0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0))
 assert(s.angular_units == 1.0)
 assert(s.aout == (0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0))
-assert(s.axes == 3)
 assert_axis_initialized(s.axis[0])
 assert_axis_initialized(s.axis[1])
 assert_axis_initialized(s.axis[2])
@@ -245,7 +240,7 @@ assert(s.g92_offset[3:] == (0.0, 0.0, 0.0, 0.0, 0.0, 0.0))
 assert(s.gcodes == (0, 800, -1, 170, 400, 200, 900, 940, 540, 490, 990, 640, -1, 970, 911, 80, 923))
 
 assert(not (1 in s.homed))
-assert(s.id == 0)
+assert(s.motion_id == 0)
 assert(s.inpos == True)
 assert(s.input_timeout == False)
 assert(s.interp_state == linuxcnc.INTERP_IDLE)
@@ -271,14 +266,11 @@ assert(s.kinematics_type == 1)
 assert(not (1 in s.limit))
 assert(math.fabs(s.linear_units - 0.0393700787402) < 0.0000001)
 
-assert(s.lube == 0)
-assert(s.lube_level == 0)
-
 # FIXME: in master (663c914) this is initialized to 1e99
 #assert(math.fabs(s.max_acceleration - 123.45) < 0.0000001)
 
 assert(math.fabs(s.max_velocity - 45.67) < 0.0000001)
-assert(s.mcodes == (0, -1, 5, -1, 9, -1, 48, -1, 53, 0))
+assert(s.mcodes == (0, -1, 5, -1, 9, -1, 48, -1, 53, -1))
 assert(s.mist == 0)
 assert(s.motion_line == 0)
 assert(s.motion_mode == linuxcnc.TRAJ_MODE_FREE)
@@ -303,7 +295,7 @@ assert(s.rapidrate == 1.0)
 assert(s.read_line == 0)
 assert(s.rotation_xy == 0.0)
 
-assert(s.settings == (0.0, 0.0, 0.0, 0.0, 0.0))
+assert(s.settings == (0.0, 0.0, 0.0, 0.001, 0.0))
 assert(s.spindle[0]['brake'] == 1)
 assert(s.spindle[0]['direction'] == 0)
 assert(s.spindle[0]['enabled'] == 0)

@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 #
 # QTVcp Widget
 # Copyright (c) 2018 Chris Morley
@@ -14,12 +14,9 @@
 # GNU General Public License for more details.
 ###############################################################################
 
-import os
-import hal
 
-from PyQt5.QtWidgets import QWidget, QToolButton, QMenu, QAction
-from PyQt5.QtCore import Qt, QEvent, pyqtProperty, QBasicTimer, pyqtSignal
-from PyQt5.QtGui import QIcon
+from qtpy.QtWidgets import QToolButton, QMenu, QAction
+from qtpy.QtGui import QIcon
 
 from qtvcp.widgets.widget_baseclass import _HalWidgetBase
 from qtvcp.widgets.dialog_widget import EntryDialog
@@ -36,7 +33,7 @@ STATUS = Status()
 INFO = Info()
 ACTION = Action()
 LOG = logger.getLogger(__name__)
-# Set the log level for this module
+# Force the log level for this module
 #LOG.setLevel(logger.DEBUG) # One of DEBUG, INFO, WARNING, ERROR, CRITICAL
 
 class SystemToolButton(QToolButton, _HalWidgetBase):
@@ -46,7 +43,7 @@ class SystemToolButton(QToolButton, _HalWidgetBase):
         self._last = 0
         self._block_signal = False
         self._auto_label_flag = True
-        SettingMenu = QMenu()
+        SettingMenu = QMenu(self)
         for system in('G54', 'G55', 'G56', 'G57', 'G58', 'G59', 'G59.1', 'G59.2', 'G59.3'):
 
             Button = QAction(QIcon('exit24.png'), system, self)
@@ -64,20 +61,20 @@ class SystemToolButton(QToolButton, _HalWidgetBase):
             return (STATUS.machine_is_on()
                     and (STATUS.is_all_homed() or INFO.NO_HOME_REQUIRED))
 
-        STATUS.connect('state-off', lambda w: self.setEnabled(False))
-        STATUS.connect('state-estop', lambda w: self.setEnabled(False))
-        STATUS.connect('interp-idle', lambda w: self.setEnabled(homed_on_test()))
-        STATUS.connect('interp-run', lambda w: self.setEnabled(False))
-        STATUS.connect('all-homed', lambda w: self.setEnabled(True))
-        STATUS.connect('not-all-homed', lambda w, data: self.setEnabled(False))
-        STATUS.connect('interp-paused', lambda w: self.setEnabled(True))
+        STATUS.connect('state-off', lambda w: self.menu().setEnabled(False))
+        STATUS.connect('state-estop', lambda w: self.menu().setEnabled(False))
+        STATUS.connect('interp-idle', lambda w: self.menu().setEnabled(homed_on_test()))
+        STATUS.connect('interp-run', lambda w: self.menu().setEnabled(False))
+        STATUS.connect('all-homed', lambda w: self.menu().setEnabled(True))
+        STATUS.connect('not-all-homed', lambda w, data: self.menu().setEnabled(False))
+        STATUS.connect('interp-paused', lambda w: self.menu().setEnabled(False))
         STATUS.connect('user-system-changed', self._set_user_system_text)
 
     def G54(self):
-        ACTION.SET_USER_SYSTEM('54')
+        ACTION.SET_USER_SYSTEM('G54')
 
     def G55(self):
-        ACTION.SET_USER_SYSTEM(55)
+        ACTION.SET_USER_SYSTEM('G55')
 
     def G56(self):
         ACTION.SET_USER_SYSTEM('G56')
@@ -101,7 +98,7 @@ class SystemToolButton(QToolButton, _HalWidgetBase):
         ACTION.SET_USER_SYSTEM('G59.3')
 
     def _set_user_system_text(self, w, data):
-        convert = { 1:"G54", 2:"G55", 3:"G56", 4:"G57", 5:"G58", 6:"G59", 7:"G59.1", 8:"G59.2", 9:"G59.3"}
+        convert = { 0:'None',1:"G54", 2:"G55", 3:"G56", 4:"G57", 5:"G58", 6:"G59", 7:"G59.1", 8:"G59.2", 9:"G59.3"}
         if self._auto_label_flag:
             self.setText(convert[int(data)])
 
@@ -124,7 +121,7 @@ class SystemToolButton(QToolButton, _HalWidgetBase):
 # for testing without editor:
 def main():
     import sys
-    from PyQt5.QtWidgets import QApplication
+    from qtpy.QtWidgets import QApplication
     app = QApplication(sys.argv)
     widget = SystemToolButton()
     widget.show()

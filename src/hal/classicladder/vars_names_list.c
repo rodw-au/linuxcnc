@@ -1,5 +1,5 @@
 /* Classic Ladder Project */
-/* Copyright (C) 2001-2008 Marc Le Douarain */
+/* Copyright (C) 2001-2009 Marc Le Douarain */
 /* http://membres.lycos.fr/mavati/classicladder/ */
 /* http://www.sourceforge.net/projects/classicladder */
 /* October 2007 */
@@ -23,7 +23,7 @@
 
 
 // for link with another project where all variables IDs are only an offset in
-// a giant array (absolutely no type part existance)...
+// a giant array (absolutely no type part existence)...
 #define IDVAR_IS_TYPE_AND_OFFSET
 
 typedef struct StrConvIdVarName
@@ -31,7 +31,7 @@ typedef struct StrConvIdVarName
 	char * StringBaseVarName;
 	int iTypeVar;
 	int iIdVar;
-	/* differents depths sizes */
+	/* different depths sizes */
 	int iSize1;			/* for depth 1 */
 	int iSize2;			/* pour profondeur 2 */
 	int iSize3;			/* pour profondeur 3 */
@@ -43,6 +43,7 @@ typedef struct StrConvIdVarName
 }StrConvIdVarName;
 
 // Table of the defaults names variables (without the the first '%'' character)
+// When adding something here, do not forget function UpdateSizesOfConvVarNameTable() below !!!!!!
 StrConvIdVarName TableConvIdVarName[] = {
 		{ "B%d", VAR_MEM_BIT, 0, /*sizes*/ NBR_BITS_DEF, -1, -1, /*offsets */ 0, 0, 0, TRUE },
 #ifdef OLD_TIMERS_MONOS_SUPPORT
@@ -65,15 +66,19 @@ StrConvIdVarName TableConvIdVarName[] = {
 		{ "I%d", VAR_PHYS_INPUT, 0, /*sizes*/ NBR_PHYS_INPUTS_DEF, -1, -1, /*offsets */ 0, 0, 0, FALSE },
 		{ "Q%d", VAR_PHYS_OUTPUT, 0, /*sizes*/ NBR_PHYS_OUTPUTS_DEF, -1, -1, /*offsets */ 0, 0, 0, TRUE },
 		{ "W%d", VAR_MEM_WORD, 0, /*sizes*/ NBR_WORDS_DEF, -1, -1, /*offsets */ 0, 0, 0, TRUE },
+#ifdef SEQUENTIAL_SUPPORT
+		{ "X%d.A", VAR_STEP_ACTIVITY, 0, /*sizes*/ NBR_STEPS, -1, -1, /*offsets */ 0, 0, 0, FALSE },
+		{ "X%d.V", VAR_STEP_TIME, 0, /*sizes*/ NBR_STEPS, -1, -1, /*offsets */ 0, 0, 0, FALSE },
+#endif
 		{ "IW%d", VAR_PHYS_WORD_INPUT, 0, /*sizes*/ NBR_PHYS_WORDS_INPUTS_DEF, -1, -1, /*offsets */ 0, 0, 0, FALSE },
 		{ "QW%d", VAR_PHYS_WORD_OUTPUT, 0, /*sizes*/ NBR_PHYS_WORDS_OUTPUTS_DEF, -1, -1, /*offsets */ 0, 0, 0, TRUE },
 		{ "IF%d", VAR_PHYS_FLOAT_INPUT, 0, /*sizes*/ NBR_PHYS_FLOAT_INPUTS_DEF, -1, -1, /*offsets */ 0, 0, 0, FALSE },
 		{ "QF%d", VAR_PHYS_FLOAT_OUTPUT, 0, /*sizes*/ NBR_PHYS_FLOAT_OUTPUTS_DEF, -1, -1, /*offsets */ 0, 0, 0, TRUE },
 		{ "E%d", VAR_ERROR_BIT, 0, /*sizes*/ NBR_ERROR_BITS_DEF, -1, -1, /*offsets */ 0, 0, 0, TRUE },
-		{ "X%d.V", VAR_STEP_TIME, 0, /*sizes*/ NBR_STEPS, -1, -1, /*offsets */ 0, 0, 0, FALSE },
-		{ "X%d", VAR_STEP_ACTIVITY, 0, /*sizes*/ NBR_STEPS, -1, -1, /*offsets */ 0, 0, 0, FALSE },
+		{ "S%d", VAR_SYSTEM, 0, /*sizes*/ NBR_VARS_SYSTEM, -1, -1, /*offsets */ 0, 0, 0, FALSE },
+		{ "SW%d", VAR_WORD_SYSTEM, 0, /*sizes*/ NBR_VARS_WORDS_SYSTEM, -1, -1, /*offsets */ 0, 0, 0, FALSE },
 
-		{ NULL, 0, 0, /*sizes*/ 0, 0, 0, /*offsets */ 0, 0, 0, FALSE }	//END
+		{ NULL, 0, 0, /*sizes*/ 0, 0, 0, /*offsets */ 0, 0, 0, FALSE }  //END
 };
 
 // use the real allocated sizes in the table now

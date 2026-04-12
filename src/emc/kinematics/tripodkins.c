@@ -62,8 +62,11 @@
   completely. So, the inverse flags are ignored.
  */
 
-#include "kinematics.h"             /* these decls */
-#include "rtapi_math.h"
+#include <rtapi.h>		/* RTAPI realtime OS API */
+#include <rtapi_app.h>		/* RTAPI realtime module decls */
+#include <rtapi_math.h>
+#include <hal.h>
+#include <kinematics.h>             /* these decls */
 
 /* ident tag */
 #ifndef __GNUC__
@@ -72,7 +75,6 @@
 #endif
 #endif
 
-#include "hal.h"
 struct haldata {
     hal_float_t *bx, *cx, *cy;
 } *haldata = 0;
@@ -128,6 +130,7 @@ int kinematicsForward(const double * joints,
                       const KINEMATICS_FORWARD_FLAGS * fflags,
                       KINEMATICS_INVERSE_FLAGS * iflags)
 {
+    (void)iflags;
 #define AD (joints[0])
 #define BD (joints[1])
 #define CD (joints[2])
@@ -184,6 +187,7 @@ int kinematicsInverse(const EmcPose * pos,
                       const KINEMATICS_INVERSE_FLAGS * iflags,
                       KINEMATICS_FORWARD_FLAGS * fflags)
 {
+    (void)iflags;
 #define AD (joints[0])
 #define BD (joints[1])
 #define CD (joints[2])
@@ -233,7 +237,7 @@ int main(int argc, char *argv[])
   char buffer[BUFFERLEN];
   char cmd[BUFFERLEN];
   EmcPose pos, vel;
-  double joints[3], jointvels[3];
+  double joints[3]={0.0,0.0,0.0}, jointvels[3]={0.0,0.0,0.0};
   char inverse;
   char flags;
   KINEMATICS_FORWARD_FLAGS fflags;
@@ -261,7 +265,7 @@ int main(int argc, char *argv[])
     if (NULL == fgets(buffer, BUFFERLEN, stdin)) {
       break;
     }
-    if (1 != sscanf(buffer, "%s", cmd)) {
+    if (1 != sscanf(buffer, "%255s", cmd)) {
       continue;
     }
 
@@ -277,7 +281,7 @@ int main(int argc, char *argv[])
       continue;
     }
     if (! strcmp(cmd, "ff")) {
-      if (1 != sscanf(buffer, "%*s %d", &fflags)) {
+      if (1 != sscanf(buffer, "%*s %lu", &fflags)) {
 	printf("need forward flag\n");
       }
       continue;
@@ -306,7 +310,7 @@ int main(int argc, char *argv[])
     }
     else {			/* forward kins */
       if (flags) {
-	if (4 != sscanf(buffer, "%lf %lf %lf %d", 
+	if (4 != sscanf(buffer, "%lf %lf %lf %lu",
 			&joints[0],
 			&joints[1],
 			&joints[2],
@@ -344,10 +348,7 @@ int main(int argc, char *argv[])
 
 #endif /* MAIN */
 
-#include "rtapi.h"		/* RTAPI realtime OS API */
-#include "rtapi_app.h"		/* RTAPI realtime module decls */
-#include "hal.h"
-
+KINS_NOT_SWITCHABLE
 EXPORT_SYMBOL(kinematicsType);
 EXPORT_SYMBOL(kinematicsForward);
 EXPORT_SYMBOL(kinematicsInverse);

@@ -65,9 +65,9 @@
     information, go to www.linuxcnc.org.
 */
 
-#include "rtapi.h"		/* RTAPI realtime OS API */
-#include "rtapi_app.h"		/* RTAPI realtime module decls */
-#include "hal.h"		/* HAL public API decls */
+#include <rtapi.h>		/* RTAPI realtime OS API */
+#include <rtapi_app.h>		/* RTAPI realtime module decls */
+#include <hal.h>		/* HAL public API decls */
 
 #define MAX_CHAN 8
 
@@ -246,7 +246,7 @@ static void make_pulses(void *arg, long period)
 
 	case PWM_PURE:
 	    if ( pwmgen->curr_output ) {
-		/* current state is high, update cumlative high time */
+		/* current state is high, update cumulative high time */
 		pwmgen->high_timer += periodns;
 		/* have we been high long enough? */
 		if ( pwmgen->high_timer >= pwmgen->high_time ) {
@@ -269,7 +269,7 @@ static void make_pulses(void *arg, long period)
 	    break;
 	case PWM_DITHER:
 	    if ( pwmgen->curr_output ) {
-		/* current state is high, update cumlative high time */
+		/* current state is high, update cumulative high time */
 		pwmgen->high_timer -= periodns;
 		/* have we been high long enough? */
 		if ( pwmgen->high_timer <= 0 ) {
@@ -330,7 +330,8 @@ static void make_pulses(void *arg, long period)
 
 static void update(void *arg, long period)
 {
-	static long oldperiodns=-1;
+    (void)period;
+    static long oldperiodns=-1;
 
     pwmgen_t *pwmgen;
     int n, high_periods;

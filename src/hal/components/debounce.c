@@ -40,10 +40,10 @@
 *
 ********************************************************************/
 
-#include "rtapi_ctype.h"	/* isspace() */
-#include "rtapi.h"		/* RTAPI realtime OS API */
-#include "rtapi_app.h"		/* RTAPI realtime module decls */
-#include "hal.h"		/* HAL public API decls */
+#include <rtapi_ctype.h>	/* isspace() */
+#include <rtapi.h>		/* RTAPI realtime OS API */
+#include <rtapi_app.h>		/* RTAPI realtime module decls */
+#include <hal.h>		/* HAL public API decls */
 
 /* module information */
 #define MAX_GROUP 8
@@ -168,7 +168,7 @@ void rtapi_app_exit(void)
 *                     REALTIME DEBOUNCE FUNCTION                       *
 ************************************************************************/
 
-/** The debounce filter works by incrementing a counter whenver the
+/** The debounce filter works by incrementing a counter whenever the
     input is true, and decrementing the counter when it is false.
     If the counter decrements to zero, the output is set false and
     the counter ignores further decrements.  If the counter increments
@@ -185,6 +185,7 @@ void rtapi_app_exit(void)
 
 static void debounce(void *arg, long period)
 {
+    (void)period;
     debounce_group_t *group;
     debounce_t *filter;
     int n;
@@ -229,7 +230,6 @@ static void debounce(void *arg, long period)
 static int export_group(int num, debounce_group_t * addr, int group_size)
 {
     int n, retval, msg;
-    char buf[HAL_NAME_LEN + 1];
 
     /* This function exports a lot of stuff, which results in a lot of
        logging if msg_level is at INFO or ALL. So we save the current value
@@ -246,19 +246,17 @@ static int export_group(int num, debounce_group_t * addr, int group_size)
 	return -1;
     }
     /* export param variable for delay */
-    rtapi_snprintf(buf, sizeof(buf), "debounce.%d.delay", num);
-    retval = hal_param_s32_new(buf, HAL_RW, &(addr->delay), comp_id);
+    retval = hal_param_s32_newf(HAL_RW, &(addr->delay), comp_id, "debounce.%d.delay", num);
     if (retval != 0) {
 	rtapi_print_msg(RTAPI_MSG_ERR,
-	    "DEBOUNCE: ERROR: '%s' param export failed\n", buf);
+	    "DEBOUNCE: ERROR: 'debounce.%d.delay' param export failed\n", num);
 	return retval;
     }
     /* export function */
-    rtapi_snprintf(buf, sizeof(buf), "debounce.%d", num);
-    retval = hal_export_funct(buf, debounce, addr, 0, 0, comp_id);
+    retval = hal_export_functf(debounce, addr, 0, 0, comp_id, "debounce.%d", num);
     if (retval != 0) {
 	rtapi_print_msg(RTAPI_MSG_ERR,
-	    "DEBOUNCE: ERROR: '%s' funct export failed\n", buf);
+	    "DEBOUNCE: ERROR: 'debounce.%d' funct export failed\n", num);
 	return -1;
     }
     /* set default parameter values */

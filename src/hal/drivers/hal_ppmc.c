@@ -23,7 +23,7 @@
 *		optional DAC or digital outs installed.
 *               timestamp works the same way, for UPC boards of rev 4
 *               or higher that have the timestamp feature.
-*               enc_clock specifes a 3-digit hex value, where the 1st is a
+*               enc_clock specifies a 3-digit hex value, where the 1st is a
 *               code of 1,2, 5 or 10 to indicate an encoder clock rate of 1, 2.5, 5 or 10 MHz.
 *               The following 2 digits work as above, bus and board address.
 *               Only rev 4 and above PPMC encoder boards have this clock select feature.
@@ -73,10 +73,10 @@
 
 #include <rtapi_slab.h>		/* kmalloc() */
 #include <rtapi_io.h>		/* kmalloc() */
-#include "rtapi.h"		/* RTAPI realtime OS API */
-#include "rtapi_app.h"		/* RTAPI realtime module decls */
-#include "hal.h"		/* HAL public API decls */
-#include "hal_parport.h"
+#include <rtapi.h>		/* RTAPI realtime OS API */
+#include <rtapi_app.h>		/* RTAPI realtime module decls */
+#include <hal.h>		/* HAL public API decls */
+#include <rtapi_parport.h>
 
 #define MAX_BUS 3	/* max number of parports (EPP busses) */
 
@@ -88,7 +88,7 @@ MODULE_DESCRIPTION("HAL driver for Universal PWM Controller");
 MODULE_LICENSE("GPL");
 int port_addr[MAX_BUS] = { 0x378, [1 ... MAX_BUS-1] = -1 };
     /* default, 1 bus at 0x0378 */
-hal_parport_t port_registration[MAX_BUS];
+rtapi_parport_t port_registration[MAX_BUS];
 RTAPI_MP_ARRAY_INT(port_addr, MAX_BUS, "port address(es) for EPP bus(es)");
 int extradac[MAX_BUS*8] = {
         -1,-1,-1,-1,-1,-1,-1,-1,
@@ -140,7 +140,7 @@ RTAPI_MP_ARRAY_INT(epp_dir, MAX_BUS, "EPP is commanded port direction");
                                 /* only available with rev 2 and above FPGA config */
 #define ENCLOAD     0x00	/* EPP address to write into first byte of preset */
 				/* register for channels 0 - 3 */
-// following regs for new UPC with encoder count timesamp feature
+// following regs for new UPC with encoder count timestamp feature
 #define ENCTS       0x10        /* timestamp low byte for axis 0 */
 #define ENCTS1      0x11        /* timestamp high byte for axis 0 */
 #define ENCTB       0x18        /* timebase low byte */
@@ -196,7 +196,7 @@ RTAPI_MP_ARRAY_INT(epp_dir, MAX_BUS, "EPP is commanded port direction");
    unless the physical "estop" input is also on.  All physical outputs
    will not come on unless the physical "estop" output is on. */
    
-/* The ESTOP function is completely implementd in FPGA hardware.  To get
+/* The ESTOP function is completely implemented in FPGA hardware.  To get
 out of ESTOP, the safety chain must be a closed circuit (Green LED lit on
 board), you then must satisfy the watchdog (if watchdog jumper is in ON
 position) by writing to two adjacent velocity output channels (step, PWM or
@@ -440,7 +440,6 @@ int rtapi_app_main(void)
     int idcode, id, ver;
     bus_data_t *bus;
     slot_data_t *slot;
-    char buf[HAL_NAME_LEN + 1];
 
     /* connect to the HAL */
     comp_id = hal_init("hal_ppmc");
@@ -476,7 +475,7 @@ int rtapi_app_main(void)
 	    continue;
 	}
 
-        rv = hal_parport_get(comp_id, &port_registration[busnum],
+        rv = rtapi_parport_get(hal_comp_name(comp_id), &port_registration[busnum],
                 port_addr[busnum], 0, PARPORT_MODE_EPP);
 
         if(rv < 0)
@@ -732,9 +731,8 @@ int rtapi_app_main(void)
 	    continue;
 	}
 	/* export functions */
-	rtapi_snprintf(buf, sizeof(buf), "ppmc.%d.read", busnum);
-	rv1 = hal_export_funct(buf, read_all, &(bus_array[busnum]),
-	    1, 0, comp_id);
+	rv1 = hal_export_functf(read_all, &(bus_array[busnum]),
+	    1, 0, comp_id, "ppmc.%d.read", busnum);
 	if (rv1 != 0) {
 	    rtapi_print_msg(RTAPI_MSG_ERR,
 		"PPMC: ERROR: read funct export failed\n");
@@ -742,9 +740,8 @@ int rtapi_app_main(void)
 	    /* skip to next bus */
 	    continue;
 	}
-	rtapi_snprintf(buf, sizeof(buf), "ppmc.%d.write", busnum);
-	rv1 = hal_export_funct(buf, write_all, &(bus_array[busnum]),
-	    1, 0, comp_id);
+	rv1 = hal_export_functf(write_all, &(bus_array[busnum]),
+	    1, 0, comp_id, "ppmc.%d.write", busnum);
 	if (rv1 != 0) {
 	    rtapi_print_msg(RTAPI_MSG_ERR,
 		"PPMC: ERROR: write funct export failed\n");
@@ -812,7 +809,7 @@ void rtapi_app_exit(void)
 
     for(busnum = 0; busnum < MAX_BUS; busnum++) {
         /* if ioports were requested, release them */
-        hal_parport_release(&port_registration[busnum]);
+        rtapi_parport_release(&port_registration[busnum]);
     }
 
     /* disconnect from HAL */
@@ -842,7 +839,7 @@ static void read_all(void *arg, long period)
     /* loop thru all slots */
     for ( slotnum = 0 ; slotnum < NUM_SLOTS ; slotnum++ ) {
       currentbus = bus->busnum;  /* make bus in use available for epp_dir logic */
-	/* check for anthing in slot */
+	/* check for anything in slot */
 	if ( bus->slot_valid[slotnum] ) {
 	    /* point at slot data */
 	    slot = &(bus->slot_data[slotnum]);
@@ -893,6 +890,7 @@ static void read_all(void *arg, long period)
 
 static void write_all(void *arg, long period)
 {
+    (void)period;
     bus_data_t *bus;
     slot_data_t *slot;
     int slotnum, functnum, addr_ok;
@@ -907,7 +905,7 @@ static void write_all(void *arg, long period)
     }
     /* loop thru all slots */
     for ( slotnum = 0 ; slotnum < NUM_SLOTS ; slotnum++ ) {
-	/* check for anthing in slot */
+	/* check for anything in slot */
 	if ( bus->slot_valid[slotnum] ) {
 	  currentbus = bus->busnum;  /* make bus in use available for epp_dir logic */
 	    /* point at slot data */
@@ -1248,7 +1246,7 @@ static void write_encoders(slot_data_t *slot)
    value in 10MHz clock pulses. */
 static unsigned int ns2cp( hal_u32_t *pns, unsigned int min_ns )
 {
-    int ns, cp;
+    unsigned ns, cp;
 
     ns = *pns;
     if ( ns < min_ns ) ns = min_ns;
@@ -1399,7 +1397,7 @@ static void write_pwmgens(slot_data_t *slot)
 	    freq = 500000.0;
 	}
 	/* calculate divisor */
-	if (slot->ver >= 3)  // accomodate 3.1 and newer boards with 40MHz clk
+	if (slot->ver >= 3)  // accommodate 3.1 and newer boards with 40MHz clk
 	  period = (40000000.0 / freq) + 0.5;  // 40 MHz clock on ver 3 and up
 	else
 	  period = (10000000.0 / freq) + 0.5;  // 10 MHz on lower version
@@ -1649,7 +1647,7 @@ static rtapi_u32 block(int min, int max)
 
     mask = 0;
     for ( n = min ; n <= max ; n++ ) {
-	mask |= ( 1 << n );
+	mask |= ( 1u << n );
     }
     return mask;
 }
@@ -2298,6 +2296,7 @@ static int export_extra_dac(slot_data_t *slot, bus_data_t *bus)
 
  int export_timestamp(slot_data_t *slot, bus_data_t *bus)
 {
+    (void)bus;
     int n;
 
     /* does the board have the timestamp feature? */

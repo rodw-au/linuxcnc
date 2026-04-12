@@ -37,7 +37,7 @@
 
     The driver creates HAL pins and parameters for each port pin
     as follows:
-    Each physical output has a correspinding HAL pin, named
+    Each physical output has a corresponding HAL pin, named
     'ax5214.<boardnum>.out-<pinnum>', and a HAL parameter
     'ax5214.<boardnum>.out-<pinnum>-invert'.
     Each physical input has two corresponding HAL pins, named
@@ -87,10 +87,10 @@
     information, go to www.linuxcnc.org.
 */
 
-#include "rtapi_ctype.h"	/* isspace() */
-#include "rtapi.h"		/* RTAPI realtime OS API */
-#include "rtapi_app.h"		/* RTAPI realtime module decls */
-#include "hal.h"		/* HAL public API decls */
+#include <rtapi_ctype.h>	/* isspace() */
+#include <rtapi.h>		/* RTAPI realtime OS API */
+#include <rtapi_app.h>		/* RTAPI realtime module decls */
+#include <hal.h>		/* HAL public API decls */
 
 /* If FASTIO is defined, uses outb() and inb() from <asm.io>,
    instead of rtapi_outb() and rtapi_inb() - the <asm.io> ones
@@ -191,7 +191,6 @@ int rtapi_app_main(void)
 {
     char *cp;
     char *argv[MAX_TOK];
-    char name[HAL_NAME_LEN + 1];
     int n, retval;
 
     /* test for config string */
@@ -235,22 +234,18 @@ int rtapi_app_main(void)
     }
     /* export functions for each board */
     for (n = 0; n < num_boards; n++) {
-	/* make read function name */
-	rtapi_snprintf(name, sizeof(name), "ax5214h.%d.read", n);
 	/* export read function */
-	retval = hal_export_funct(name, read_board, &(board_array[n]),
-	    0, 0, comp_id);
+	retval = hal_export_functf(read_board, &(board_array[n]),
+	    0, 0, comp_id, "ax5214h.%d.read", n);
 	if (retval != 0) {
 	    rtapi_print_msg(RTAPI_MSG_ERR,
 		"AX5214H: ERROR: port %d read funct export failed\n", n);
 	    hal_exit(comp_id);
 	    return -1;
 	}
-	/* make write function name */
-	rtapi_snprintf(name, sizeof(name), "ax5214h.%d.write", n);
 	/* export write function */
-	retval = hal_export_funct(name, write_board, &(board_array[n]),
-	    0, 0, comp_id);
+	retval = hal_export_functf(write_board, &(board_array[n]),
+	    0, 0, comp_id, "ax5214h.%d.write", n);
 	if (retval != 0) {
 	    rtapi_print_msg(RTAPI_MSG_ERR,
 		"AX5214H: ERROR: port %d write funct export failed\n", n);

@@ -31,11 +31,11 @@
 *
 ********************************************************************/
 
-#include "rtapi.h"		/* RTAPI realtime OS API */
-#include "rtapi_app.h"		/* RTAPI realtime module decls */
-#include "hal.h"		/* HAL public API decls */
+#include <rtapi.h>		/* RTAPI realtime OS API */
+#include <rtapi_app.h>		/* RTAPI realtime module decls */
+#include <hal.h>		/* HAL public API decls */
 
-#include "rtapi_math.h"
+#include <rtapi_math.h>
 
 /* module information */
 MODULE_AUTHOR("Stephen Wille Padnos");
@@ -115,6 +115,7 @@ void rtapi_app_exit(void)
 
 static void mod_dir_funct(void *arg, long period)
 {
+    (void)period;
     mod_dir_t *mod;
     int range, act, des, to_go;
 

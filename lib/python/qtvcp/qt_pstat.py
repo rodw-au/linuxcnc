@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 # Qtvcp
 #
 # Copyright (c) 2017  Chris Morley <chrisinnanaimo@hotmail.com>
@@ -12,159 +12,518 @@
 # but WITHOUT ANY WARRANTY; without even the implied warranty of
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 # GNU General Public License for more details.
-# 
+#
 ###############################################################################
 
 import os
 import sys
 
+from qtpy import QtCore
+
 # Set up logging
-import logger
+from . import logger
+
 LOG = logger.getLogger(__name__)
-# Set the log level for this module
-LOG.setLevel(logger.INFO) # One of DEBUG, INFO, WARNING, ERROR, CRITICAL
+
+
+# Force the log level for this module
+# LOG.setLevel(logger.DEBUG) # One of DEBUG, INFO, WARNING, ERROR, CRITICAL
 
 # BASE is the absolute path to linuxcnc base
 # LIBDIR is the path to qtvcp python files
-# DATADIR is where the standarad UI files are
+# DATADIR is where the standard UI files are
 # IMAGEDIR is for icons
 class _PStat(object):
     def __init__(self):
         # only initialize once for all instances
-        if self.__class__._instanceNum >=1:
+        if self.__class__._instanceNum >= 1:
             return
         self.__class__._instanceNum += 1
+        self.INI_PATH = None
+        try:
+            self.WORKINGDIR = os.getcwd()
 
-    def set_paths(self, filename='dummy', isscreen = False):
+            # widget directory
+            here = os.path.dirname(os.path.realpath(__file__))
+            self.LIBDIR = os.path.join(here,"lib")
+            self.WIDGETDIR = os.path.join(here, "widgets")
+            self.PLUGINDIR = os.path.join(here,"plugins")
+            self.VISMACHDIR = os.path.join(self.LIBDIR, "qt_vismach")
+
+            self.RIP_FLAG = bool(os.environ.get('LINUXCNC_RIP_FLAG', False))
+
+            if self.RIP_FLAG:
+                BASE = os.environ.get('EMC2_HOME', None)
+            else:
+                BASE = os.environ.get('LINUXCNC_HOME', None)
+                # fallback until the RIP_FLAG is common
+                if BASE is None:
+                    BASE = os.environ.get('EMC2_HOME', None)
+
+            # catch all
+            if BASE is None:
+                BASE = '/usr'
+
+            LOG.debug('Linuxcnc Home directory found in environmental variable: {}'.format(BASE))
+
+            # share directory moves when using RIP vrs installed
+            self.SHAREDIR = os.path.join(BASE,"share", "qtvcp")
+
+            self.IMAGEDIR = os.path.join(self.SHAREDIR,  "images")
+            self.SCREENDIR = os.path.join(self.SHAREDIR, "screens")
+            self.PANELDIR = os.path.join(self.SHAREDIR, "panels")
+            self.WIDGETUI = os.path.join(self.SHAREDIR, "widgets_ui")
+
+            # Linuxcnc project base directory moves when using RIP vrs installed
+            try:
+                self.BASEDIR = os.path.abspath(os.path.join(os.path.dirname(sys.argv[0]), ".."))
+            except:
+                # TODO not sure if working directory is right - this is to fix an error with designer
+                # loading widget libraries
+                self.BASEDIR = self.WORKINGDIR
+            self.RIPCONFIGDIR = os.path.join(self.BASEDIR, "configs", "sim", "qtvcp_screens")
+            self.CONFIGPATH = self.WORKINGDIR
+            # specific library paths
+            self.TOUCHOFF_SUBPROGRAM = os.path.abspath(os.path.join(
+                self.LIBDIR, 'touchoff_subprogram.py'))
+
+            # python RIP library directory
+            self.PYDIR = os.path.join(self.BASEDIR, "lib", "python")
+            sys.path.insert(0, self.PYDIR)
+
+        except Exception as e:
+            print ('qt_Pstat:',e)
+            pass
+
+    def set_paths(self, filename='dummy', isscreen=False, INI=None):
         self.PREFS_FILENAME = None
-        self.WORKINGDIR = os.getcwd()
         self.IS_SCREEN = isscreen
+        self.QRC_IS_LOCAL = None
+        self.QRCPY_IS_LOCAL = None
+        self.INI_PATH = INI
+
         if isscreen:
             # path to the configuration the user requested
-            self.CONFIGPATH = os.environ['CONFIG_DIR']
-            sys.path.insert(0, self.CONFIGPATH)
+            try:
+                self.CONFIGPATH = os.environ['CONFIG_DIR']
+                sys.path.insert(0, self.CONFIGPATH)
+            except:
+                self.CONFIGPATH = self.WORKINGDIR
         else:
             # VCP panels don't usually have config paths but QTVCP looks for one.
             # TODO this fixes the error but maybe it should be something else
             self.CONFIGPATH = self.WORKINGDIR
 
-        # Linuxcnc project base directory
-        self.BASEDIR = os.path.abspath(os.path.join(os.path.dirname(sys.argv[0]), ".."))
-        # PyQt's .ui file's basename 
+        # record the original argument passed to us
+        self.ARGUMENT = filename
+        # PyQt's .ui file's basename
         self.BASENAME = os.path.splitext(os.path.basename(filename))[0]
-        LOG.debug('BASENAME {}'.format(self.BASENAME))
-        # python library directory
-        self.LIBDIR = os.path.join(self.BASEDIR, "lib", "python")
-        sys.path.insert(0, self.LIBDIR)
-        self.IMAGEDIR = os.path.join(self.BASEDIR, "share","qtvcp","images")
-        self.SCREENDIR = os.path.join(self.BASEDIR, "share","qtvcp","screens")
-        self.PANELDIR = os.path.join(self.BASEDIR, "share","qtvcp","panels")
+        # base path (includes any extra path commands
+        self.BASEPATH = os.path.splitext(filename)[0]
+        LOG.debug('Passed name={}, BASENAME={} BASEPATH={}'.format(self.ARGUMENT, self.BASENAME, self.BASEPATH))
+        LOG.verbose('Working directory: {}'.format(self.WORKINGDIR))
 
         # look for custom handler files:
-        handler_fn = "{}_handler.py".format(self.BASENAME)
+        handler_fn = "{}_handler.py".format(self.BASEPATH)
+        local = []
         if self.IS_SCREEN:
-            default_handler_path = os.path.join(self.SCREENDIR, self.BASENAME, handler_fn)
-            local_handler_path = 'None Found'
-            for (root,dirs,files) in os.walk(self.CONFIGPATH, topdown=True):
-                if handler_fn in(files):
-                    local_handler_path = os.path.join(root, handler_fn)
-                    break
+            # builtin screen folder
+            self._default_handler_path = os.path.join(self.SCREENDIR, self.BASEPATH, handler_fn)
+            # relative to configuration folder
+            local.append( os.path.join(self.CONFIGPATH, handler_fn))
+            # in standard folder
+            local.append( os.path.join(self.CONFIGPATH, 'qtvcp/screens',self.BASEPATH, handler_fn))
+            # legacy standard folder
+            local.append( os.path.join(self.CONFIGPATH, self.BASEPATH, handler_fn))
         else:
-            local_handler_path = os.path.join(self.WORKINGDIR, handler_fn)
-            default_handler_path = os.path.join(self.PANELDIR, self.BASENAME, handler_fn)
-        LOG.debug("Checking for handler file in: yellow<{}>".format(local_handler_path))
+            # in standard folder
+            local.append( os.path.join(self.WORKINGDIR, 'qtvcp/panels',self.BASEPATH, handler_fn))
+            # relative to configuration folder
+            local.append( os.path.join(self.WORKINGDIR, handler_fn))
+            # builtin panel folder
+            self._default_handler_path = os.path.join(self.PANELDIR, self.BASEPATH, handler_fn)
 
-        if os.path.exists(local_handler_path):
-            self.HANDLER = local_handler_path
-            LOG.info("Using specified handler file path: yellow<{}>".format(self.HANDLER))
+        for local_handler_path in local:
+            LOG.debug("Checking for handler file in: yellow<{}>".format(local_handler_path))
+            if os.path.exists(local_handler_path):
+                self.HANDLER = local_handler_path
+                LOG.info("bggreen<Using LOCAL handler file path:> yellow<{}>".format(self.HANDLER))
+                break
+        # if no break
         else:
-            LOG.debug("Checking for default handler file in: yellow<{}>".format(default_handler_path))
-            if os.path.exists(default_handler_path):
-                self.HANDLER = default_handler_path
-                LOG.info("Using default handler file path: yellow<{}>".format(self.HANDLER))
+            LOG.debug("Checking for default handler file in: yellow<{}>".format(self._default_handler_path))
+            if os.path.exists(self._default_handler_path):
+                self.HANDLER = self._default_handler_path
+                LOG.info("bggreen<Using DEFAULT handler file path:> yellow<{}>".format(self.HANDLER))
             else:
                 self.HANDLER = None
-                LOG.info("No handler file found")
+                LOG.info("No handler file found.")
+        if not self.HANDLER is None:
+            self.HANDLERDIR = os.path.dirname(self.HANDLER)
+        else:
+            self.HANDLERDIR = None
 
         # look for custom ui file
-        ui_fn = "{}.ui".format(self.BASENAME)
+        ui_fn = "{}.ui".format(self.BASEPATH)
+        local = []
         if self.IS_SCREEN:
-            defaultui = os.path.join(self.SCREENDIR, self.BASENAME, ui_fn)
-            localui = 'None Found'
-            for (root,dirs,files) in os.walk(self.CONFIGPATH, topdown=True):
-                if ui_fn in(files):
-                    localui = os.path.join(root, ui_fn)
-                    break
+            defaultui = os.path.join(self.SCREENDIR, self.BASEPATH, ui_fn)
+            local.append( os.path.join(self.CONFIGPATH, ui_fn))
+            local.append( os.path.join(self.CONFIGPATH, 'qtvcp/screens',self.BASEPATH, ui_fn))
+            local.append( os.path.join(self.CONFIGPATH,self.BASEPATH, ui_fn))
         else:
-            localui = os.path.join(self.WORKINGDIR, ui_fn)
-            defaultui = os.path.join(self.PANELDIR, self.BASENAME, ui_fn)
-        LOG.debug("Checking for .ui in: yellow<{}>".format(localui))
-        if os.path.exists(localui):
-            LOG.info("Using specified ui file from yellow<{}>".format(localui))
-            self.XML = localui
+            local.append( os.path.join(self.WORKINGDIR, 'qtvcp/panels',self.BASEPATH, ui_fn))
+            local.append( os.path.join(self.WORKINGDIR, ui_fn))
+            defaultui = os.path.join(self.PANELDIR, self.BASEPATH, ui_fn)
+
+        for localui in local:
+            LOG.debug("Checking for .ui in: yellow<{}>".format(localui))
+            if os.path.exists(localui):
+                LOG.info("bggreen<Using LOCAL ui file from:> yellow<{}>".format(localui))
+                self.XML = localui
+                break
+        # if no break
         else:
             LOG.debug("Checking for .ui in: yellow<{}>".format(defaultui))
             if os.path.exists(defaultui):
-                LOG.info("Using DEFAULT ui file from yellow<{}>".format(defaultui))
+                LOG.info("bggreen<Using DEFAULT ui file from:> yellow<{}>".format(defaultui))
                 self.XML = defaultui
             else:
                 # error
                 self.XML = None
-                LOG.critical("No UI file found - Did you add the .ui name/path?")
-                print('\n')
-                if self.IS_SCREEN:
-                    dirs = next(os.walk(self.SCREENDIR))[1]
-                    LOG.error('Available built-in Machine Control Screens:')
-                    for i in dirs:
-                        print('{}'.format(i))
-                else:
-                    dirs = next(os.walk(self.PANELDIR))[1]
-                    LOG.error('Available built-in VCP Panels:')
-                    for i in dirs:
-                        print('{}'.format(i))
-                print('\n')
-                sys.exit(0)
+                LOG.info("No ui file found.")
+
+        if not self.HANDLER is None:
+            self.XMLDIR = os.path.dirname(self.HANDLER)
+        else:
+            self.XMLDIR = None
 
         # check for qss file
-        qss_fn = "{}.qss".format(self.BASENAME)
+        qss_fn = "{}.qss".format(self.BASEPATH)
+        local = []
         if self.IS_SCREEN:
-            defaultqss = os.path.join(self.SCREENDIR, self.BASENAME, qss_fn)
-            localqss = 'None Found'
-            for (root,dirs,files) in os.walk(self.CONFIGPATH, topdown=True):
-                if qss_fn in(files):
-                    localqss = os.path.join(root, qss_fn)
-                    break
+            defaultqss = os.path.join(self.SCREENDIR, self.BASEPATH, qss_fn)
+            local.append( os.path.join(self.CONFIGPATH, qss_fn))
+            local.append( os.path.join(self.CONFIGPATH, 'qtvcp/screens',self.BASEPATH, qss_fn))
+            local.append( os.path.join(self.CONFIGPATH, self.BASEPATH, qss_fn))
         else:
-            localqss = os.path.join(self.WORKINGDIR, qss_fn)
-            defaultqss = os.path.join(self.PANELDIR, self.BASENAME, qss_fn)
+            local.append( os.path.join(self.WORKINGDIR, 'qtvcp/panels',self.BASEPATH, qss_fn))
+            local.append( os.path.join(self.WORKINGDIR, qss_fn))
+            defaultqss = os.path.join(self.PANELDIR, self.BASEPATH, qss_fn)
 
-        LOG.debug("Checking for .qss in: yellow<{}>".format(localqss))
-        if os.path.exists(localqss):
-            LOG.info("Using specified qss file from yellow<{}>".format(localqss))
-            self.QSS = localqss
+        for localqss in local:
+            LOG.debug("Checking for .qss in: yellow<{}>".format(localqss))
+            if os.path.exists(localqss):
+                LOG.info("bggreen<Using LOCAL qss file as default stylesheet:> yellow<{}>".format(localqss))
+                self.QSS = localqss
+                break
+        # if no break
         else:
             LOG.debug("Checking for .qss in: yellow<{}>".format(defaultqss))
             if os.path.exists(defaultqss):
-                LOG.info("Using DEFAULT qss file from yellow<{}>".format(defaultqss))
+                LOG.debug("bggreen<Using DEFAULT qss file as default stylesheet:> yellow<{}>".format(defaultqss))
                 self.QSS = defaultqss
             else:
                 self.QSS = None
-                LOG.info("No qss file found")
+                LOG.info("No qss file found.")
 
-    def add_screen_paths(self):
-        # check for a local translation folder
-        locallocale = os.path.join(self.CONFIGPATH,"locale")
-        if os.path.exists(locallocale):
-            self.LOCALEDIR = locallocale
-            self.DOMAIN = self.BASENAME
-            LOG.debug("CUSTOM locale name = {} {}".format(self.LOCALEDIR,self.BASENAME))
+        # check for qrc file
+        qrc_fn = "{}.qrc".format(self.BASEPATH)
+        local = []
+        if self.IS_SCREEN:
+            defaultqrc = os.path.join(self.SCREENDIR, self.BASEPATH, qrc_fn)
+            local.append(os.path.join(self.CONFIGPATH, qrc_fn))
+            local.append( os.path.join(self.CONFIGPATH, 'qtvcp/screens',self.BASEPATH, qrc_fn))
+            local.append(os.path.join(self.CONFIGPATH, self.BASEPATH, qrc_fn))
         else:
-            locallocale = os.path.join(self.SCREENDIR,"%s/locale"% self.BASENAME)
-            if os.path.exists(locallocale):
-                self.LOCALEDIR = locallocale
-                self.DOMAIN = self.BASENAME
-                LOG.debug("SKIN locale name = {} {}".format(self.LOCALEDIR,self.BASENAME))
-            else:
-                self.LOCALEDIR = os.path.join(self.BASEDIR, "share", "locale")
-                self.DOMAIN = "linuxcnc"
+            local.append( os.path.join(self.WORKINGDIR, 'qtvcp/panels',self.BASEPATH, qrc_fn))
+            local.append( os.path.join(self.WORKINGDIR, qrc_fn))
+            defaultqrc = os.path.join(self.PANELDIR, self.BASEPATH, qrc_fn)
 
+        for localqrc in local:
+            LOG.debug("Checking for .qrc in: yellow<{}>".format(localqrc))
+            if os.path.exists(localqrc):
+                LOG.info("bggreen<Using LOCAL qrc file from:> yellow<{}>".format(localqrc))
+                self.QRC = localqrc
+                self.QRC_IS_LOCAL = True
+                break
+        # if no break
+        else:
+            LOG.debug("Checking for .qrc in: yellow<{}>".format(defaultqrc))
+            if os.path.exists(defaultqrc):
+                LOG.debug("bggreen<Using DEFAULT qrc file from:> yellow<{}>".format(defaultqrc))
+                self.QRC = defaultqrc
+                self.QRC_IS_LOCAL = False
+            else:
+                self.QRC = None
+                LOG.info("No qrc file found.")
+
+        # check for qrcpy file
+        qrcpy_fn = 'resources.py'
+        self.QRCPY_IS_LOCAL = None
+        if self.IS_SCREEN:
+            localqrcpy = os.path.join(self.CONFIGPATH, 'qtvcp/screens', self.BASEPATH,qrcpy_fn)
+        else:
+            localqrcpy = os.path.join(self.WORKINGDIR, 'qtvcp/panels', qrcpy_fn)
+
+        LOG.debug("Checking for resources.py in: yellow<{}>".format(localqrcpy))
+        # if there is a local resource file or a QRC to compile it from:
+        if os.path.exists(localqrcpy) or self.QRC is not None:
+            if os.path.exists(localqrcpy):
+                LOG.info("bggreen<Using LOCAL resources.py file from:> yellow<{}>".format(localqrcpy))
+            else:
+                LOG.info("Resources.py file needs to be compiled at: {}".format(localqrcpy))
+            self.QRCPY = localqrcpy
+            self.QRCPY_IS_LOCAL = True
+        else:
+            self.QRCPY = None
+            LOG.info("No resources.py file found, no QRC file to compile one from.")
+
+        # translation path
+        lang = QtCore.QLocale.system().name().split('_')[0]
+        qm_fn = "languages/{}_{}.qm".format(self.BASEPATH,lang)
+        defaultqm = os.path.join(self.SCREENDIR, self.BASEPATH, qm_fn)
+        local = []
+        local.append( os.path.join(self.CONFIGPATH, 'qtvcp/screens',self.BASEPATH, qm_fn))
+        local.append( os.path.join(self.CONFIGPATH, self.BASEPATH, qm_fn))
+
+        for localqm in local:
+            LOG.debug("Checking for translation file in: yellow<{}>".format(localqm))
+            if os.path.exists(localqm):
+                LOG.info("bggreen<Using LOCAL translation file from:> yellow<{}>".format(localqm))
+                self.LOCALEDIR = localqm
+                break
+        # if no break
+        else:
+            LOG.debug("Checking for translation file in: yellow<{}>".format(defaultqm))
+            if os.path.exists(defaultqm):
+                LOG.debug("bggreen<Using DEFAULT translation file from:> yellow<{}>".format(defaultqm))
+                self.LOCALEDIR = defaultqm
+            else:
+                LOG.info("bggreen<Using no translations, default system locale is:> yellow<{}>".format(lang))
+                self.LOCALEDIR = None
+
+        # look for ABOUT files:
+        about_fn = "{}_ABOUT".format(self.BASEPATH)
+        local = []
+        if self.IS_SCREEN:
+            default_about_path = os.path.join(self.SCREENDIR, self.BASEPATH, about_fn)
+            local.append(os.path.join(self.CONFIGPATH, about_fn))
+            local.append(os.path.join(self.CONFIGPATH, 'qtvcp/screens',self.BASEPATH, about_fn))
+        else:
+            local.append(os.path.join(self.WORKINGDIR, about_fn))
+            local.append(os.path.join(self.WORKINGDIR, 'qtvcp/panels', about_fn))
+            default_about_path = os.path.join(self.PANELDIR, self.BASEPATH, about_fn)
+
+        for localabout in local:
+            LOG.debug("Checking for LOCAL about file in: yellow<{}>".format(localabout))
+            if os.path.exists(localabout):
+                self.ABOUT = localabout
+                LOG.info("bggreen<Using LOCAL about file path:> yellow<{}>".format(self.ABOUT))
+                break
+        else:
+            LOG.debug("Checking for DEFAULT about file in: yellow<{}>".format(default_about_path))
+            if os.path.exists(default_about_path):
+                self.ABOUT = default_about_path
+                LOG.debug("bggreen<Using DEFAULT about file path:> yellow<{}>".format(self.ABOUT))
+            else:
+                self.ABOUT = ""
+                LOG.debug("No about file found.")
+
+        if self.XML is None and self.HANDLER is None:
+            LOG.critical("No UI or handler file found - Did you add the .ui name/path?")
+            LOG.info('Available built-in Machine Control Screens:')
+            for i in self.find_screen_dirs():
+               print(('{}'.format(i)))
+            print('')
+            LOG.info('Available built-in VCP Panels:')
+            for i in self.find_panel_dirs():
+                print(('{}'.format(i)))
+            print('')
+            return True # error
+
+    # search for local ui paths or default to standard
+    def find_widget_path(self,uifile=''):
+        try:
+            local = os.path.join(self.CONFIGPATH, 'qtvcp/widgets_ui', uifile)
+            LOG.verbose("Checking for widget file in: yellow<{}>".format(local))
+            if os.path.exists(local):
+                LOG.info("bggreen<Using LOCAL widget file from:> yellow<{}>".format(local))
+                return local
+        except:
+            pass
+
+        default = os.path.join(self.WIDGETUI,uifile)
+        LOG.verbose("Checking for widget file in: yellow<{}>".format(default))
+        if os.path.exists(default):
+            LOG.verbose("bggreen<Using default widget file from:> yellow<{}>".format(default))
+            return default
+
+    # search for local widget path or default to standard
+    def find_custom_widget_path(self,widfile,klass):
+        try:
+            local = os.path.join(self.CONFIGPATH, 'qtvcp/widgets', widfile)
+            LOG.verbose("Checking for custom widget file in: yellow<{}>".format(local))
+            if os.path.exists(local):
+                LOG.info("bggreen<Using LOCAL custom widget file from:> yellow<{}>".format(local))
+                import importlib
+                sys.path.insert(0,  os.path.join(self.CONFIGPATH, 'qtvcp/widgets'))
+                justname = widfile[:widfile.index('.')]
+                print(justname)
+                mod = importlib.import_module(justname, os.path.join(self.CONFIGPATH, 'qtvcp/widgets'))
+                sys.path.remove(os.path.join(self.CONFIGPATH, 'qtvcp/widgets'))
+                return getattr(mod, klass)
+        except Exception as e:
+            print('oops',e)
+            pass
+
+    # search for local image paths or default to standard
+    def find_image_path(self,imagefile=''):
+        try:
+            local = os.path.join(self.CONFIGPATH, 'qtvcp/images', imagefile)
+            LOG.verbose("Checking for images path in: yellow<{}>".format(local))
+            if os.path.exists(local):
+                LOG.info("bggreen<Using LOCAL images path from:> yellow<{}>".format(local))
+                return local
+        except:
+            pass
+
+        default = os.path.join(self.IMAGEDIR,imagefile)
+        LOG.verbose("Checking for image path in: yellow<{}>".format(default))
+        if os.path.exists(default):
+            LOG.verbose("bggreen<Using default image path from:> yellow<{}>".format(default))
+            return default
+
+    def find_embed_panel_path(self, name):
+        # look for custom ui file
+        ui_fn = "{}.ui".format(name)
+        local = []
+        local.append( os.path.join(self.WORKINGDIR, 'qtvcp/panels',name, ui_fn))
+        local.append( os.path.join(self.WORKINGDIR, ui_fn))
+        defaultui = os.path.join(self.PANELDIR, name, ui_fn)
+
+        for localui in local:
+            LOG.debug("(embed) Checking for .ui in: yellow<{}>".format(localui))
+            if os.path.exists(localui):
+                LOG.info("(embed) bggreen<Using LOCAL ui file from:> yellow<{}>".format(localui))
+                XML = localui
+                return XML
+        # if no break
+        else:
+            LOG.debug("(embed) Checking for .ui in: yellow<{}>".format(defaultui))
+            if os.path.exists(defaultui):
+                LOG.info("(embed) bggreen<Using DEFAULT ui file from:> yellow<{}>".format(defaultui))
+                XML = defaultui
+                return XML
+            else:
+                # error
+                LOG.critical("(embed) No UI file found - Did you add the .ui name/path?")
+                return True # error
+
+    def find_embed_handler_path(self, name):
+        # look for custom handler files:
+        handler_fn = "{}_handler.py".format(name)
+        local = []
+        # in standard folder
+        local.append( os.path.join(self.WORKINGDIR, 'qtvcp/panels',name, handler_fn))
+        # relative to configuration folder
+        local.append( os.path.join(self.WORKINGDIR, handler_fn))
+        # builtin panel folder
+        default_handler_path = os.path.join(self.PANELDIR, name, handler_fn)
+
+        for local_handler_path in local:
+            LOG.debug("(embed) Checking for handler file in: yellow<{}>".format(local_handler_path))
+            if os.path.exists(local_handler_path):
+                HANDLER = local_handler_path
+                LOG.info("(embed) bggreen<Using LOCAL handler file path:> yellow<{}>".format(HANDLER))
+                return HANDLER
+        # if no break
+        else:
+            LOG.debug("(embed) Checking for default handler file in: yellow<{}>".format(default_handler_path))
+            if os.path.exists(default_handler_path):
+                HANDLER = default_handler_path
+                LOG.info("(embed) bggreen<Using DEFAULT handler file path:> yellow<{}>".format(HANDLER))
+                return HANDLER
+            else:
+                HANDLER = None
+                LOG.info("(embed) No handler file found.")
+                return True
+
+    def find_screen_dirs(self):
+        dirs = next(os.walk(self.SCREENDIR))[1]
+        return dirs
+
+    def find_panel_dirs(self):
+        dirs = next(os.walk(self.PANELDIR))[1]
+        return dirs
+
+    def find_vismach_files(self):
+        tmp = []
+        for file in os.listdir(self.VISMACHDIR):
+            if file.endswith(".py"):
+                if not file in ('__init__.py', 'qt_vismach.py', 'primitives.py'):
+                    tmp.append(file)
+            elif os.path.isdir(os.path.join(self.VISMACHDIR, file)):
+                if 'obj' in file:
+                    tmp.append(file)
+
+        return tmp
+
+    def isUsingDefaultHandler(self):
+        return bool(self.HANDLER == self._default_handler_path)
+
+    def getQSSPaths(self, addBuiltinStyles = True):
+        '''
+        Search for qss files in default builtin directories,
+        in the configuration expected directory CONFIG DIR/qtvcp/screen/SCREEN NAME, or 
+        CONFIG DIR/qtvcp/panel/PANEL NAME or finally the legacy location in the configuration directory.
+        Returns two lists of a list of directory/filename pairs. The first list is default 
+        builtin paths, the second is local configuration paths
+        '''
+        local = []
+        default = ''
+        if self.IS_SCREEN:
+            if addBuiltinStyles:
+                default = os.path.join(self.SCREENDIR, self.BASEPATH)
+            local.append( os.path.join(self.CONFIGPATH))
+            local.append( os.path.join(self.CONFIGPATH, 'qtvcp/screens',self.BASEPATH))
+            local.append( os.path.join(self.CONFIGPATH, self.BASEPATH))
+        else:
+            local.append( os.path.join(self.WORKINGDIR, 'qtvcp/panels',self.BASEPATH))
+            local.append( os.path.join(self.WORKINGDIR))
+            if addBuiltinStyles:
+                default = os.path.join(self.PANELDIR, self.BASEPATH)
+
+        temp = []
+        for group in ([default],local):
+            child = []
+            for qsspath in group:
+                if not os.path.exists(qsspath):
+                    continue
+                try:
+                    fileNames= [f for f in os.listdir(qsspath) if f.endswith('.qss')]
+                    for i in fileNames:
+                        child.append([qsspath,i])
+
+                except Exception as e:
+                    print(e)
+            temp.append(child)
+
+        return temp[0], temp[1]
+
+    def modnamefromFilename(self, fname):
+        panel = os.path.splitext(os.path.basename(os.path.basename(fname)))[0]
+        base = panel.replace('_handler','')
+        module = "{}.{}".format(base,panel)
+        return module
+
+    # temporarily adds the screen directory to path
+    # so the handler can be imported to be used for subclassing
+    def importDefaultHandler(self, module=None):
+        import importlib
+        sys.path.insert(0, self.SCREENDIR)
+        if module is None:
+            module = "{}.{}_handler".format(self.BASEPATH,self.BASEPATH)
+        mod = importlib.import_module(module, self.SCREENDIR)
+        sys.path.remove(self.SCREENDIR)
+        return mod.HandlerClass

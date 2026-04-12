@@ -15,10 +15,10 @@
 //    along with this program; if not, write to the Free Software
 //    Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 
-#include "hal.h"
-#include "kinematics.h"
-#include "rtapi_math.h"
-#include "rtapi_app.h"
+#include <rtapi_math.h>
+#include <rtapi_app.h>
+#include <hal.h>
+#include <kinematics.h>
 
 #include "rotarydeltakins-common.h"
 
@@ -36,6 +36,8 @@ int kinematicsForward(const double * joints,
                       EmcPose * pos,
                       const KINEMATICS_FORWARD_FLAGS * fflags,
                       KINEMATICS_INVERSE_FLAGS * iflags) {
+    (void)fflags;
+    (void)iflags;
     set_geometry(*haldata->pfr, *haldata->tl, *haldata->sl, *haldata->fr);
     return kinematics_forward(joints, pos);
 }
@@ -43,6 +45,8 @@ int kinematicsForward(const double * joints,
 int kinematicsInverse(const EmcPose *pos, double *joints,
         const KINEMATICS_INVERSE_FLAGS *iflags,
         KINEMATICS_FORWARD_FLAGS *fflags) {
+    (void)iflags;
+    (void)fflags;
     set_geometry(*haldata->pfr, *haldata->tl, *haldata->sl, *haldata->fr);
     return kinematics_inverse(pos, joints);
 }
@@ -99,6 +103,7 @@ void rtapi_app_exit(void)
     hal_exit(comp_id);
 }
 
+KINS_NOT_SWITCHABLE
 EXPORT_SYMBOL(kinematicsType);
 EXPORT_SYMBOL(kinematicsForward);
 EXPORT_SYMBOL(kinematicsInverse);

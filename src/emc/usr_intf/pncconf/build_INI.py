@@ -1,4 +1,3 @@
-from __future__ import print_function
 import os
 import time
 
@@ -39,6 +38,18 @@ class INI:
             print("DISPLAY = gmoccapy", file=file)
         elif self.d.frontend == _PD._TOUCHY:
             print("DISPLAY = touchy", file=file)
+        elif self.d.frontend == _PD._QTDRAGON:
+            print("DISPLAY = qtvcp qtdragon", file=file)
+            print("PREFERENCE_FILE_PATH = WORKINGFOLDER/qtdragon.pref", file=file)
+        # qtplasmac has multiple screens
+        elif self.d.frontend == _PD._QTPLASMAC:
+            if self.d.qtplasmacscreen == 2:
+                screen = "qtplasmac_9x16"
+            elif self.d.qtplasmacscreen == 1:
+                screen = "qtplasmac_4x3"
+            else:
+                screen = "qtplasmac"
+            print("DISPLAY = qtvcp {}".format(screen), file=file)
         if self.d.gladevcp:
             theme = self.d.gladevcptheme
             if theme == "Follow System Theme":theme = ""
@@ -61,6 +72,19 @@ class INI:
                     print("EMBED_TAB_LOCATION = ntb_user_tabs", file=file)
                 print("EMBED_TAB_COMMAND = gladevcp -c gladevcp %s -H gvcp_call_list.hal -x {XID} gvcp-panel.ui"%(theme), file=file)
 
+        print(file=file)
+        if self.d.frontend == _PD._GMOCCAPY:
+            if self.d.gmcpy_mesascreen:
+                print("EMBED_TAB_NAME = Mesa PC", file=file)
+                print("EMBED_TAB_LOCATION = ntb_setup", file=file)
+                print("EMBED_TAB_COMMAND = gladevcp -x {XID} gtk_mesa_tests", file=file)
+                print(file=file)
+            if self.d.gmcpy_probescreen:
+                print("EMBED_TAB_NAME = Probe", file=file)
+                print("EMBED_TAB_LOCATION = ntb_preview", file=file)
+                print("EMBED_TAB_COMMAND = gladevcp -x {XID} gtk_little_probe", file=file)
+                print(file=file)
+
         if self.d.position_offset == 1: temp ="RELATIVE"
         else: temp = "MACHINE"
         print("POSITION_OFFSET = %s"% temp, file=file)
@@ -68,19 +92,35 @@ class INI:
         else: temp = "COMMANDED"
         print("POSITION_FEEDBACK = %s"% temp, file=file)
         print("MAX_FEED_OVERRIDE = %f"% self.d.max_feed_override, file=file)
-        print("MAX_SPINDLE_OVERRIDE = %f"% self.d.max_spindle_override, file=file)
-        print("MIN_SPINDLE_OVERRIDE = %f"% self.d.min_spindle_override, file=file)
+
+        if self.d.frontend == _PD._QTDRAGON:
+            print("MAX_SPINDLE_0_OVERRIDE = %f"% self.d.max_spindle_override, file=file)
+            print("MIN_SPINDLE_0_OVERRIDE = %f"% self.d.min_spindle_override, file=file)
+            print("DEFAULT_SPINDLE_0_SPEED = 500", file=file)
+            print("MIN_SPINDLE_0_SPEED = 100", file=file)
+            print("MAX_SPINDLE_0_SPEED = 2500", file=file)
+        # qtplasmac doesn't use spindle override
+        elif self.d.frontend != _PD._QTPLASMAC:
+            print("MAX_SPINDLE_OVERRIDE = %f"% self.d.max_spindle_override, file=file)
+            print("MIN_SPINDLE_OVERRIDE = %f"% self.d.min_spindle_override, file=file)
+
         print("INTRO_GRAPHIC = linuxcnc.gif", file=file)
         print("INTRO_TIME = 5", file=file)
         print("PROGRAM_PREFIX = %s" % \
                                     os.path.expanduser("~/linuxcnc/nc_files"), file=file)
         if self.d.pyvcp:
             print("PYVCP = pyvcp-panel.xml", file=file)
-        # these are for AXIS GUI only
+        # these are for AXIS GUI and QtPlasmaC
         if self.d.units == _PD._METRIC:
-            print("INCREMENTS = %s"% self.d.increments_metric, file=file)
+            if self.d.frontend == _PD._QTPLASMAC:
+                print("INCREMENTS = %s"% self.d.increments_metric_qtplasmac, file=file)
+            else:
+                print("INCREMENTS = %s"% self.d.increments_metric, file=file)
         else:
-            print("INCREMENTS = %s"% self.d.increments_imperial, file=file)
+            if self.d.frontend == _PD._QTPLASMAC:
+                print("INCREMENTS = %s"% self.d.increments_imperial_qtplasmac, file=file)
+            else:
+                print("INCREMENTS = %s"% self.d.increments_imperial, file=file)
         if self.d.axes == 2:
             print("LATHE = 1", file=file)
         print("POSITION_FEEDBACK = %s"% temp, file=file)
@@ -90,17 +130,43 @@ class INI:
         print("DEFAULT_ANGULAR_VELOCITY = %f"% self.d.default_angular_velocity, file=file)
         print("MAX_ANGULAR_VELOCITY = %f"% self.d.max_angular_velocity, file=file)
         print("MIN_ANGULAR_VELOCITY = %f"% self.d.min_angular_velocity, file=file)
-        print("EDITOR = %s"% self.d.editor, file=file)
-        print("GEOMETRY = %s"% self.d.geometry, file=file) 
+        # qtplasmac has internal editor
+        if self.d.frontend != _PD._QTPLASMAC:
+            print("EDITOR = %s"% self.d.editor, file=file)
+        print("GEOMETRY = %s"% self.d.geometry, file=file)
+        print("CYCLE_TIME = 100", file=file)
+
+        # set up MDI macro buttons
+        if self.d.frontend == _PD._QTDRAGON:
+            print(file=file)
+            print("[MDI_COMMAND_LIST]", file=file)
+            print("MDI_COMMAND = G0 Z0;X0 Y0", file=file)
+            print("MDI_COMMAND = G53 G0 Z0;G53 G0 X0 Y0", file=file)
 
         print(file=file)
+
+        # this is needed for module embeded tab gtk_little_probe
+        if self.d.frontend == _PD._GMOCCAPY:
+            if self.d.gmcpy_probescreen:
+                print(file=file)
+                print("[TOOLSENSOR]", file=file)
+                print("RAPID_SPEED = 600", file=file)
+                print(file=file)
+
         print("[FILTER]", file=file)
-        print("PROGRAM_EXTENSION = .png,.gif,.jpg Greyscale Depth Image", file=file)
-        print("PROGRAM_EXTENSION = .py Python Script", file=file)
-        print("png = image-to-gcode", file=file)
-        print("gif = image-to-gcode", file=file)
-        print("jpg = image-to-gcode", file=file)
-        print("py = python", file=file)        
+        # qtplasmac has a different filter section
+        if self.d.frontend == _PD._QTPLASMAC:
+            print("PROGRAM_EXTENSION = .ngc,.nc,.tap GCode File (*.ngc, *.nc, *.tap)", file=file)
+            print("ngc = qtplasmac_gcode", file=file)
+            print("nc  = qtplasmac_gcode", file=file)
+            print("tap = qtplasmac_gcode", file=file)
+        else:
+            print("PROGRAM_EXTENSION = .png,.gif,.jpg Greyscale Depth Image", file=file)
+            print("PROGRAM_EXTENSION = .py Python Script", file=file)
+            print("png = image-to-gcode", file=file)
+            print("gif = image-to-gcode", file=file)
+            print("jpg = image-to-gcode", file=file)
+            print("py = python", file=file)
 
         print(file=file)
         print("[TASK]", file=file)
@@ -110,6 +176,62 @@ class INI:
         print(file=file)
         print("[RS274NGC]", file=file)
         print("PARAMETER_FILE = linuxcnc.var", file=file)
+        # qtplasmac has extra rs274ngc variables
+        if self.d.frontend == _PD._QTPLASMAC:
+            code = 21 if self.d.units == _PD._METRIC else 20
+            if '/usr' in self.d.qtplasmacbase:
+                mPath = '/usr/share/doc/linuxcnc/examples/nc_files/plasmac/m_files'
+            else:
+                mPath = os.path.realpath(os.path.join(self.d.qtplasmacbase, 'nc_files/plasmac/m_files'))
+            print("RS274NGC_STARTUP_CODE = G{} G40 G49 G80 G90 G92.1 G94 G97 M52P1".format(code), file=file)
+            print("SUBROUTINE_PATH = ./:../../nc_files", file=file)
+            print(f"USER_M_PATH = ./:{mPath}", file=file)
+            print("", file=file)
+        else:
+            if self.d.units == _PD._METRIC:
+                unit = 21
+                p = .025
+                q = .025
+            else:
+                unit = 20
+                p = .001
+                q = .001
+            print("RS274NGC_STARTUP_CODE = G{} G40 G90 G94 G97 G64".format(unit), file=file)
+            print("", file=file)
+            print("# Default P value for G64 if P is not called out", file=file)
+            print("G64_DEFAULT_TOLERANCE = {}".format(p), file=file)
+            print("# Default Q value for G64 if Q is not called out", file=file)
+            print("G64_DEFAULT_NAIVETOLERANCE = {}".format(q), file=file)
+            print("", file=file)
+        if self.d.frontend == _PD._GMOCCAPY:
+            self.subrutinepath = "./macros:"
+            if self.d.gmcpy_probescreen:
+                # subrutine path for module embeded tab gtk_little_probe - package install
+                probepath = "/usr/share/linuxcnc/nc_files/probe/gtk_probe/"
+                if os.path.isdir(probepath):
+                    self.subrutinepath = self.subrutinepath + probepath + ":"
+                    print("Directory for probe files exist:", probepath)
+                else:
+                    print("Directory for probe files does not exist:", probepath)
+                # subrutine path for module embeded tab gtk_little_probe - RIP install
+                script_dir = os.path.dirname(__file__)
+                rel = "../../../nc_files/probe/gtk_probe/"
+                probepath = os.path.normpath(os.path.join(script_dir, rel))
+                if os.path.isdir(probepath):
+                    self.subrutinepath = self.subrutinepath + probepath + ":"
+                    print("Directory for probe files does exist:", probepath)
+                else:
+                    print("Directory for probe files does not exist:", probepath)
+            self.subrutinepath = self.subrutinepath.rstrip(":")
+            print("SUBROUTINE_PATH = %s"% self.subrutinepath, file=file)
+            print("REMAP=M6  modalgroup=6 prolog=change_prolog ngc=change_g43 epilog=change_epilog", file=file)
+            print("REMAP=M61  modalgroup=6 prolog=settool_prolog ngc=settool_g43 epilog=settool_epilog", file=file)
+            print(file=file)
+            print("# the Python plugins serves interpreter and task", file=file)
+            print("[PYTHON]", file=file)
+            print("PATH_PREPEND = ./python", file=file)
+            print("TOPLEVEL = ./python/toplevel.py", file=file)
+            print("LOG_LEVEL = 0", file=file)
 
         #base_period = self.d.ideal_period()
 
@@ -117,17 +239,22 @@ class INI:
         print("[EMCMOT]", file=file)
         print("EMCMOT = motmod", file=file)
         print("COMM_TIMEOUT = 1.0", file=file)
-        #print >>file, "BASE_PERIOD = %d" % self.d.baseperiod
+        #print("BASE_PERIOD = %d" % self.d.baseperiod, file=file)
         print("SERVO_PERIOD = %d" % self.d.servoperiod, file=file)
         print(file=file)
         print("[HMOT]", file=file)
         if not self.d.useinisubstitution:
-            print("# **** This is for info only ****", file=file)
+            print(_("# **** This is for info only ****"), file=file)
         print("CARD0=hm2_%s.0"% self.d.mesa0_currentfirmwaredata[_PD._BOARDNAME], file=file)
         if self.d.number_mesa == 2:
-            print("CARD1=hm_%s.1"% self.d.mesa1_currentfirmwaredata[_PD._BOARDNAME], file=file)
+            for boardnum in range(0,int(self.d.number_mesa)):
+                if boardnum == 1 and (self.d.mesa0_currentfirmwaredata[_PD._BOARDNAME] == self.d.mesa1_currentfirmwaredata[_PD._BOARDNAME]):
+                    halnum = 1
+                else:
+                    halnum = 0
+            print(file, "CARD1=hm2_%s.%d"% (self.d.mesa1_currentfirmwaredata[_PD._BOARDNAME], halnum), file=file)
         if self.d._substitution_list:
-            print("# These are to ease setting custom component's parameters in a custom HAL file", file=file)
+            print(_("# These are to ease setting custom component's parameters in a custom HAL file"), file=file)
             print(file=file)
             for i,temp in enumerate(self.d._substitution_list):
                 a,b = self.d._substitution_list[i]
@@ -137,19 +264,37 @@ class INI:
                     print("%s=%s"%(a,b), file=file)
         print(file=file)
         print("[HAL]", file=file)
-        print("HALUI = halui", file=file)          
+        print("HALUI = halui", file=file)
         print("HALFILE = %s.hal" % self.d.machinename, file=file)
+        # qtplasmac requires the qtplasmac_comp file to connect the plasmac component
+        if self.d.frontend == _PD._QTPLASMAC:
+            print("HALFILE = qtplasmac_comp.hal", file=file)
         print("HALFILE = custom.hal", file=file)
-        if self.d.frontend in( _PD._AXIS, _PD._GMOCCAPY):
-            print("POSTGUI_HALFILE = postgui_call_list.hal", file=file)
+
+        if self.d.pyvcp and self.d.pyvcphaltype == 1 and self.d.pyvcpconnect:
+           print("POSTGUI_HALFILE = pyvcp_options.hal", file=file)
+        if self.d.serial_vfd:
+            if self.d.gs2_vfd:
+                print("POSTGUI_HALFILE = gs2_vfd.hal", file=file)
+            if self.d.mitsub_vfd:
+                print("POSTGUI_HALFILE = mitsub_vfd.hal", file=file)
+        if self.d.toolchangeprompt:
+            if self.d.frontend == _PD._QTDRAGON:
+                print("POSTGUI_HALFILE = qtvcp_postgui.hal", file=file)
+            elif self.d.frontend == _PD._GMOCCAPY:
+                print("POSTGUI_HALFILE = gmoccapy_postgui.hal", file=file)
+        # qtplasmac always has a postgui hal fil
+        if self.d.frontend == _PD._QTPLASMAC:
+            print("POSTGUI_HALFILE = qtplasmac_postgui.hal", file=file)
+        print("POSTGUI_HALFILE = custom_postgui.hal", file=file)
         print("SHUTDOWN = shutdown.hal", file=file)
         print(file=file)
-        print("[HALUI]", file=file)          
+        print("[HALUI]", file=file)
         if self.d.halui == True:
             for i in range(0,15):
                 cmd =self.d["halui_cmd" + str(i)]
                 if cmd =="": break
-                print("MDI_COMMAND = %s"% cmd, file=file)           
+                print("MDI_COMMAND = %s"% cmd, file=file)
 
         # Build axis/joints info
 
@@ -184,7 +329,7 @@ class INI:
             coords += 'Z'
 
         if self.d.axes == 1: # for xyza
-            # add A axis 
+            # add A axis
             num_joints += 1
             coords += 'A'
             tandemjoint = self.a.tandem_check('a')
@@ -201,12 +346,15 @@ class INI:
         # trivial kinematics: no. of joints == no.of axes)
         # with trivkins, axes do not have to be consecutive
         print("JOINTS = %d"%num_joints, file=file)
-        if tandemflag:
+        if tandemflag and self.d.frontend != _PD._QTPLASMAC:
             print("KINEMATICS = trivkins coordinates=%s kinstype=BOTH"%coords.replace(" ",""), file=file)
         else:
             print("KINEMATICS = trivkins coordinates=%s"%coords.replace(" ",""), file=file)
         print(file=file)
         print("[TRAJ]", file=file)
+        # qtplasmac requires 3 spindles
+        if self.d.frontend == _PD._QTPLASMAC:
+            print("SPINDLES = 3", file=file)
         print("COORDINATES = ",coords, file=file)
         if self.d.axes == 1:
             print("MAX_ANGULAR_VELOCITY = %.2f" % self.d.amaxvel, file=file)
@@ -231,27 +379,28 @@ class INI:
             print("NO_FORCE_HOMING = 1", file=file)
         print(file=file)
         print("[EMCIO]", file=file)
-        print("EMCIO = io", file=file)
-        print("CYCLE_TIME = 0.100", file=file)
         print("TOOL_TABLE = tool.tbl", file=file)
-        if self.d.allow_spindle_on_toolchange:
-            print("TOOL_CHANGE_WITH_SPINDLE_ON = 1", file=file)
-        if self.d.raise_z_on_toolchange:
-            print("TOOL_CHANGE_QUILL_UP = 1", file=file)
-        if self.d.random_toolchanger:
-            print("RANDOM_TOOLCHANGER = 1", file=file)
-        
-        all_homes = self.a.home_sig("x") and self.a.home_sig("z")
-        if self.d.axes in (0,1): all_homes = all_homes and self.a.home_sig("y")
-        if self.d.axes == 1: all_homes = all_homes and self.a.home_sig("a")
+        # qtplasmac doesn't require these
+        if self.d.frontend != _PD._QTPLASMAC:
+            if self.d.allow_spindle_on_toolchange:
+                print("TOOL_CHANGE_WITH_SPINDLE_ON = 1", file=file)
+            if self.d.raise_z_on_toolchange:
+                print("TOOL_CHANGE_QUILL_UP = 1", file=file)
+            if self.d.random_toolchanger:
+                print("RANDOM_TOOLCHANGER = 1", file=file)
+
+        all_homes = bool(self.a.home_sig("x") and self.a.home_sig("z"))
+        if self.d.axes in (0,1): all_homes = bool(all_homes and self.a.home_sig("y"))
+        # A axis usually doesn't have home switches
+        #if self.d.axes == 1: all_homes = all_homes and self.a.home_sig("a")
 
         ##############################################################
         # build axis/joint info
         ##############################################################
         # self.d.axes:
         # 0 = xyz
-        # 1 = xz
-        # 2 = xyza
+        # 1 = xyza
+        # 2 = xz
         # todo: simplify hardcoding for trivkins sequential joint no.s
 
         jnum = 0
@@ -261,7 +410,7 @@ class INI:
         self.write_one_joint(file, 0, "x", "LINEAR", all_homes, tandemjoint)
         if tandemjoint:
             jnum += 1
-            self.write_one_joint(file, jnum, "x", "LINEAR", all_homes, True)
+            self.write_one_joint(file, jnum, "x", "LINEAR", all_homes, True, ismain = False)
         jnum += 1
         print("#******************************************", file=file)
 
@@ -272,7 +421,7 @@ class INI:
             self.write_one_joint(file, jnum, "y", "LINEAR", all_homes, tandemjoint)
             if tandemjoint:
                 jnum += 1
-                self.write_one_joint(file, jnum, "y", "LINEAR", all_homes, True)
+                self.write_one_joint(file, jnum, "y", "LINEAR", all_homes, True, ismain = False)
             jnum += 1
             print("#******************************************", file=file)
 
@@ -282,7 +431,7 @@ class INI:
         self.write_one_joint(file, jnum, "z", "LINEAR", all_homes, tandemjoint)
         if tandemjoint:
             jnum += 1
-            self.write_one_joint(file, jnum, "z", "LINEAR", all_homes, True)
+            self.write_one_joint(file, jnum, "z", "LINEAR", all_homes, True, ismain = False)
         jnum += 1
         print("#******************************************", file=file)
 
@@ -293,17 +442,17 @@ class INI:
             self.write_one_joint(file, jnum, "a", "ANGULAR", all_homes, tandemjoint)
             if tandemjoint:
                 jnum += 1
-                self.write_one_joint(file, jnum, "a", "ANGULAR", all_homes, True)
+                self.write_one_joint(file, jnum, "a", "ANGULAR", all_homes, True, ismain = False)
             jnum += 1
             print("#******************************************", file=file)
 
-        # usually add SPINDLE
-        if self.d.include_spindle:
+        # usually add SPINDLE except for qtplasmac
+        if self.d.include_spindle and self.d.frontend != _PD._QTPLASMAC:
             self.write_one_joint(file, 9, "s", "null", all_homes, False)
         file.close()
         self.d.add_md5sum(filename)
 
-    def write_one_joint(self, file, num, letter, type, all_homes, tandemflag):
+    def write_one_joint(self, file, num, letter, type, all_homes, tandemflag, ismain = True):
         def get(s): return self.d[letter + s]
         pwmgen = self.a.pwmgen_sig(letter)
         tppwmgen = self.a.tppwmgen_sig(letter)
@@ -311,12 +460,12 @@ class INI:
         encoder = self.a.encoder_sig(letter)
         resolver = self.a.resolver_sig(letter)
         potoutput = self.a.potoutput_sig(letter)
-        
+
         closedloop = False
         if stepgen and (encoder or resolver): closedloop = True
         if (encoder or resolver) and (pwmgen or tppwmgen) : closedloop = True
         if closedloop and letter == "s": closedloop = False
-        #print "INI ",letter + " is closedloop? "+ str(closedloop),encoder,pwmgen,tppwmgen,stepgen
+        #print("INI ",letter + " is closedloop? "+ str(closedloop),encoder,pwmgen,tppwmgen,stepgen)
 
         print(file=file)
         if letter == 's':
@@ -331,8 +480,8 @@ class INI:
             print("MAX_VELOCITY = %s" % get("maxvel"), file=file)
             print("MAX_ACCELERATION = %s" % get("maxacc"), file=file)
             if stepgen:
-                print("# The values below should be 25% larger than MAX_VELOCITY and MAX_ACCELERATION", file=file)
-                print("# If using BACKLASH compensation STEPGEN_MAXACCEL should be 100% larger.", file=file)
+                print(_("# The values below should be 25% larger than MAX_VELOCITY and MAX_ACCELERATION"), file=file)
+                print(_("# If using BACKLASH compensation STEPGEN_MAXACCEL should be 100% larger."), file=file)
                 if get("usecomp") or get("usebacklash"):
                     factor = 2.0
                 else:
@@ -341,12 +490,12 @@ class INI:
                 print("STEPGEN_MAXACCEL = %.2f" % (float(get("maxacc")) * factor), file=file)
 
         print("P = %s" % get("P"), file=file)
-        print("I = %s" % get("I"), file=file) 
+        print("I = %s" % get("I"), file=file)
         print("D = %s" % get("D"), file=file)
         print("FF0 = %s" % get("FF0"), file=file)
         print("FF1 = %s" % get("FF1"), file=file)
         print("FF2 = %s" % get("FF2"), file=file)
-        print("BIAS = %s"% get("bias"), file=file) 
+        print("BIAS = %s"% get("bias"), file=file)
         print("DEADBAND = %s"% get("deadband"), file=file)
         print("MAX_OUTPUT = %s" % get("maxoutput"), file=file)
         if encoder or resolver:
@@ -384,10 +533,10 @@ class INI:
                     print("OUTPUT_MAX_LIMIT = %s"% (get("outputmaxlimit")), file=file)
 
         if stepgen:
-            print("# these are in nanoseconds", file=file)
+            print(_("# these are in nanoseconds"), file=file)
             print("DIRSETUP   = %d"% int(get("dirsetup")), file=file)
             print("DIRHOLD    = %d"% int(get("dirhold")), file=file)
-            print("STEPLEN    = %d"% int(get("steptime")), file=file)          
+            print("STEPLEN    = %d"% int(get("steptime")), file=file)
             print("STEPSPACE  = %d"% int(get("stepspace")), file=file)
             if get("invertmotor"):
                 temp = -1
@@ -402,8 +551,9 @@ class INI:
         minlim, maxlim = self.find_limits(letter)
         print("MIN_LIMIT = %s" % minlim, file=file)
         print("MAX_LIMIT = %s" % maxlim, file=file)
-        thisaxishome = set(("all-home", "home-" + letter, "min-home-" + letter, "max-home-" + letter, "both-home-" + letter))
-        ignore = set(("min-home-" + letter, "max-home-" + letter, "both-home-" + letter))
+        thisaxishome = set(("all-limit-home", "all-home", "home-" + letter, "min-home-" + letter, "max-home-" + letter, "both-home-" + letter))
+        ignore = set(("min-home-" + letter, "max-home-" + letter, "both-home-" + letter, "all-limit-home"))
+        share = set(("all-limit-home", "all-home"))
         homes = False
         for i in thisaxishome:
             if self.a.findsignal(i): homes = True
@@ -413,35 +563,43 @@ class INI:
         if homes:
             searchvel = abs(get("homesearchvel"))
             latchvel = abs(get("homelatchvel"))
-            #print get("searchdir")
+            #print(get("searchdir"))
             if get("searchdir") == 0:
                  searchvel = -searchvel
-                 if get("latchdir") == 0: 
-                    latchvel = -latchvel 
-            else:
-                if get("latchdir") == 1: 
+                 if get("latchdir") == 0:
                     latchvel = -latchvel
-            print("HOME_OFFSET = %f" % get("homesw"), file=file)
-            print("HOME_SEARCH_VEL = %f" % searchvel, file=file)                      
+            else:
+                if get("latchdir") == 1:
+                    latchvel = -latchvel
+            if ismain:
+                print("HOME_OFFSET = %f" % get("homesw"), file=file)
+            else:
+                print("HOME_OFFSET = %f" % get("hometandemsw"), file=file)
+            print("HOME_SEARCH_VEL = %f" % searchvel, file=file)
             print("HOME_LATCH_VEL = %f" % latchvel, file=file)
             print("HOME_FINAL_VEL = %f" % get("homefinalvel"), file=file)
             if get("usehomeindex"):useindex = "YES"
-            else: useindex = "NO"   
+            else: useindex = "NO"
             print("HOME_USE_INDEX = %s" % useindex, file=file)
             for i in ignore:
                 if self.a.findsignal(i):
                     print("HOME_IGNORE_LIMITS = YES", file=file)
                     break
-            # if all axis have homing switches and user doesn't request
-            # manual individual homing:
-            if all_homes and not self.d.individual_homing:
-                seqnum = int(get("homesequence"))
-                # if a tandem joint we wish to finish the home sequence together
-                if tandemflag: wait ='-'
-                else: wait = ''
-                print("HOME_SEQUENCE = %s%d" % (wait,seqnum), file=file)
+            for i in share:
+                if self.a.findsignal(i):
+                    print("HOME_IS_SHARED = 1", file=file)
+                    break
         else:
             print("HOME_OFFSET = %s" % get("homepos"), file=file)
+
+        # if  user doesn't request manual individual homing, add the sequence number:
+        if not self.d.individual_homing:
+            # start home sequences at 1 because tandem axes cannot be 0
+            seqnum = int(get("homesequence")) + 1
+            # if a tandem joint we wish to finish the home sequence together
+            if tandemflag: wait ='-'
+            else: wait = ''
+            print("HOME_SEQUENCE = %s%d" % (wait,seqnum), file=file)
 
     def write_one_axis(self, file, letter):
         # For KINEMATICS_IDENTITY:
@@ -453,22 +611,30 @@ class INI:
             print(file=file)
             print("#******************************************", file=file)
             print("[AXIS_%s]" % axis_letter, file=file)
-            print("MAX_VELOCITY = %s" % get("maxvel"), file=file)
-            print("MAX_ACCELERATION = %s" % get("maxacc"), file=file)
+            # qtplasmac requires double vel & acc to use eoffsets correctly
+            if self.d.frontend == _PD._QTPLASMAC:
+                print(_("# MAX_VEL & MAX_ACC need to be twice the corresponding joint value"), file=file)
+                print("MAX_VELOCITY = %s" % (get("maxvel") * 2), file=file)
+                print("MAX_ACCELERATION = %s" % (get("maxacc") * 2), file=file)
+                print("OFFSET_AV_RATIO = 0.5", file=file)
+            else:
+                print("MAX_VELOCITY = %s" % get("maxvel"), file=file)
+                print("MAX_ACCELERATION = %s" % get("maxacc"), file=file)
             print("MIN_LIMIT = %s" % minlim, file=file)
             print("MAX_LIMIT = %s" % maxlim, file=file)
 
     # linuxcnc doesn't like having home right on an end of travel,
-    # so extend the travel limit by up to .01in or .1mm
+    # so extend the travel limit by up to .001in or .01mm
     def find_limits(self, letter):
         def get(s): return self.d[letter + s]
         minlim = -abs(get("minlim"))
         maxlim = get("maxlim")
         home = get("homepos")
-        if self.d.units == _PD._METRIC: extend = .01
-        else: extend = .001
-        minlim = min(minlim, home - extend)
-        maxlim = max(maxlim, home + extend)
+        extend = 0.01 if self.d.units == _PD._METRIC else 0.001
+        if minlim == home:
+            minlim = minlim - extend
+        elif maxlim == home:
+            maxlim = maxlim + extend
         return (minlim, maxlim)
 
 # BOILER CODE

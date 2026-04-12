@@ -23,6 +23,7 @@
 #define REM_MSG_HH
 
 
+class NML;
 class CMS_DIAGNOSTICS_INFO;
 struct CMS_HEADER;
 
@@ -72,9 +73,15 @@ struct REMOTE_CMS_REPLY:public REMOTE_CMS_MESSAGE {
 
 /* Structure sent by client to server to initiate a read. */
 struct REMOTE_BLOCKING_READ_REQUEST:public REMOTE_CMS_REQUEST {
-    REMOTE_BLOCKING_READ_REQUEST():REMOTE_CMS_REQUEST
-	(REMOTE_CMS_BLOCKING_READ_REQUEST_TYPE) {
-    };
+    REMOTE_BLOCKING_READ_REQUEST()
+      : REMOTE_CMS_REQUEST(REMOTE_CMS_BLOCKING_READ_REQUEST_TYPE),
+        access_type(0),
+        last_id_read(0),
+        timeout_millis(0),
+        _nml(NULL),
+        _data(NULL),
+        _reply(NULL)
+    {};
     int access_type;		/* read or just peek */
     long last_id_read;		/* The server can compare with id from buffer 
 				 */
@@ -82,7 +89,7 @@ struct REMOTE_BLOCKING_READ_REQUEST:public REMOTE_CMS_REQUEST {
     /* to this client */
     long timeout_millis;	/* Milliseconds for blocking_timeout or -1 to 
 				   wait forever */
-    void *_nml;
+    NML *_nml;
     void *_data;
     void *_reply;
 };
@@ -95,8 +102,11 @@ struct REMOTE_GET_BUF_NAME_REQUEST:public REMOTE_CMS_REQUEST {
 };
 
 struct REMOTE_READ_REQUEST:public REMOTE_CMS_REQUEST {
-    REMOTE_READ_REQUEST():REMOTE_CMS_REQUEST(REMOTE_CMS_READ_REQUEST_TYPE) {
-    };
+    REMOTE_READ_REQUEST()
+      : REMOTE_CMS_REQUEST(REMOTE_CMS_READ_REQUEST_TYPE),
+        access_type(0),
+        last_id_read(0)
+    {};
     int access_type;		/* read or just peek */
     long last_id_read;		/* The server can compare with id from buffer 
 				 */
@@ -124,10 +134,13 @@ struct REMOTE_BLOCKING_READ_REPLY:public REMOTE_READ_REPLY {
 
 /* Structure sent by client to server to initiate a write. */
 struct REMOTE_WRITE_REQUEST:public REMOTE_CMS_REQUEST {
-    REMOTE_WRITE_REQUEST():REMOTE_CMS_REQUEST(REMOTE_CMS_WRITE_REQUEST_TYPE) {
-	data = NULL;
-	size = 0;
-    };
+    REMOTE_WRITE_REQUEST()
+      : REMOTE_CMS_REQUEST(REMOTE_CMS_WRITE_REQUEST_TYPE),
+        access_type(0),
+        size(0),
+        data(NULL),
+        _nml(NULL)
+    {};
     int access_type;		/* write or write_if_read */
     int size;			/* size of message in data */
     void *data;			/* location of message to write into buffer */
@@ -137,7 +150,7 @@ struct REMOTE_WRITE_REQUEST:public REMOTE_CMS_REQUEST {
 /* Structure returned by server to client after a write. */
 struct REMOTE_WRITE_REPLY:public REMOTE_CMS_REPLY {
     long write_id;		/* Id from the buffer. */
-    long was_read;		/* Was the message to be overwriten ever
+    long was_read;		/* Was the message to be overwritten ever
 				   read? */
     int confirm_write;
 };
@@ -170,9 +183,10 @@ struct REMOTE_CLOSE_CHANNEL_REPLY:public REMOTE_CMS_REPLY {
 };
 
 struct REMOTE_GET_KEYS_REQUEST:public REMOTE_CMS_REQUEST {
-    REMOTE_GET_KEYS_REQUEST():REMOTE_CMS_REQUEST
-	(REMOTE_CMS_GET_KEYS_REQUEST_TYPE) {
-    };
+    REMOTE_GET_KEYS_REQUEST()
+      : REMOTE_CMS_REQUEST(REMOTE_CMS_GET_KEYS_REQUEST_TYPE),
+        name{}
+    {};
     char name[16];
 };
 
@@ -182,8 +196,11 @@ struct REMOTE_GET_KEYS_REPLY:public REMOTE_CMS_REPLY {
 };
 
 struct REMOTE_LOGIN_REQUEST:public REMOTE_CMS_REQUEST {
-    REMOTE_LOGIN_REQUEST():REMOTE_CMS_REQUEST(REMOTE_CMS_LOGIN_REQUEST_TYPE) {
-    };
+    REMOTE_LOGIN_REQUEST()
+      : REMOTE_CMS_REQUEST(REMOTE_CMS_LOGIN_REQUEST_TYPE),
+        name{},
+        passwd{}
+    {};
     char name[16];
     char passwd[16];
 };
@@ -199,9 +216,12 @@ enum CMS_REMOTE_SUBSCRIPTION_REQUEST_TYPE {
 };
 
 struct REMOTE_SET_SUBSCRIPTION_REQUEST:public REMOTE_CMS_REQUEST {
-    REMOTE_SET_SUBSCRIPTION_REQUEST():REMOTE_CMS_REQUEST
-	(REMOTE_CMS_SET_SUBSCRIPTION_REQUEST_TYPE) {
-    };
+    REMOTE_SET_SUBSCRIPTION_REQUEST()
+      : REMOTE_CMS_REQUEST(REMOTE_CMS_SET_SUBSCRIPTION_REQUEST_TYPE),
+        subscription_type(0),
+        poll_interval_millis(0),
+        last_id_read(0)
+    {};
     int subscription_type;
     int poll_interval_millis;
     int last_id_read;
@@ -214,9 +234,10 @@ struct REMOTE_SET_SUBSCRIPTION_REPLY:public REMOTE_CMS_REPLY {
 };
 
 struct REMOTE_CANCEL_SUBSCRIPTION_REQUEST:public REMOTE_CMS_REQUEST {
-    REMOTE_CANCEL_SUBSCRIPTION_REQUEST():REMOTE_CMS_REQUEST
-	(REMOTE_CMS_CANCEL_SUBSCRIPTION_REQUEST_TYPE) {
-    };
+    REMOTE_CANCEL_SUBSCRIPTION_REQUEST()
+      : REMOTE_CMS_REQUEST(REMOTE_CMS_CANCEL_SUBSCRIPTION_REQUEST_TYPE),
+        subscription_id(0)
+    {};
     int subscription_id;
 };
 
@@ -227,9 +248,17 @@ struct REMOTE_CANCEL_SUBSCRIPTION_REPLY:public REMOTE_CMS_REPLY {
 };
 
 struct REMOTE_SET_DIAG_INFO_REQUEST:public REMOTE_CMS_REQUEST {
-    REMOTE_SET_DIAG_INFO_REQUEST():REMOTE_CMS_REQUEST
-	(REMOTE_CMS_SET_DIAG_INFO_REQUEST_TYPE) {
-    };
+    REMOTE_SET_DIAG_INFO_REQUEST()
+      : REMOTE_CMS_REQUEST(REMOTE_CMS_SET_DIAG_INFO_REQUEST_TYPE),
+        process_name{},
+        host_sysinfo{},
+        pid(0),
+        c_num(0),
+        rcslib_ver(0.0),
+        reverse_flag(0),
+        bytes_moved(0.0),
+        bytes_moved_accross_socket(0.0)
+    {};
     char process_name[16];
     char host_sysinfo[256];
     int pid;

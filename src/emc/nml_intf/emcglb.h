@@ -15,9 +15,9 @@
 #ifndef EMCGLB_H
 #define EMCGLB_H
 
-#include "config.h"             /* LINELEN */
-#include "math.h"		/* M_PI */
-#include "emcmotcfg.h"          /* EMCMOT_MAX_DIO */
+#include <math.h>		/* M_PI */
+#include <linuxcnc.h>           /* LINELEN */
+#include <emcmotcfg.h>          /* EMCMOT_MAX_DIO */
 #include "debugflags.h"
 
 #ifdef __cplusplus
@@ -38,23 +38,19 @@ extern "C" {
    get these into Tk automatically */
 
     // there's also an emc_Debug function in emc/usr_intf/emcsh.cc
-    extern int emc_debug;
+    extern unsigned emc_debug;
 
     // EMC_DEBUG_* flag definitions moved to debugflags.h
 
-    extern double emc_task_cycle_time;	
-
-    extern double emc_io_cycle_time;
+    extern double emc_task_cycle_time;
 
     extern int emc_task_interp_max_len;
-
-    extern char tool_table_file[LINELEN];
 
     extern struct EmcPose tool_change_position;
     extern unsigned char have_tool_change_position;
 
 
-/*just used to keep track of unneccessary debug printing. */
+/*just used to keep track of unnecessary debug printing. */
     extern int taskplanopen;
 
     extern int emcGetArgs(int argc, char *argv[]);
@@ -65,27 +61,40 @@ typedef struct JointConfig_t {
     double Units;
     double MaxVel;
     double MaxAccel;
+    double MaxJerk;
     double MinLimit;
     double MaxLimit;
 } JointConfig_t;
 
 typedef struct AxisConfig_t {
     int Inited;
+    int haveMaxJerk;
     unsigned char Type;
     double MaxVel;
     double MaxAccel;
+    double MaxJerk;
     double Home;
     double MinLimit;
     double MaxLimit;
 } AxisConfig_t;
 
+typedef struct SpindleConfig_t {
+    int Inited;
+    double max_pos_speed;
+    double max_neg_speed;
+    double min_pos_speed;
+    double min_neg_speed;
+    int home_sequence;
+    double home_search_velocity;
+} SpindleConfig_t;
+
 typedef struct TrajConfig_t {
     int Inited;	// non-zero means traj called init
     int Joints;
     int Spindles;
+    double MaxJerk;
     double MaxAccel;
     double MaxVel;
-    int DeprecatedAxes;
     int AxisMask;
     double LinearUnits;
     double AngularUnits;

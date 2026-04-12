@@ -1,4 +1,4 @@
-#!/usr/bin/python2.7
+#!/usr/bin/env python3
 # Qtvcp widget
 #
 # Copyright (c) 2017  Chris Morley <chrisinnanaimo@hotmail.com>
@@ -15,7 +15,8 @@
 #
 #################################################################################
 
-from PyQt5.QtCore import pyqtProperty
+from qtpy.QtCore import Property
+import hal
 from qtvcp.widgets.led_widget import LED
 from qtvcp.core import Status
 from qtvcp import logger
@@ -26,15 +27,18 @@ from qtvcp import logger
 STATUS = Status()
 LOG = logger.getLogger(__name__)
 
-# Set the log level for this module
+# Force the log level for this module
 # LOG.setLevel(logger.INFO) # One of DEBUG, INFO, WARNING, ERROR, CRITICAL
 
 
 class StateLED(LED):
+    '''
+
+    Widget to display a colored LED based on a linuxcnc state.
+    '''
 
     def __init__(self, parent=None):
         super(StateLED, self).__init__(parent)
-        self.has_hal_pins = False
         self.setState(False)
 
         self.is_estopped = False
@@ -55,15 +59,31 @@ class StateLED(LED):
         self.is_spindle_stopped = False
         self.is_spindle_fwd = False
         self.is_spindle_rev = False
+        self.is_spindle_at_speed = False
+        self.is_neg_limit_tripped = False
+        self.is_pos_limit_tripped = False
+        self.is_limits_tripped = False
+        self._halpin_option = True
+        self._follow_halpin = False
 
         self.joint_number = 0
+        self._halpin_name = ''
+
+        self._override = 1
+        self._at_speed_percent = .1
 
     def _hal_init(self):
         def only_false(data):
             if data:
                 return
             self._flip_state(False)
-
+        # optional output HAL pin reflecting state
+        if self._halpin_option:
+            if self._halpin_name == '':
+                pname = self.HAL_NAME_
+            else:
+                pname = self._halpin_name
+            self.hal_pin = self.HAL_GCOMP_.newpin(pname, hal.HAL_BIT, hal.HAL_OUT)
         if self.is_estopped:
             STATUS.connect('state-estop', lambda w: self._flip_state(True))
             STATUS.connect('state-estop-reset', lambda w: self._flip_state(False))
@@ -91,18 +111,33 @@ class StateLED(LED):
             STATUS.connect('not-all-homed', lambda w, data: self.joints_unhomed(data))
         elif self.is_limits_overridden:
             STATUS.connect('override-limits-changed', self.check_override_limits)
-            STATUS.connect('hard-limits-tripped', lambda w, data: only_false(data))
+            STATUS.connect('hard-limits-tripped', lambda w, data, group: only_false(data))
         elif self.is_manual or self.is_mdi or self.is_auto:
             STATUS.connect('mode-manual', lambda w: self.mode_changed(0))
             STATUS.connect('mode-mdi', lambda w: self.mode_changed(1))
             STATUS.connect('mode-auto', lambda w: self.mode_changed(2))
         elif self.is_spindle_stopped or self.is_spindle_fwd or self.is_spindle_rev:
-            STATUS.connect('spindle-control-changed',  lambda w, state, speed: self.spindle_changed(speed))
+            STATUS.connect('spindle-control-changed',  lambda w, num, state, speed, upto: self.spindle_changed(speed))
+        elif self.is_spindle_at_speed:
+            STATUS.connect('requested-spindle-speed-changed', lambda w, speed: self.spindle_requested_changed(speed))
+            STATUS.connect('spindle-override-changed', lambda w, rate: self.spindle_override_changed(rate))
+            STATUS.connect('actual-spindle-speed-changed',lambda w, speed: self.spindle_actual_changed(speed))
+        elif self.is_neg_limit_tripped or \
+             self.is_pos_limit_tripped or \
+             self.is_limits_tripped:
+            STATUS.connect('hard-limits-tripped', lambda w, data, group: self.switch_on_hard_limits(data, group))
+        elif self._follow_halpin:
+            STATUS.connect('periodic', lambda w: self._set_halpin_text())
 
     def _flip_state(self, data):
             if self.invert_state:
                 data = not data
             self.change_state(data)
+
+    def change_state(self, state):
+        super(StateLED, self).change_state(state)
+        if self._halpin_option:
+            self.hal_pin.set(state)
 
     def joint_homed(self, joint):
         if int(joint) == self.joint_number:
@@ -139,9 +174,71 @@ class StateLED(LED):
         else:
             self._flip_state(False)
 
+    def spindle_off(self, state):
+        if state == 0:
+            if self.invert_state:
+                self.change_state(True)
+            else:
+                self.change_state(False)
+
+    def spindle_requested_changed(self, speed):
+        self._requested = speed
+        state = STATUS.is_spindle_on()
+        self.setState(state)
+
+    def spindle_override_changed(self, rate):
+        self._override = rate/100.0
+
+    def spindle_actual_changed(self, speed):
+        self._actual = speed
+        if not STATUS.is_spindle_on():
+            if self._halpin_option:
+                self.hal_pin.set(False)
+                self.setFlashing(False)
+            return
+        flash = self.spindle_near_check()
+        self.setFlashing(flash)
+        if self._halpin_option:
+            self.hal_pin.set(not flash)
+
+    def spindle_near_check(self):
+        req = self._requested * self._override
+        upper = abs(req * (1+self._at_speed_percent))
+        lower = abs(req * (1-self._at_speed_percent))
+        value = abs(self._actual)
+        #print(req,lower,value,upper,lower <= value <= upper)
+        if lower <= value <= upper:
+            return False
+        return True
+
+    def switch_on_hard_limits(self, data, group):
+        '''
+        Switch LED state based on hard limits state
+        of selected joint.
+
+        Args:
+            data (bool): combined limits state.
+            group (list): list of all joints negative
+            and positive hard limits state.
+        '''
+
+        pair = group[self.joint_number]
+        if self.is_neg_limit_tripped: data = pair[0]
+        elif self.is_pos_limit_tripped: data = pair[1]
+        else:
+            data = pair[0]+pair[1]
+        self._flip_state(data)
+
+    def _set_halpin_text(self):
+        try:
+            state = bool(self.HAL_GCOMP_.hal.get_value(self._halpin_name))
+        except Exception as e:
+            return
+        self._flip_state(state)
+
     #########################################################################
     # This is how designer can interact with our widget properties.
-    # designer will show the pyqtProperty properties in the editor
+    # designer will show the Property properties in the editor
     # it will use the get set and reset calls to do those actions
     #
     # _toggle_properties makes it so we can only select one option
@@ -152,11 +249,16 @@ class StateLED(LED):
                 'is_flood', 'is_mist', 'is_block_delete', 'is_optional_stop',
                 'is_joint_homed', 'is_limits_overridden','is_manual',
                 'is_mdi', 'is_auto', 'is_spindle_stopped', 'is_spindle_fwd',
-                'is_spindle_rev')
+                'is_spindle_rev','is_spindle_at_speed','neg_hard_limit_state',
+                'pos_hard_limit_state','hard_limits_state','followhalpin')
 
         for i in data:
             if not i == picked:
-                self[i+'_status'] = False
+                if i in('neg_hard_limit_state',
+                        'pos_hard_limit_state','hard_limits_state'):
+                     self[i] = False
+                else:
+                    self[i+'_status'] = False
 
 # property getter/setters
 
@@ -338,6 +440,55 @@ class StateLED(LED):
     def reset_is_spindle_rev(self):
         self.is_spindle_rev = False
 
+    # machine is spindle_at_speed status
+    def set_is_spindle_at_speed(self, data):
+        self.is_spindle_at_speed = data
+        if data:
+            self._toggle_properties('is_spindle_at_speed')
+    def get_is_spindle_at_speed(self):
+        return self.is_spindle_at_speed
+    def reset_is_spindle_at_speed(self):
+        self.is_spindle_at_speed = False
+
+    # machine hard limits_tripped status
+    def set_neg_limit_tripped(self, data):
+        self.is_neg_limit_tripped = data
+        if data:
+            self._toggle_properties('neg_hard_limit_state')
+    def get_neg_limit_tripped(self):
+        return self.is_neg_limit_tripped
+    def reset_neg_limit_tripped(self):
+        self.is_neg_limit_tripped = False
+
+    # machine hard limits_tripped status
+    def set_pos_limit_tripped(self, data):
+        self.is_pos_limit_tripped = data
+        if data:
+            self._toggle_properties('pos_hard_limit_state')
+    def get_pos_limit_tripped(self):
+        return self.is_pos_limit_tripped
+    def reset_pos_limit_tripped(self):
+        self.is_pos_limit_tripped = False
+
+    # machine hard limits_tripped status
+    def set_limits_tripped(self, data):
+        self.is_limits_tripped = data
+        if data:
+            self._toggle_properties('hard_limits_state')
+    def get_limits_tripped(self):
+        return self.is_limits_tripped
+    def reset_limits_tripped(self):
+        self.is_limits_tripped = False
+
+    def set_follow_pin(self, data):
+        self._follow_halpin = data
+        if data:
+            self._toggle_properties('follow_halpin')
+    def get_follow_pin(self):
+        return self._follow_halpin
+    def reset_follow_pin(self):
+        self._follow_halpin = False
+
     # Non bool
 
     # machine_joint_number status
@@ -348,30 +499,53 @@ class StateLED(LED):
     def reset_joint_number(self):
         self.joint_number = 0
 
+    def set_spindle_near_percent(self, data):
+        if data < 0: data = 0
+        if data> 100: data = 100
+        self._at_speed_percent = data/100.0
+    def get_spindle_near_percent(self):
+        return int(self._at_speed_percent * 100)
+    def reset_spindle_near_percent(self):
+        self._at_speed_percent = 0.10
+
+    def set_halpin_name(self, data):
+        self._halpin_name = data
+    def get_halpin_name(self):
+        return self._halpin_name
+    def reset_halpin_name(self):
+        self._halpin_name = ''
+
     # designer will show these properties in this order:
     # BOOL
-    invert_state_status = pyqtProperty(bool, get_invert_state, set_invert_state, reset_invert_state)
-    is_paused_status = pyqtProperty(bool, get_is_paused, set_is_paused, reset_is_paused)
-    is_estopped_status = pyqtProperty(bool, get_is_estopped, set_is_estopped, reset_is_estopped)
-    is_on_status = pyqtProperty(bool, get_is_on, set_is_on, reset_is_on)
-    is_idle_status = pyqtProperty(bool, get_is_idle, set_is_idle, reset_is_idle)
-    is_homed_status = pyqtProperty(bool, get_is_homed, set_is_homed, reset_is_homed)
-    is_flood_status = pyqtProperty(bool, get_is_flood, set_is_flood, reset_is_flood)
-    is_mist_status = pyqtProperty(bool, get_is_mist, set_is_mist, reset_is_mist)
-    is_block_delete_status = pyqtProperty(bool, get_is_block_delete, set_is_block_delete, reset_is_block_delete)
-    is_optional_stop_status = pyqtProperty(bool, get_is_optional_stop, set_is_optional_stop, reset_is_optional_stop)
-    is_joint_homed_status = pyqtProperty(bool, get_is_joint_homed, set_is_joint_homed, reset_is_joint_homed)
-    is_limits_overridden_status = pyqtProperty(bool, get_is_limits_overridden, set_is_limits_overridden,
+    invert_state_status = Property(bool, get_invert_state, set_invert_state, reset_invert_state)
+    is_paused_status = Property(bool, get_is_paused, set_is_paused, reset_is_paused)
+    is_estopped_status = Property(bool, get_is_estopped, set_is_estopped, reset_is_estopped)
+    is_on_status = Property(bool, get_is_on, set_is_on, reset_is_on)
+    is_idle_status = Property(bool, get_is_idle, set_is_idle, reset_is_idle)
+    is_homed_status = Property(bool, get_is_homed, set_is_homed, reset_is_homed)
+    is_flood_status = Property(bool, get_is_flood, set_is_flood, reset_is_flood)
+    is_mist_status = Property(bool, get_is_mist, set_is_mist, reset_is_mist)
+    is_block_delete_status = Property(bool, get_is_block_delete, set_is_block_delete, reset_is_block_delete)
+    is_optional_stop_status = Property(bool, get_is_optional_stop, set_is_optional_stop, reset_is_optional_stop)
+    is_joint_homed_status = Property(bool, get_is_joint_homed, set_is_joint_homed, reset_is_joint_homed)
+    is_limits_overridden_status = Property(bool, get_is_limits_overridden, set_is_limits_overridden,
                                                reset_is_limits_overridden)
-    is_manual_status = pyqtProperty(bool, get_is_manual, set_is_manual, reset_is_manual)
-    is_mdi_status = pyqtProperty(bool, get_is_mdi, set_is_mdi, reset_is_mdi)
-    is_auto_status = pyqtProperty(bool, get_is_auto, set_is_auto, reset_is_auto)
-    is_spindle_stopped_status = pyqtProperty(bool, get_is_spindle_stopped, set_is_spindle_stopped, reset_is_spindle_stopped)
-    is_spindle_fwd_status = pyqtProperty(bool, get_is_spindle_fwd, set_is_spindle_fwd, reset_is_spindle_fwd)
-    is_spindle_rev_status = pyqtProperty(bool, get_is_spindle_rev, set_is_spindle_rev, reset_is_spindle_rev)
+    is_manual_status = Property(bool, get_is_manual, set_is_manual, reset_is_manual)
+    is_mdi_status = Property(bool, get_is_mdi, set_is_mdi, reset_is_mdi)
+    is_auto_status = Property(bool, get_is_auto, set_is_auto, reset_is_auto)
+    is_spindle_stopped_status = Property(bool, get_is_spindle_stopped, set_is_spindle_stopped, reset_is_spindle_stopped)
+    is_spindle_fwd_status = Property(bool, get_is_spindle_fwd, set_is_spindle_fwd, reset_is_spindle_fwd)
+    is_spindle_rev_status = Property(bool, get_is_spindle_rev, set_is_spindle_rev, reset_is_spindle_rev)
+    is_spindle_at_speed_status = Property(bool, get_is_spindle_at_speed, set_is_spindle_at_speed, reset_is_spindle_at_speed)
+    neg_hard_limit_state = Property(bool, get_neg_limit_tripped, set_neg_limit_tripped, reset_neg_limit_tripped)
+    pos_hard_limit_state = Property(bool, get_pos_limit_tripped, set_pos_limit_tripped, reset_pos_limit_tripped)
+    hard_limits_state = Property(bool, get_limits_tripped, set_limits_tripped, reset_limits_tripped)
+    follow_halpin_state = Property(bool, get_follow_pin, set_follow_pin, reset_follow_pin)
 
     # NON BOOL
-    joint_number_status = pyqtProperty(int, get_joint_number, set_joint_number, reset_joint_number)
+    joint_number_status = Property(int, get_joint_number, set_joint_number, reset_joint_number)
+    spindle_near_percent_status = Property(int, get_spindle_near_percent, set_spindle_near_percent, reset_spindle_near_percent)
+    halpin_name = Property(str, get_halpin_name, set_halpin_name, reset_halpin_name)
 
     # boilder code
     def __getitem__(self, item):
@@ -382,7 +556,7 @@ class StateLED(LED):
 if __name__ == "__main__":
 
     import sys
-    from PyQt4.QtGui import QApplication
+    from qtpy.QtGui import QApplication
     app = QApplication(sys.argv)
     led = StateLED()
     led.show()

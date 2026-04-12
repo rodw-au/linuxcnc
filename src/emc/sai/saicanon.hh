@@ -2,9 +2,9 @@
 #define SAICANON_HH
 
 #include <stdio.h>
-#include <interp_fwd.hh>
-#include <canon.hh>
 #include <string>
+#include "rs274ngc/interp_fwd.hh"
+#include "nml_intf/canon.hh"
 
 struct StandaloneInterpInternals;
 class InterpBase;
@@ -21,9 +21,11 @@ struct StandaloneInterpInternals
 
   CANON_PLANE _active_plane;
   int _active_slot;
+  int _selected_tool;
   int _feed_mode;
   double _feed_rate;
   int _flood;
+  double _external_length_units;
   double _length_unit_factor;
   CANON_UNITS _length_unit_type;
   int _line_number;

@@ -1,34 +1,80 @@
-component logic "LinuxCNC HAL component providing configurable logic functions";
+component logic """LinuxCNC HAL component providing configurable logic functions
+
+*loadrt* *logic* [*count*=_N_|*names*=_name1_[,_name2_...]] *personality*=_0xXXXX_[,_0xXXXX_...]
+
+*count*::
+The number of logical gates.
+
+*names*::
+The named logical gates to create.
+
+*personality*:: Comma separated list of hexadecimal number.
+Each number defines the behaviour of the individual logic gate.  The
+list must have the same number of personalities as the N count.
+
+""";
 pin in bit in-##[16 : personality & 0xff];
 pin out bit and if personality & 0x100;
 pin out bit or if personality & 0x200;
 pin out bit xor if personality & 0x400;
 pin out bit nand if personality & 0x800;
 pin out bit nor if personality & 0x1000;
-function _ nofp;
+function _ "Read the inputs and toggle the output bit.";
 description """
 General `logic function' component.  Can perform `and', `or',
 `nand', `nor' and `xor' of up to 16 inputs.
-.LP
+
 Determine the proper value for `personality'
 by adding the inputs and outputs then convert to hex:
-.IP \\(bu 4
-The number of input pins, usually from 2 to 16
-.IP \\(bu
-256 (0x100)  if the `and' output is desired
-.IP \\(bu
-512 (0x200)  if the `or' output is desired
-.IP \\(bu
-1024 (0x400)  if the `xor' (exclusive or) output is desired
-.IP \\(bu
-2048 (0x800)  if the `nand' output is desired
-.IP \\(bu
-4096 (0x1000)  if the `nor' output is desired
-.LP
+
+* The number of input pins, usually from 2 to 16
+* 256 (0x100)  if the `and' output is desired
+* 512 (0x200)  if the `or' output is desired
+* 1024 (0x400)  if the `xor' (exclusive or) output is desired
+* 2048 (0x800)  if the `nand' output is desired
+* 4096 (0x1000)  if the `nor' output is desired
+
 Outputs can be combined, for example 2 + 256 + 1024 = 1282 converted to hex
 would be 0x502 and would have two inputs and have both `xor' and `and' outputs.
 """;
+examples """
+
+This is an OR circuit connected to three different signals, two inputs
+named sig-in-0 and sig-in-1, and one output named sig-out.  First the
+circuit is defined, then its function is connected to the servo real
+time thread, last, its pins are connected to the wanted signals.
+
+[source,hal]
+----
+loadrt logic count=1 personality=0x202
+addf logic.0 servo-thread
+net sig-in-0 => logic.0.in-00
+net sig-in-1 => logic.0.in-01
+net sig-out  <= logic.0.or
+----
+
+This is a named AND circuit with two inputs and one output.
+
+[source,hal]
+----
+loadrt logic names=both personality=0x102
+addf both servo-thread
+net sig-in-0 => both.in-00
+net sig-in-1 => both.in-01
+net sig-out  <= both.and
+----
+
+""";
+see_also """
+*and2*(9),
+*lut5*(9),
+*not*(9),
+*or2*(9),
+*xor2*(9)
+""";
 license "GPL";
+author "Jeff Epler";
+option period no;
 ;;
 FUNCTION(_) {
     int i, a=1, o=0, x=0;

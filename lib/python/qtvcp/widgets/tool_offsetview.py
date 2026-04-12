@@ -1,4 +1,4 @@
-#!/usr/bin/env python2.7
+#!/usr/bin/env python3
 #
 # Qtvcp widget
 # Copyright (c) 2017 Chris Morley
@@ -16,14 +16,14 @@
 
 import sys
 import os
-import locale
 import operator
 
-from PyQt5.QtCore import Qt, QAbstractTableModel, QVariant
-from PyQt5.QtWidgets import QTableView, QAbstractItemView, QCheckBox
-
+from qtpy.QtCore import Qt, QAbstractTableModel, QVariant, Property, QSize, Slot
+from qtpy.QtGui import QColor, QIcon
+from qtpy.QtWidgets import (QTableView, QAbstractItemView, QCheckBox,
+QItemEditorFactory,QDoubleSpinBox,QSpinBox,QStyledItemDelegate, qApp)
 from qtvcp.widgets.widget_baseclass import _HalWidgetBase
-from qtvcp.core import Status, Action, Info, Tool
+from qtvcp.core import Status, Action, Info, Tool, Path
 from qtvcp import logger
 
 #BASE = os.path.abspath(os.path.join(os.path.dirname(sys.argv[0]), ".."))
@@ -39,11 +39,33 @@ STATUS = Status()
 ACTION = Action()
 INFO = Info()
 TOOL = Tool()
+PATH = Path()
 LOG = logger.getLogger(__name__)
 
-# Set the log level for this module
-LOG.setLevel(logger.INFO) # One of DEBUG, INFO, WARNING, ERROR, CRITICAL
+# Force the log level for this module
+#LOG.setLevel(logger.DEBUG) # One of DEBUG, INFO, WARNING, ERROR, CRITICAL
 
+ICONPATH = os.path.join(PATH.SHAREDIR, 'images/widgets/tool_offsetview')
+
+# custom spinbox controls for editing
+class ItemEditorFactory(QItemEditorFactory):
+    def __init__(self):
+        super(ItemEditorFactory,self).__init__()
+
+    def createEditor(self, userType, parent):
+        if userType == QVariant.Double:
+            doubleSpinBox = QDoubleSpinBox(parent)
+            doubleSpinBox.setDecimals(4)
+            doubleSpinBox.setMaximum(99999)
+            doubleSpinBox.setMinimum(-99999)
+            return doubleSpinBox
+        elif userType == QVariant.Int:
+            spinBox = QSpinBox(parent)
+            spinBox.setMaximum(20000)
+            spinBox.setMinimum(1)
+            return spinBox
+        else:
+            return super(ItemEditorFactory,self).createEditor(userType, parent)
 
 class ToolOffsetView(QTableView, _HalWidgetBase):
     def __init__(self, parent=None):
@@ -55,10 +77,11 @@ class ToolOffsetView(QTableView, _HalWidgetBase):
         self.editing_flag = False
         self.current_system = None
         self.current_tool = 0
-        self.metric_display = False
-        self.mm_text_template = '%10.3f'
-        self.imperial_text_template = '%9.4f'
         self.setEnabled(False)
+        self.dialog_code = 'CALCULATOR'
+        self.text_dialog_code = 'KEYBOARD'
+        self.setIconSize(QSize(32,32))
+        self._last = 0
 
         # create table
         self.createAllView()
@@ -66,29 +89,41 @@ class ToolOffsetView(QTableView, _HalWidgetBase):
     def _hal_init(self):
         self.delay = 0
         STATUS.connect('all-homed', lambda w: self.setEnabled(True))
+        STATUS.connect('not-all-homed', lambda w, axis: self.setEnabled(False))
         STATUS.connect('interp-idle', lambda w: self.setEnabled(STATUS.machine_is_on()
                                                     and (STATUS.is_all_homed()
                                                         or INFO.NO_HOME_REQUIRED)))
         STATUS.connect('interp-run', lambda w: self.setEnabled(False))
         STATUS.connect('metric-mode-changed', lambda w, data: self.metricMode(data))
+        STATUS.connect('diameter-mode', lambda w, data: self.diameterMode(data))
         STATUS.connect('tool-in-spindle-changed', lambda w, data: self.currentTool(data))
+        STATUS.connect('general',self.return_value)
+
         conversion = {5:"Y", 6:'Y', 7:"Z", 8:'Z', 9:"A", 10:"B", 11:"C", 12:"U", 13:"V", 14:"W"}
-        for num, let in conversion.iteritems():
+        for num, let in conversion.items():
             if let in (INFO.AVAILABLE_AXES):
                 continue
             self.hideColumn(num)
         if not INFO.MACHINE_IS_LATHE:
             for i in (4,6,8,16,17,18):
                 self.hideColumn(i)
-        else:
-            self.hideColumn(15)
 
     def currentTool(self, data):
         self.current_tool = data
+
     def metricMode(self, state):
-        self.metric_display = state
+        self.tablemodel.metricDisplay(state)
+        self.update()
+
+    def diameterMode(self, state):
+        self.tablemodel.diameterDisplay(state)
+        self.update()
 
     def createAllView(self):
+        styledItemDelegate=QStyledItemDelegate()
+        styledItemDelegate.setItemEditorFactory(ItemEditorFactory())
+        self.setItemDelegate(styledItemDelegate)
+
         # create the view
         self.setSelectionMode(QAbstractItemView.SingleSelection)
         #self.setSelectionBehavior(QAbstractItemView.SelectRows)
@@ -104,9 +139,14 @@ class ToolOffsetView(QTableView, _HalWidgetBase):
 
         # set horizontal header properties
         hh = self.horizontalHeader()
-        hh.setMinimumSectionSize(75)
+        # auto adjust to contents
+        hh.setSectionResizeMode(3)
+
         hh.setStretchLastSection(True)
         hh.setSortIndicator(1,Qt.AscendingOrder)
+
+        vh = self.verticalHeader()
+        vh.setVisible(False)
 
         # set column width to fit contents
         self.resizeColumnsToContents()
@@ -119,12 +159,98 @@ class ToolOffsetView(QTableView, _HalWidgetBase):
 
     def showSelection(self, item):
         cellContent = item.data()
-        #text = cellContent.toPyObject()  # test
         text = cellContent
         LOG.debug('Text: {}, Row: {}, Column: {}'.format(text, item.row(), item.column()))
         sf = "You clicked on {}".format(text)
         # display in title bar for convenience
         self.setWindowTitle(sf)
+        # row 0 is not editable (checkbox position)
+        # column 19 is the descriptive text column
+        if item.column() == 19:
+            self.callTextDialog(text,item)
+        elif item.column() <19 and item.column() > 0:
+            self.callDialog(text,item)
+
+    # alphanumerical
+    def callTextDialog(self, text,item):
+        text = self.tablemodel.arraydata[item.row()][19]
+        tool = self.tablemodel.arraydata[item.row()][1]
+        mess = {'NAME':self.text_dialog_code,'ID':'%s__' % self.objectName(),
+                'PRELOAD':text, 'TITLE':'Tool {} Description Entry'.format(tool),
+                'ITEM':item}
+        LOG.debug('message sent:{}'.format (mess))
+        STATUS.emit('dialog-request', mess)
+
+    # numerical only
+    def callDialog(self, text, item, next=False):
+        axis = self.tablemodel.headerdata[item.column()]
+        tool = self.tablemodel.arraydata[item.row()][1]
+
+        mess = {'NAME':self.dialog_code,'ID':'%s__' % self.objectName(),
+                'PRELOAD':float(text),
+                'TITLE':'Tool {} Offset of {},{}'.format(tool, axis,text),
+                'ITEM':item,
+                'NEXT':next,
+                'WIDGETCYCLE': True}
+        LOG.debug('message sent:{}'.format (mess))
+        STATUS.emit('dialog-request', mess)
+
+
+    # process the STATUS return message
+    def return_value(self, w, message):
+        num = message['RETURN']
+        code = bool(message.get('ID') == '%s__'% self.objectName())
+        name = bool(message.get('NAME') == self.dialog_code)
+        name2 = bool(message.get('NAME') == self.text_dialog_code)
+        item = message.get('ITEM')
+        next = message.get('NEXT', False)
+        back = message.get('BACK', False)
+
+        if code:
+            LOG.debug('message returned:{}'.format (message))
+        if code and name and num is not None:
+            self.tablemodel.setData(item, num, None)
+        elif code and name2 and num is not None:
+            self.tablemodel.setData(item, num, None)
+
+        # request for next input widget to right or left
+        if code and name:
+
+            if next:
+                self.right()
+
+                newobj = self.currentIndex()
+                # if we selected the text column, move back
+                if newobj.column() == 19:
+                    self.left()
+                    newobj = self.currentIndex()
+                cellContent = newobj.data()
+                text = cellContent
+
+                # update the screen
+                qApp.processEvents()
+
+                # update the dialog
+                self.callDialog(text,newobj,True)
+
+            elif back:
+                self.left()
+
+                newobj = self.currentIndex()
+                # if we selected the checkbox column, move forward
+                if newobj.column() == 0:
+                    self.right()
+                    newobj = self.currentIndex()
+
+                newobj = self.currentIndex()
+                cellContent = newobj.data()
+                text = cellContent
+
+                # update the screen
+                qApp.processEvents()
+
+                # update the dialog
+                self.callDialog(text,newobj,True)
 
     #############################################################
 
@@ -133,7 +259,7 @@ class ToolOffsetView(QTableView, _HalWidgetBase):
         row = new.row()
         col = new.column()
         data = self.tablemodel.data(new)
-        print 'Entered data:', data, row,col
+        #print('Entered data:', data, row,col)
         # now update linuxcnc to the change
         try:
             if STATUS.is_status_valid():
@@ -167,11 +293,122 @@ class ToolOffsetView(QTableView, _HalWidgetBase):
     def get_checked_list(self):
         return self.tablemodel.listCheckedTools()
 
+    def set_all_unchecked(self):
+        self.tablemodel.uncheckAllTools()
+
+    # This function uses the color name (string); setProperty
+    # expects a QColor object
+    def highlight(self, color):
+        self.setProperty('styleColorHighlight', QColor(color))
+
+    # This function uses the color name (string); calling setProperty
+    # expects a QColor object
+    def selected(self, color):
+        self.setProperty('styleColorSelection', QColor(color))
+
+    # external controls
+    @Slot(float)
+    @Slot(int)
+    def scroll(self, data):
+        if data > self._last:
+            self.right()
+        elif data < self._last:
+            self.right()
+        self._last = data
+
+    # moves the selection up
+    @Slot()
+    def up(self):
+        cr = self.currentIndex().row()
+        # state of checkbox ie. is this row selected?
+        # if selected, move horizontally
+        state = self.model().arraydata[cr][0].isChecked()
+        if state:
+            self.right()
+            return
+        else:
+            self.setCurrentIndex(self.moveCursor(QAbstractItemView.CursorAction.MoveUp,Qt.NoModifier))
+
+    # moves the selection down
+    @Slot()
+    def down(self):
+        cr = self.currentIndex().row()
+        # state of checkbox ie. is this row selected?
+        # if selected, move horizontally
+        state = self.model().arraydata[cr][0].isChecked()
+        if state:
+            self.left()
+            return
+        else:
+            self.setCurrentIndex(self.moveCursor(QAbstractItemView.CursorAction.MoveDown,Qt.NoModifier))
+
+    def left(self):
+        self.setCurrentIndex(self.moveCursor(QAbstractItemView.CursorAction.MoveLeft,Qt.NoModifier))
+
+    def right(self):
+        self.setCurrentIndex(self.moveCursor(QAbstractItemView.CursorAction.MoveRight,Qt.NoModifier))
+
+    def toggleCurrent(self):
+        self.model().toggle(self.currentIndex().row())
+
+    #########################################################################
+    # This is how designer can interact with our widget properties.
+    # designer will show the Property properties in the editor
+    # it will use the get set and reset calls to do those actions
+    #
+    ########################################################################
+
+    def set_dialog_code(self, data):
+        self.dialog_code = data
+    def get_dialog_code(self):
+        return self.dialog_code
+    def reset_dialog_code(self):
+        self.dialog_code = 'CALCULATOR'
+    dialog_code_string = Property(str, get_dialog_code, set_dialog_code, reset_dialog_code)
+
+    def set_keyboard_code(self, data):
+        self.text_dialog_code = data
+    def get_keyboard_code(self):
+        return self.text_dialog_code
+    def reset_keyboard_code(self):
+        self.text_dialog_code = 'KEYBOARD'
+    text_dialog_code_string = Property(str, get_keyboard_code, set_keyboard_code, reset_keyboard_code)
+
+    def setmetrictemplate(self, data):
+        self.tablemodel.metric_text_template = data
+    def getmetrictemplate(self):
+        return self.tablemodel.metric_text_template
+    def resetmetrictemplate(self):
+        self.tablemodel.metric_text_template =  '%10.3f'
+    metric_template = Property(str, getmetrictemplate, setmetrictemplate, resetmetrictemplate)
+
+    def setimperialtexttemplate(self, data):
+        self.tablemodel.imperial_text_template = data
+    def getimperialtexttemplate(self):
+        return self.tablemodel.imperial_text_template
+    def resetimperialtexttemplate(self):
+        self.tablemodel.imperial_text_template =  '%9.4f'
+    imperial_template = Property(str, getimperialtexttemplate, setimperialtexttemplate, resetimperialtexttemplate)
+
+    def getColorHighlight(self):
+        return QColor(self.tablemodel._highlightcolor)
+    def setColorHighlight(self, value):
+        self.tablemodel._highlightcolor = value.name()
+        #self.tablemodel.layoutChanged.emit()
+    styleColorHighlight = Property(QColor, getColorHighlight, setColorHighlight)
+
+    def getColorSelection(self):
+        return QColor(self.tablemodel._selectedcolor)
+    def setColorSelection(self, value):
+        self.tablemodel._selectedcolor = value.name()
+        #self.tablemodel.layoutChanged.emit()
+    styleColorSelection = Property(QColor, getColorSelection, setColorSelection)
+
 #########################################
 # custom model
 #########################################
 class MyTableModel(QAbstractTableModel):
-    def __init__(self, datain, parent=None):
+    def __init__(self, parent=None):
         """
         Args:
             datain: a list of lists\n
@@ -179,11 +416,29 @@ class MyTableModel(QAbstractTableModel):
         """
         super(MyTableModel, self).__init__(parent)
         self.text_template = '%.4f'
-        self.headerdata = ['Select','tool','pocket','X','X Wear', 'Y', 'Y Wear', 'Z', 'Z Wear', 'A', 'B', 'C', 'U', 'V', 'W', 'Diameter', 'Front Angle', 'Back Angle','Orientation','Comment']
+        self.metric_text_template = '%10.3f'
+        self.zero_text_template = '%10.1f'
+        self.imperial_text_template = '%9.4f'
+        self.degree_text_template = '%10.1f'
+        self.metric_display = False
+        self.diameter_display = False
+        self._highlightcolor = '#00ffff'
+        self._selectedcolor = '#00ff00'
+        self.headerdata = ['','tool','pocket','X','X Wear', 'Y', 'Y Wear', 'Z', 'Z Wear', 'A', 'B', 'C', 'U', 'V', 'W', 'Diameter', 'Front Angle', 'Back Angle','Orient','Comment']
+        if INFO.MACHINE_IS_LATHE:
+            self.headerdata[2] = 'Stn'
         self.vheaderdata = []
-        self.arraydata = [[0, 0,'0','0','0','0','0','0','0','0','0','0','0','0','0','0', 0,'No Tool']]
+        self.arraydata = [[0, 0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0, 0,'No Tool']]
         STATUS.connect('toolfile-stale',lambda o, d: self.update(d))
         self.update(None)
+
+    def metricDisplay(self, state):
+        self.metric_display = state
+        self.layoutChanged.emit()
+
+    def diameterDisplay(self, state):
+        self.diameter_display = state
+        self.layoutChanged.emit()
 
     # make a list of all the checked tools
     def listCheckedTools(self):
@@ -193,12 +448,24 @@ class MyTableModel(QAbstractTableModel):
                 checkedlist.append(row[1])
         return checkedlist
 
+    def uncheckAllTools(self):
+        for row in self.arraydata:
+            if row[0].isChecked():
+                row[0].setChecked(False)
+
+    def toggle(self, row):
+        item = self.arraydata[row][0]
+        newState = (not item.isChecked())
+        self.uncheckAllTools()
+        item.setChecked(newState)
+        self.layoutChanged.emit()
+
     # update the internal array from STATUS's toolfile read array
     # we make sure the first array is switched to a QCheckbox widget
     def update(self, models):
         data = TOOL.CONVERT_TO_WEAR_TYPE(models)
         if data in (None, []):
-            data = [[QCheckBox(),0, 0,'0','0','0','0','0','0','0','0','0','0','0','0','0','0', 0,'No Tool']]
+            data = [[QCheckBox(),0, 0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0, 0,'No Tool']]
         for line in data:
                 if line[0] != QCheckBox:
                     line[0] = QCheckBox()
@@ -209,13 +476,13 @@ class MyTableModel(QAbstractTableModel):
     # When the parent is valid it means that rowCount is
     # returning the number of children of parent.
     #
-    # Note: When implementing a table based model, rowCount() 
+    # Note: When implementing a table based model, rowCount()
     # should return 0 when the parent is valid.
     def rowCount(self, parent):
         return len(self.arraydata)
 
     # Returns the number of columns for the children of the given parent.
-    # Note: When implementing a table based model, columnCount() should 
+    # Note: When implementing a table based model, columnCount() should
     # return 0 when the parent is valid.
     def columnCount(self, parent):
         if len(self.arraydata) > 0:
@@ -224,10 +491,56 @@ class MyTableModel(QAbstractTableModel):
 
     # Returns the data stored under the given role for the item referred to by the index.
     def data(self, index, role=Qt.DisplayRole):
+
         if role == Qt.EditRole:
             return self.arraydata[index.row()][index.column()]
+
+        elif role == Qt.DecorationRole and index.column() == 18:
+            value = self.arraydata[index.row()][index.column()]
+            return QIcon(os.path.join(ICONPATH, "tool_pos_{}.png".format(value)))
+
         elif role == Qt.DisplayRole:
-            return self.arraydata[index.row()][index.column()]
+            value = self.arraydata[index.row()][index.column()]
+            col = index.column()
+            if isinstance(value, float):
+                if value == 0.0:
+                    tmpl = lambda s: self.zero_text_template % s
+                    return tmpl(value)
+                elif col in(16,17):
+                    tmpl = lambda s: self.degree_text_template % s
+                    return tmpl(value)
+                elif self.metric_display:
+                    tmpl = lambda s: self.metric_text_template % s
+                else:
+                    tmpl = lambda s: self.imperial_text_template % s
+                if self.metric_display != INFO.MACHINE_IS_METRIC:
+                    value = INFO.convert_units(value)
+                if col in(3,4):
+                    if self.diameter_display:
+                        value *=2
+                        self.headerdata[3] = 'X D'
+                        self.headerdata[4] = 'X Wear D'
+                    else:
+                        self.headerdata[3] = 'X R'
+                        self.headerdata[4] = 'X Wear R'
+                return tmpl(value)
+
+            if isinstance(value, str):
+                return '%s' % value
+            # Default (anything not captured above: e.g. int)
+            return value
+
+        elif role == Qt.BackgroundRole:
+            value = self.arraydata[index.row()][index.column()]
+            if (isinstance(value, int) or isinstance(value, float) or
+                  isinstance(value, str), isinstance(value, QCheckBox)):
+                if self.arraydata[index.row()][1] == self.parent().current_tool:
+                    return QColor(self._highlightcolor)
+                elif self.arraydata[index.row()][0].isChecked():
+                    return QColor(self._selectedcolor)
+                else:
+                    return QVariant()
+
         elif role == Qt.CheckStateRole:
             if index.column() == 0:
                 # print(">>> data() row,col = %d, %d" % (index.row(), index.column()))
@@ -235,6 +548,14 @@ class MyTableModel(QAbstractTableModel):
                     return Qt.Checked
                 else:
                     return Qt.Unchecked
+
+        elif role == Qt.ForegroundRole:
+            value = self.arraydata[index.row()][index.column()]
+
+            if ((isinstance(value, int) or isinstance(value, float))
+                and value < 0 ):
+                return QColor('red')
+
         return QVariant()
 
 
@@ -243,7 +564,7 @@ class MyTableModel(QAbstractTableModel):
         if not index.isValid():
             return None
         if index.column() == 0:
-            return Qt.ItemIsEnabled | Qt.ItemIsUserCheckable
+            return Qt.ItemIsEnabled | Qt.ItemIsUserCheckable | Qt.ItemIsSelectable
         else:
             return Qt.ItemIsEditable | Qt.ItemIsEnabled | Qt.ItemIsSelectable
 
@@ -264,6 +585,7 @@ class MyTableModel(QAbstractTableModel):
             #print(">>> setData() role = ", role)
             #print(">>> setData() index.column() = ", index.column())
             if value == Qt.Checked:
+                self.uncheckAllTools()
                 self.arraydata[index.row()][index.column()].setChecked(True)
                 #self.arraydata[index.row()][index.column()].setText("Delete")
                 #print 'selected',self.arraydata[index.row()][1]
@@ -271,14 +593,10 @@ class MyTableModel(QAbstractTableModel):
                 self.arraydata[index.row()][index.column()].setChecked(False)
                 #self.arraydata[index.row()][index.column()].setText("Un")
             # don't emit dataChanged - return right away
+            self.parent().reset()
             return True
 
-        # TODO make valuse actually change in metric/impeial mode
-        # currently it displays always in machine units.
-        # there needs to be conversion added to this code
-        # and this class needs access to templates and units mode.
-        # don't convert tool,pocket,A, B, C, front angle, back angle, orintation or comments
-        tmpl = lambda s: self.text_template % s
+
         try:
             if col in (1,2,18): # tool, pocket, orientation
                 v = int(value)
@@ -286,24 +604,22 @@ class MyTableModel(QAbstractTableModel):
                 v = str(value) # comment
             else:
                 v = float(value)
+                if self.metric_display:
+                    v = INFO.convert_metric_to_machine(value)
+                else:
+                    v = INFO.convert_imperial_to_machine(value)
+                if col in(3,4) and self.diameter_display:
+                    v /=2
             self.arraydata[index.row()][col] = v
         except:
-            LOG.error("Invaliad data type in row {} column:{} ".format(index.row(), col))
+            LOG.error("Invalid data type in row {} column:{} ".format(index.row(), col))
             return False
         LOG.debug(">>> setData() value = {} ".format(value))
-        LOG.debug(">>> setData() qualified value = {}".format(v))
-        LOG.debug(">>> setData() index.row = {}".format(index.row()))
-        LOG.debug(">>> setData() index.column = {}".format(col))
-
-        LOG.debug(">>> = {}".format(self.arraydata[index.row()][col]))
-        for i in self.arraydata:
-            LOG.debug(">>> = {}".format(i))
-
         self.dataChanged.emit(index, index)
         return True
 
     # Returns the data for the given role and section in the header with the specified orientation.
-    # For horizontal headers, the section number corresponds to the column number. 
+    # For horizontal headers, the section number corresponds to the column number.
     # Similarly, for vertical headers, the section number corresponds to the row number.
     def headerData(self, col, orientation, role):
         if orientation == Qt.Horizontal and role == Qt.DisplayRole:
@@ -317,16 +633,21 @@ class MyTableModel(QAbstractTableModel):
         """
         Sort table by given column number.
         """
-        self.layoutAboutToBeChanged.emit()
-        self.arraydata = sorted(self.arraydata, key=operator.itemgetter(Ncol))
-        if order == Qt.DescendingOrder:
-            self.arraydata.reverse()
-        self.layoutChanged.emit()
+        # don't sort checkbox column
+        if Ncol != 0:
+            self.layoutAboutToBeChanged.emit()
+            self.arraydata = sorted(self.arraydata, key=operator.itemgetter(Ncol))
+            if order == Qt.DescendingOrder:
+                self.arraydata.reverse()
+            self.layoutChanged.emit()
 
 if __name__ == "__main__":
-    from PyQt5.QtWidgets import QApplication
+    from qtpy.QtWidgets import QApplication
     app = QApplication(sys.argv)
     w = ToolOffsetView()
+    w.setEnabled(True)
     w._hal_init()
+    w.highlight('lightblue')
+    #w.setProperty('styleColorHighlight',QColor('purple'))
     w.show()
     sys.exit(app.exec_())

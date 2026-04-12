@@ -1,11 +1,11 @@
 #include <rtapi_pci.h>
 #include <rtapi_io.h>
 
-#include "rtapi.h"		// RTAPI realtime OS API
-#include "rtapi_app.h"		// RTAPI realtime module decls
-#include "hal.h"		// HAL public API decls
+#include <rtapi.h>		// RTAPI realtime OS API
+#include <rtapi_app.h>		// RTAPI realtime module decls
+#include <hal.h>		// HAL public API decls
 #include "gm.h"			// Hardware dependent defines
-#include "rtapi_math.h"
+#include <rtapi_math.h>
 
 // Module information.
 MODULE_AUTHOR("Bence Kovacs");
@@ -421,7 +421,8 @@ rtapi_pci_device_id gm_pci_tbl[] = {
 
 static int
 gm_pci_probe(struct rtapi_pci_dev *dev, const struct rtapi_pci_device_id *id)
-{	
+{
+        (void)id;
         int			error=0;
 	card			*pCard = NULL;
 	gm_device_t		*pDevice;
@@ -1096,22 +1097,18 @@ ExportMixed(void *arg, int comp_id)
 static int ExportFunctions(void *arg, int comp_id, int boardId)
 {
 	int error;
-	char str[HAL_NAME_LEN + 1];
 	gm_device_t	*device = (gm_device_t *)arg;
 
-	rtapi_snprintf(str, sizeof(str), "gm.%d.write", boardId);
-	error = hal_export_funct(str, write, device, 1, 0, comp_id);
+	error = hal_export_functf(write, device, 1, 0, comp_id, "gm.%d.write", boardId);
 
 	if(error == 0)
 	{
-		rtapi_snprintf(str, sizeof(str), "gm.%d.read", boardId);
-		error = hal_export_funct(str, read, device, 1, 0, comp_id);
+		error = hal_export_functf(read, device, 1, 0, comp_id, "gm.%d.read", boardId);
 	}
 	
 	if(error == 0)
 	{
-		rtapi_snprintf(str, sizeof(str), "gm.%d.RS485", boardId);
-		error = hal_export_funct(str, RS485, device, 1, 0, comp_id);
+		error = hal_export_functf(RS485, device, 1, 0, comp_id, "gm.%d.RS485", boardId);
 	}
 
     	return error;
@@ -1126,9 +1123,9 @@ read(void *arg, long period)
 {
     	gm_device_t	*device = (gm_device_t *)arg;
     	card	*pCard = device->pCard;
-    	int		i;
+	unsigned int i;
 	hal_u32_t temp;
-	
+
       //basic card functionality: watchdog, switches, estop
 	card_mgr(arg, period);
 
@@ -1136,8 +1133,8 @@ read(void *arg, long period)
 	temp=pCard->gpio;
     	for(i = 0; i < 32; i++)
 	{
-		*(device->gpio[i].in) = (hal_bit_t)((temp & (0x0001 << i)) == 0 ? 0 : 1);
-		*(device->gpio[i].inNot) = (hal_bit_t)((temp & (0x0001 << i)) == 0 ? 1 : 0);
+		*(device->gpio[i].in) = (hal_bit_t)((temp & ((unsigned int) 1 << i)) == 0 ? 0 : 1);
+		*(device->gpio[i].inNot) = (hal_bit_t)((temp & ((unsigned int) 1 << i)) == 0 ? 1 : 0);
 	}
 
       //Read Encoders
@@ -1431,7 +1428,7 @@ card_mgr(void *arg, long period)
 	}
 	
 	
-      //Chack if change happened in control reg and write control reg if well
+      //Check if change happened in control reg and write control reg if well
 	 //  ... Estop_1 | Estop_0 | Pwr_fault | Bus_err | Wdt_err  //Card status read resets wdt
 	temp = 1; //EMC run
 	if(*(device->cardMgr.power_enable)) temp |= (0x0001 << 1); //power enable
@@ -1470,10 +1467,11 @@ card_mgr(void *arg, long period)
 static void
 encoder(void *arg, long period)
 {
-    	gm_device_t		*device = (gm_device_t *)arg;
-    	card	*pCard = device->pCard;
+    (void)period;
+    gm_device_t		*device = (gm_device_t *)arg;
+    card	*pCard = device->pCard;
 
-    	int		i;
+    int		i;
 	hal_s32_t	temp1 = 0, temp2;
 	hal_float_t	vel;
 
@@ -1499,7 +1497,7 @@ encoder(void *arg, long period)
 		}
 		else if(*(device->encoder[i].index_enable) == 1) //If not in reset and index is enabled
 		{
-		  if (temp2 != device->encoder[i].last_index_latch) //If index puls come
+		  if (temp2 != device->encoder[i].last_index_latch) //If index pulse come
 		  {
 		    if(device->encoder[i].index_mode == 0)  //reset counter at index
 		    {
@@ -1535,7 +1533,7 @@ encoder(void *arg, long period)
 		*(device->encoder[i].rawcounts) =  temp1 - device->encoder[i].raw_offset;
 		*(device->encoder[i].counts) = *(device->encoder[i].rawcounts) - device->encoder[i].index_offset;
 		
-		if((device->encoder[i].position_scale < 0.000001) && (device->encoder[i].position_scale > -0.000001))  device->encoder[i].position_scale = 1; //Dont like to devide by 0
+		if((device->encoder[i].position_scale < 0.000001) && (device->encoder[i].position_scale > -0.000001))  device->encoder[i].position_scale = 1; //Don't like to divide by 0
 		*(device->encoder[i].position) = (hal_float_t) *(device->encoder[i].counts) / device->encoder[i].position_scale;
 		
 		vel = (hal_float_t) pCard->ENC_period[i];
@@ -1705,8 +1703,9 @@ stepgenCheckParameters(void *arg, long period, unsigned int channel)
 static void
 stepgenControl(void *arg, long period, unsigned int channel)
 {
-    	gm_device_t		*device = (gm_device_t *)arg;
-    	card	*pCard = device->pCard;
+    (void)period;
+    gm_device_t		*device = (gm_device_t *)arg;
+    card	*pCard = device->pCard;
 	
 	hal_s32_t stepgen_fb, stepgen_fb_int, last_count_fb_LS16_bits, last_count_fb_MS16_bits, last_count_fb;	
 	hal_float_t	ref_vel = 0, match_acc, match_time, avg_v, est_out, est_cmd, est_err, dp;
@@ -1820,6 +1819,7 @@ stepgenControl(void *arg, long period, unsigned int channel)
 static void
 RS485(void *arg, long period)
 {
+    (void)period;
 	gm_device_t		*device = (gm_device_t *)arg;
 	card	*pCard = device->pCard;
 	
@@ -1844,7 +1844,7 @@ RS485(void *arg, long period)
 	  {
 	    if((device-> RS485_mgr.ID[2*i]) != ((temp_u32 >> 8) & 0xff)) 
             {
-              //RS485 module falled off, error
+              //RS485 module fell off, error
               if(failed == 0) //Msg only first time, do not put 100 error msg
               {
                 failed=1;
@@ -1858,7 +1858,7 @@ RS485(void *arg, long period)
 	  {
 	    if((device-> RS485_mgr.ID[2*i+1]) != ((temp_u32 & 0xff000000)>>24))
             {
-              //RS485 module falled off, error
+              //RS485 module fell off, error
               if(failed == 0) //Msg only first time, do not put 100 error msg
               {
                 failed=1; 
@@ -1870,7 +1870,7 @@ RS485(void *arg, long period)
         }
   
        //read RS485-s
-	for(i=0;i<16;i++) if((device-> RS485_mgr.ID[i] != 0) && (device-> RS485_mgr.BYTES_TO_READ[i] != 0)) //If the modul is presented and not write only
+	for(i=0;i<16;i++) if((device-> RS485_mgr.ID[i] != 0) && (device-> RS485_mgr.BYTES_TO_READ[i] != 0)) //If the module is presented and not write only
 	{
 	      //Block ram address lookahead support
 		if(i != 0) *(&(pCard->serialModulesDataIn[i-1][7])); 
@@ -1949,7 +1949,7 @@ RS485(void *arg, long period)
 			}
 			*(device->RS485_TeachPad[i].enc_counts) = *(device->RS485_TeachPad[i].enc_rawcounts) - device->RS485_TeachPad[i].enc_raw_offset;
 			
-			if((device->RS485_TeachPad[i].enc_position_scale < 0.000001) && (device->RS485_TeachPad[i].enc_position_scale > -0.000001)) device->RS485_TeachPad[i].enc_position_scale=1; //dont devide by 0
+			if((device->RS485_TeachPad[i].enc_position_scale < 0.000001) && (device->RS485_TeachPad[i].enc_position_scale > -0.000001)) device->RS485_TeachPad[i].enc_position_scale=1; //don't divide by 0
 			
 			*(device->RS485_TeachPad[i].enc_position) = *(device->RS485_TeachPad[i].enc_counts) / device->RS485_TeachPad[i].enc_position_scale;
 			
@@ -1961,20 +1961,20 @@ RS485(void *arg, long period)
 	}
 
       //Write serial IOs
-	for(i=0;i<16;i++) if((device-> RS485_mgr.ID[i] != 0) && (device-> RS485_mgr.BYTES_TO_WRITE[i] != 0)) //If the modul is presented and not read only
+	for(i=0;i<16;i++) if((device-> RS485_mgr.ID[i] != 0) && (device-> RS485_mgr.BYTES_TO_WRITE[i] != 0)) //If the module is presented and not read only
 	{
 	  
 		switch (device-> RS485_mgr.ID[i])
 		{
-		    case RS485MODUL_ID_8OUTPUT:   
-		      RS485DataIn8[0]=((*(device->RS485_8output[i].out_7) ^ (device->RS485_8output[i].invertOut_7)) << 7) | 
+		    case RS485MODUL_ID_8OUTPUT:
+		      RS485DataIn8[0]=((*(device->RS485_8output[i].out_7) ^ (device->RS485_8output[i].invertOut_7)) << 7) |
 				      ((*(device->RS485_8output[i].out_6) ^ (device->RS485_8output[i].invertOut_6)) << 6) |
 				      ((*(device->RS485_8output[i].out_5) ^ (device->RS485_8output[i].invertOut_5)) << 5) |
 				      ((*(device->RS485_8output[i].out_4) ^ (device->RS485_8output[i].invertOut_4)) << 4) |
 				      ((*(device->RS485_8output[i].out_3) ^ (device->RS485_8output[i].invertOut_3)) << 3) |
 				      ((*(device->RS485_8output[i].out_2) ^ (device->RS485_8output[i].invertOut_2)) << 2) |
 				      ((*(device->RS485_8output[i].out_1) ^ (device->RS485_8output[i].invertOut_1)) << 1) |
-				      ((*(device->RS485_8output[i].out_0) ^ (device->RS485_8output[i].invertOut_0)) << 0);	      		      
+				      ((*(device->RS485_8output[i].out_0) ^ (device->RS485_8output[i].invertOut_0)) << 0);
 		    break;
 
 		    case RS485MODUL_ID_DACADC:
@@ -2079,7 +2079,7 @@ RS485_OrderDataRead(hal_u32_t* dataIn32, hal_u32_t* dataOut8, hal_u32_t length)
 static void
 RS485_OrderDataWrite(hal_u32_t* dataIn8, hal_u32_t* dataOut32, hal_u32_t length)
 {
-	int i, j;
+	unsigned i, j;
 	/* Byte order: 
 	      RS485DataOut32[0]=0x28293031;
 	      RS485DataOut32[1]=0x24252627;

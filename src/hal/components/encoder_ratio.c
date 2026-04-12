@@ -92,9 +92,9 @@
     information, go to www.linuxcnc.org.
 */
 
-#include "rtapi.h"		/* RTAPI realtime OS API */
-#include "rtapi_app.h"		/* RTAPI realtime module decls */
-#include "hal.h"		/* HAL public API decls */
+#include <rtapi.h>		/* RTAPI realtime OS API */
+#include <rtapi_app.h>		/* RTAPI realtime module decls */
+#include <hal.h>		/* HAL public API decls */
 
 /* module information */
 MODULE_AUTHOR("John Kasunich");
@@ -149,7 +149,7 @@ static encoder_pair_t *encoder_pair_array;
    down 1 after glitch), and on both inputs simultaneously (no count
    at all)  In theory, it can count once per cycle, in practice the
    maximum count rate should be at _least_ 10% below the sample rate,
-   and preferrable around half the sample rate.  It counts every
+   and preferable around half the sample rate.  It counts every
    edge of the quadrature waveform, 4 counts per complete cycle.
 */
 static const unsigned char lut[16] = {
@@ -276,6 +276,7 @@ void rtapi_app_exit(void)
 
 static void sample(void *arg, long period)
 {
+    (void)period;
     encoder_pair_t *pair;
     int n;
     unsigned char state;
@@ -333,6 +334,7 @@ static void sample(void *arg, long period)
 
 static void update(void *arg, long period)
 {
+    (void)period;
     encoder_pair_t *pair;
     int n;
 
@@ -359,6 +361,7 @@ static void update(void *arg, long period)
 
 static int export_encoder_pair(int num, encoder_pair_t * addr, char* prefix)
 {
+    (void)num;
     int retval, msg;
 
     /* This function exports a lot of stuff, which results in a lot of

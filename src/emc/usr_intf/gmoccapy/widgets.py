@@ -1,8 +1,8 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
 '''
     This class is just to handle the widgets of gmoccapy,
-    it is just a copy of a class from gscreen and has been slighly modified
+    it is just a copy of a class from gscreen and has been slightly modified
 
     Copyright 2014 Norbert Schechner
     nieson@web.de
@@ -42,3 +42,5 @@ class Widgets:
             raise IndexError("No widget %s" % attr)
         return widget
 
+    def __iter__(self):
+        return self._builder.get_objects().__iter__()

@@ -64,7 +64,7 @@
     No step type uses all five, and only those which will be used are
     exported to HAL.  The values of these parameters are in nano-seconds,
     so no recalculation is needed when changing thread periods.  In
-    the timing diagrams that follow, they are identfied by the
+    the timing diagrams that follow, they are identified by the
     following numbers:
 
     (1): 'stepgen.n.steplen' = length of the step pulse
@@ -297,12 +297,12 @@
     information, go to www.linuxcnc.org.
 */
 
-#include "rtapi.h"		/* RTAPI realtime OS API */
-#include "rtapi_app.h"		/* RTAPI realtime module decls */
-#include "hal.h"		/* HAL public API decls */
+#include <rtapi.h>		/* RTAPI realtime OS API */
+#include <rtapi_app.h>		/* RTAPI realtime module decls */
+#include <hal.h>		/* HAL public API decls */
 
 #include <float.h>
-#include "rtapi_math.h"
+#include <rtapi_math.h>
 
 #define MAX_CHAN 16
 #define MAX_CYCLE 18
@@ -312,11 +312,11 @@
 MODULE_AUTHOR("John Kasunich");
 MODULE_DESCRIPTION("Step Pulse Generator for EMC HAL");
 MODULE_LICENSE("GPL");
-int step_type[] = { [0 ... MAX_CHAN-1] = -1 } ;
+int step_type[MAX_CHAN] = { [0 ... MAX_CHAN-1] = -1 } ;
 RTAPI_MP_ARRAY_INT(step_type,MAX_CHAN,"stepping types for up to 16 channels");
 char *ctrl_type[MAX_CHAN];
 RTAPI_MP_ARRAY_STRING(ctrl_type,MAX_CHAN,"control type (pos or vel) for up to 16 channels");
-int user_step_type[] = { [0 ... MAX_CYCLE-1] = -1 };
+int user_step_type[MAX_CYCLE] = { [0 ... MAX_CYCLE-1] = -1 };
 RTAPI_MP_ARRAY_INT(user_step_type, MAX_CYCLE,
 	"lookup table for user-defined step type");
 
@@ -713,6 +713,7 @@ static void make_pulses(void *arg, long period)
 
 static void update_pos(void *arg, long period)
 {
+    (void)period;
     long long int accum_a, accum_b;
     stepgen_t *stepgen;
     int n;
@@ -752,7 +753,7 @@ static void update_pos(void *arg, long period)
     /* done */
 }
 
-/* helper function - computes integeral multiple of increment that is greater
+/* helper function - computes integral multiple of increment that is greater
    or equal to value */
 static unsigned long ulceil(unsigned long value, unsigned long increment)
 {
@@ -1203,7 +1204,7 @@ static int export_stepgen(int num, stepgen_t * addr, int step_type, int pos_mode
 static int setup_user_step_type(void) {
     int used_phases = 0;
     int i = 0;
-    for(i=0; i<10 && user_step_type[i] != -1; i++) {
+    for(i=0; i < MAX_CYCLE && user_step_type[i] != -1; i++) {
         master_lut[USER_STEP_TYPE][i] = user_step_type[i];
 	used_phases |= user_step_type[i];
     }

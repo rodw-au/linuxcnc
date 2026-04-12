@@ -73,21 +73,21 @@ setup_menu_accel .menu.file end [_ "_Reload"]
 .menu.file add command \
         -accelerator [_ "Ctrl-S"] \
         -command save_gcode
-setup_menu_accel .menu.file end [_ "_Save gcode as..."]
+setup_menu_accel .menu.file end [_ "_Save G-code as..."]
 
 .menu.file add command \
         -command gcode_properties
-setup_menu_accel .menu.file end [_ "_Properties..."]
+setup_menu_accel .menu.file end [_ "G-code _properties..."]
 
 .menu.file add separator
 
 .menu.file add command \
     -command edit_tooltable
-setup_menu_accel .menu.file end [_ "Edit _tool table..."]
+setup_menu_accel .menu.file end [_ "Edit _tool data..."]
 
 .menu.file add command \
 	-command reload_tool_table
-setup_menu_accel .menu.file end [_ "Reload tool ta_ble"]
+setup_menu_accel .menu.file end [_ "Reload tool _data"]
 
 .menu.file add separator
 
@@ -384,7 +384,7 @@ setup_menu_accel .menu.view end [_ "_Clear live plot"]
 	-variable show_pyvcppanel \
 	-accelerator [_ "Ctrl-E"] \
 	-command toggle_show_pyvcppanel
-setup_menu_accel .menu.view end [_ "Show pyVCP pan_el"]
+setup_menu_accel .menu.view end [_ "Show PyVCP pan_el"]
 
 .menu.view add separator
 
@@ -516,7 +516,7 @@ setup_widget_accel .toolbar.file_open {}
 
 Button .toolbar.reload \
 	-command { reload_file } \
-	-helptext [_ "Reopen current file \[Control-R\]"] \
+	-helptext [_ "Reopen current file \[Ctrl-R\]"] \
 	-image [load_image tool_reload] \
 	-relief link \
 	-takefocus 0
@@ -1299,7 +1299,7 @@ NoteBook ${pane_top}.right \
 after 1 after idle show_all_tabs ${pane_top}.right
 
 set _tabs_preview [${pane_top}.right insert end preview -text [_ "Preview"]]
-set _tabs_numbers [${pane_top}.right insert end numbers -text [_ "DRO"]]
+set _tabs_numbers [${pane_top}.right insert end numbers -text [_ "DRO"] -raisecmd redraw_dro]
 $_tabs_preview configure -borderwidth 1
 $_tabs_numbers configure -borderwidth 1
 
@@ -1399,9 +1399,9 @@ label ${pane_top}.ajogspeed.l1
 scale ${pane_top}.ajogspeed.s -bigincrement 0 -from .06 -to 1 -resolution .020 -showvalue 0 -variable ajog_slider_val -command update_ajog_slider_vel -orient h -takefocus 0
 label ${pane_top}.ajogspeed.l -textv jog_aspeed -width 6 -anchor e
 pack ${pane_top}.ajogspeed.l0 -side left
-pack ${pane_top}.ajogspeed.l -side left
-pack ${pane_top}.ajogspeed.l1 -side left
 pack ${pane_top}.ajogspeed.s -side right
+pack ${pane_top}.ajogspeed.l1 -side right
+pack ${pane_top}.ajogspeed.l -side right
 bind . <less> [regsub %W [bind Scale <Left>] ${pane_top}.ajogspeed.s]
 bind . <greater> [regsub %W [bind Scale <Right>] ${pane_top}.ajogspeed.s]
 
@@ -1412,9 +1412,9 @@ label ${pane_top}.jogspeed.l1
 scale ${pane_top}.jogspeed.s -bigincrement 0 -from .06 -to 1 -resolution .020 -showvalue 0 -variable jog_slider_val -command update_jog_slider_vel -orient h -takefocus 0
 label ${pane_top}.jogspeed.l -textv jog_speed -width 6 -anchor e
 pack ${pane_top}.jogspeed.l0 -side left
-pack ${pane_top}.jogspeed.l -side left
-pack ${pane_top}.jogspeed.l1 -side left
 pack ${pane_top}.jogspeed.s -side right
+pack ${pane_top}.jogspeed.l1 -side right
+pack ${pane_top}.jogspeed.l -side right
 bind . , [regsub %W [bind Scale <Left>] ${pane_top}.jogspeed.s]
 bind . . [regsub %W [bind Scale <Right>] ${pane_top}.jogspeed.s]
 
@@ -1424,9 +1424,9 @@ label ${pane_top}.maxvel.l1
 scale ${pane_top}.maxvel.s -bigincrement 0 -from .06 -to 1 -resolution .020 -showvalue 0 -variable maxvel_slider_val -command update_maxvel_slider_vel -orient h -takefocus 0
 label ${pane_top}.maxvel.l -textv maxvel_speed -width 6 -anchor e
 pack ${pane_top}.maxvel.l0 -side left
-pack ${pane_top}.maxvel.l -side left
-pack ${pane_top}.maxvel.l1 -side left
 pack ${pane_top}.maxvel.s -side right
+pack ${pane_top}.maxvel.l1 -side right
+pack ${pane_top}.maxvel.l -side right
 bind . <semicolon> [regsub %W [bind Scale <Left>] ${pane_top}.maxvel.s]
 bind . ' [regsub %W [bind Scale <Right>] ${pane_top}.maxvel.s]
 
@@ -1780,18 +1780,18 @@ proc update_state {args} {
     state  {$interp_state == $INTERP_IDLE && $taskfile != ""} \
         .toolbar.reload {.menu.file "_Reload"}
     state  {$taskfile != ""} \
-        {.menu.file "_Save gcode as..."}
+        {.menu.file "_Save G-code as..."}
     state  {$interp_state == $INTERP_IDLE && $taskfile != "" && $::has_editor} \
         {.menu.file "_Edit..."}
-    state  {$taskfile != ""} {.menu.file "_Properties..."}
+    state  {$taskfile != ""} {.menu.file "G-code _properties..."}
     state  {$interp_state == $INTERP_IDLE} .toolbar.file_open \
         {.menu.file "_Open..." "_Quit" "Recent _Files"} \
         {.menu.machine "Skip lines with '_/'"} .toolbar.program_blockdelete
     state  {$task_state == $STATE_ON && $interp_state == $INTERP_IDLE } \
         .toolbar.program_run {.menu.machine "_Run program"} \
-        {.menu.file "Reload tool ta_ble"}
+        {.menu.file "Reload tool _data"}
     state  {$interp_state == $INTERP_IDLE} \
-        {.menu.file "Edit _tool table..."}
+        {.menu.file "Edit _tool data..."}
 
     state  {$task_state == $STATE_ON && $interp_state == $INTERP_IDLE} \
         {.menu.machine "Homin_g" "_Unhoming" "_Zero coordinate system"}
@@ -1963,26 +1963,26 @@ set metric 0
 set max_speed 1
 set queued_mdi_commands 0
 set max_queued_mdi_commands 10
-trace variable taskfile w update_title
-trace variable machine w update_title
-trace variable taskfile w queue_update_state
-trace variable task_state w queue_update_state
-trace variable task_mode w queue_update_state
-trace variable task_paused w queue_update_state
-trace variable optional_stop w queue_update_state
-trace variable block_delete w queue_update_state
-trace variable interp_pause w queue_update_state
-trace variable interp_state w queue_update_state
-trace variable running_line w queue_update_state
-trace variable highlight_line w queue_update_state
-trace variable spindledir w queue_update_state
-trace variable coord_type w queue_update_state
-trace variable display_type w queue_update_state
-trace variable motion_mode w queue_update_state
-trace variable kinematics_type w queue_update_state
-trace variable on_any_limit w queue_update_state
-trace variable motion_mode w joint_mode_switch
-trace variable queued_mdi_commands  w queue_update_state
+trace add variable taskfile write update_title
+trace add variable machine write update_title
+trace add variable taskfile write queue_update_state
+trace add variable task_state write queue_update_state
+trace add variable task_mode write queue_update_state
+trace add variable task_paused write queue_update_state
+trace add variable optional_stop write queue_update_state
+trace add variable block_delete write queue_update_state
+trace add variable interp_pause write queue_update_state
+trace add variable interp_state write queue_update_state
+trace add variable running_line write queue_update_state
+trace add variable highlight_line write queue_update_state
+trace add variable spindledir write queue_update_state
+trace add variable coord_type write queue_update_state
+trace add variable display_type write queue_update_state
+trace add variable motion_mode write queue_update_state
+trace add variable kinematics_type write queue_update_state
+trace add variable on_any_limit write queue_update_state
+trace add variable motion_mode write joint_mode_switch
+trace add variable queued_mdi_commands write queue_update_state
 
 set editor_deleted 0
 
@@ -2257,7 +2257,7 @@ DynamicHelp::add $_tabs_manual.flood -text [_ "Turn flood on or off \[F8\]"]
 DynamicHelp::add $_tabs_manual.mist -text [_ "Turn mist on or off \[F7\]"]
 DynamicHelp::add $_tabs_manual.jogf.zerohome.home -text [_ "Send active axis home \[Home\]"]
 DynamicHelp::add $_tabs_manual.jogf.zerohome.zero -text [_ "Set G54 offset for active axis \[End\]"]
-DynamicHelp::add $_tabs_manual.jogf.zerohome.tooltouch -text [_ "Set tool offset for loaded tool \[Control-End\]"]
+DynamicHelp::add $_tabs_manual.jogf.zerohome.tooltouch -text [_ "Set tool offset for loaded tool \[Ctrl-End\]"]
 DynamicHelp::add $_tabs_manual.axes.axisx -text [_ "Activate axis \[X\]"]
 DynamicHelp::add $_tabs_manual.axes.axisy -text [_ "Activate axis \[Y\]"]
 DynamicHelp::add $_tabs_manual.axes.axisz -text [_ "Activate axis \[Z\]"]

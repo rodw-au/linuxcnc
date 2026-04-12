@@ -6,7 +6,7 @@
 * License: GPL Version 2
 *    
 * Copyright (c) 2004 All rights reserved.
-* see below for aditional notes
+* see below for additional notes
 *
 * Last change: 
 ********************************************************************/
@@ -136,9 +136,9 @@
 */
 
 #include <asm/io.h>
-#include "rtapi.h"		/* RTAPI realtime OS API */
-#include "rtapi_app.h"		/* RTAPI realtime module decls */
-#include "hal.h"		/* HAL public API decls */
+#include <rtapi.h>		/* RTAPI realtime OS API */
+#include <rtapi_app.h>		/* RTAPI realtime module decls */
+#include <hal.h>		/* HAL public API decls */
 #include "hal_stg.h"		/* STG related defines */
 
 /* module information */
@@ -914,7 +914,7 @@ static int stg_dac_init(int ch)
     
     /* set all DAC's to 0 on startup */
     for (i=0; i < num_chan; i++) {
-	stg_dac_write(i, 0x1000); //by Xuecheng, 0x1000 coresponds to 0V 
+	stg_dac_write(i, 0x1000); //by Xuecheng, 0x1000 corresponds to 0V 
     }
     return 0;
 }

@@ -3,7 +3,7 @@
 // This is a userspace HAL driver for the ShuttleXpress and ShuttlePRO
 // devices by Contour Design.
 //
-// Copyright 2011, 2016 Sebastian Kuzminsky <seb@highlab.com>
+// Copyright 2011, 2016, 2021 Sebastian Kuzminsky <seb@highlab.com>
 //
 // This program is free software; you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -38,7 +38,7 @@
 #include <linux/types.h>
 #include <linux/hidraw.h>
 
-#include "hal.h"
+#include <hal.h>
 
 
 
@@ -48,7 +48,7 @@
 
 #define Max(a, b)  ((a) > (b) ? (a) : (b))
 
-#define MAX_BUTTONS 13
+#define MAX_BUTTONS 15
 
 
 typedef struct {
@@ -80,8 +80,8 @@ contour_dev_t contour_dev[] = {
         .name = "shuttleproV2",
         .vendor_id = 0x0b33,
         .product_id = 0x0030,
-        .num_buttons = 13,
-        .button_mask = { 0x0001, 0x0002, 0x0004, 0x0008, 0x0010, 0x0020, 0x0040, 0x0080, 0x0100, 0x0200, 0x0400, 0x0800, 0x1000 }
+        .num_buttons = 15,
+        .button_mask = { 0x0001, 0x0002, 0x0004, 0x0008, 0x0010, 0x0020, 0x0040, 0x0080, 0x0100, 0x0200, 0x0400, 0x0800, 0x1000, 0x2000, 0x4000 }
     }
 };
 
@@ -126,6 +126,7 @@ int num_devices = 0;
 
 
 static void exit_handler(int sig) {
+    (void)sig;
     printf("%s: exiting\n", modname);
     exit(0);
 }
@@ -217,7 +218,7 @@ struct shuttle *check_for_shuttle(char *dev_filename) {
         goto fail1;
     }
 
-    for (int i = 0; i < sizeof(contour_dev)/sizeof(contour_dev_t); i ++) {
+    for (unsigned i = 0; i < sizeof(contour_dev)/sizeof(contour_dev_t); i ++) {
         if (devinfo.vendor != contour_dev[i].vendor_id) {
             continue;
         }

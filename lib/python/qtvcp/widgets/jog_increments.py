@@ -1,4 +1,4 @@
-#!/usr/bin/python2.7
+#!/usr/bin/env python3
 # qtvcp
 #
 # Copyright (c) 2017  Chris Morley <chrisinnanaimo@hotmail.com>
@@ -15,8 +15,9 @@
 #
 #################################################################################
 
-from PyQt5 import QtCore, QtWidgets
+from qtpy import QtCore, QtWidgets
 
+import hal
 from qtvcp.widgets.widget_baseclass import _HalWidgetBase
 from qtvcp.core import Status, Info
 from qtvcp import logger
@@ -29,20 +30,28 @@ STATUS = Status()
 INFO = Info()
 LOG = logger.getLogger(__name__)
 
-# Set the log level for this module
+# Force the log level for this module
 #LOG.setLevel(logger.DEBUG) # One of DEBUG, INFO, WARNING, ERROR, CRITICAL
 
 
 class JogIncrements(QtWidgets.QComboBox, _HalWidgetBase):
     def __init__(self, parent=None):
         super(JogIncrements, self).__init__(parent)
+        self._pin_name = ''
         self.linear = True
         self._block_signal = False
 
-    # Default to continous jogging
+    # Default to continuous jogging (selection 0)
     # with a combo box display, it's assumed the showing increment
     # is valid - so we must update the rate if the units mode changes.
     def _hal_init(self):
+        # TODO should this be optional?
+        if 1==1:
+            if self._pin_name == '':
+                pname = self.HAL_NAME_
+            else:
+                pname = self._pin_name
+            self.hal_pin = self.HAL_GCOMP_.newpin(pname, hal.HAL_FLOAT, hal.HAL_OUT)
         if self.linear:
             for item in (INFO.JOG_INCREMENTS):
                 self.addItem(item)
@@ -55,8 +64,10 @@ class JogIncrements(QtWidgets.QComboBox, _HalWidgetBase):
         self.currentIndexChanged.connect(self.selectionchange)
         self.selectionchange(0)
 
+    # if units switch - current jog rate in invalid
     def _switch_units(self, w, data):
-        self.selectionchange(-1)
+        if self.currentIndex() > 0:
+            self.selectionchange(-1)
 
     # search the combo box for the value STATUS sent us
     # If there is a match, change the combobox to it
@@ -64,9 +75,15 @@ class JogIncrements(QtWidgets.QComboBox, _HalWidgetBase):
     # in this way if some other widget sets a rate change
     # the combo box doesn't lie
     def _checkincrements(self,value, text):
+        self.hal_pin.set(value)
         for count in range(self.count()):
             label = self.itemText(count)
-            if 'cont' in label.lower():
+            try:
+                number = float(label.rstrip(" inchmuildeg").lower())
+            except:
+                number = None
+            # assume continuous jogging (selection 0)
+            if number is None:
                 machn_incr = 0
             else:
                 if self.linear:
@@ -74,7 +91,7 @@ class JogIncrements(QtWidgets.QComboBox, _HalWidgetBase):
                 else:
                     machn_incr = self.parse_angular_increment(label)
             #print count,self.itemText(count), machn_incr,value
-            if round(machn_incr,6) == round(value,6):
+            if machn_incr is not None and round(machn_incr,6) == round(value,6):
                 self._block_signal = True
                 self.setCurrentIndex(count)
                 self._block_signal = False
@@ -86,7 +103,8 @@ class JogIncrements(QtWidgets.QComboBox, _HalWidgetBase):
         text = str(self.currentText())
         if i == -1 and text == '': return
         try:
-            if 'cont' in text.lower():
+            # continuous jog (selection 0)
+            if i == 0:
                 inc = 0
             else:
                 if self.linear:
@@ -95,8 +113,11 @@ class JogIncrements(QtWidgets.QComboBox, _HalWidgetBase):
                     inc = self.parse_angular_increment(text)
 
         except Exception as e:
-            LOG.debug('Exception parsing increment - setting increment at 0', exc_info=e)
-            inc = 0
+            LOG.debug('Exception parsing increment - setting increment to None', exc_info=e)
+            inc = None
+        if inc is None:
+            LOG.warning("parsed: text not recognized : {} Increment: {}".format(text, inc))
+            return
         if self.linear:
             LOG.debug("Linear Current index: {} Increment: {} , selection changed {}".format(i, inc, text))
             STATUS.set_jog_increments(inc, text)
@@ -127,12 +148,15 @@ class JogIncrements(QtWidgets.QComboBox, _HalWidgetBase):
         else:
             scale = 1
         incr = jogincr.rstrip(" inchmuil")
-        if "/" in incr:
-            p, q = incr.split("/")
-            incr = float(p) / float(q)
-        else:
-            incr = float(incr)
-        LOG.debug("parceed: text: {} Increment: {} scaled: {}".format(jogincr, incr, (incr * scale)))
+        try:
+            if "/" in incr:
+                p, q = incr.split("/")
+                incr = float(p) / float(q)
+            else:
+                incr = float(incr)
+        except:
+            return None
+        LOG.debug("parsed: text: {} Increment: {} scaled: {}".format(jogincr, incr, (incr * scale)))
         return incr * scale
 
     # This does the conversion
@@ -152,7 +176,7 @@ class JogIncrements(QtWidgets.QComboBox, _HalWidgetBase):
 
     #########################################################################
     # This is how designer can interact with our widget properties.
-    # designer will show the pyqtProperty properties in the editor
+    # designer will show the Property properties in the editor
     # it will use the get set and reset calls to do those actions
     #
     # _toggle_properties makes it so we can only select one option
@@ -174,7 +198,17 @@ class JogIncrements(QtWidgets.QComboBox, _HalWidgetBase):
 
     # designer will show these properties in this order:
     # BOOL
-    linear_option = QtCore.pyqtProperty(bool, get_linear, set_linear, reset_linear)
+    linear_option = QtCore.Property(bool, get_linear, set_linear, reset_linear)
+
+    # VARIABLES---------------------------
+    def set_pin_name(self, value):
+        self._pin_name = value
+    def get_pin_name(self):
+        return self._pin_name
+    def reset_pin_name(self):
+        self._pin_name = ''
+
+    pinName = QtCore.Property(str, get_pin_name, set_pin_name, reset_pin_name)
 
 if __name__ == "__main__":
 

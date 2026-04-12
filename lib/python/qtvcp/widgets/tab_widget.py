@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 # qtVcp tab widgets with adjustable tab height
 #
 # Copyright (c) 2019  Chris Morley <chrisinnanaimo@hotmail.com>
@@ -13,8 +13,8 @@
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 # GNU General Public License for more details.
 
-from PyQt5.QtWidgets import (QTabWidget, QTabBar, QPushButton)
-from PyQt5.QtCore import pyqtProperty, QSize
+from qtpy.QtWidgets import (QTabWidget, QTabBar)
+from qtpy.QtCore import Property, QSize
 
 class TabWidget(QTabWidget):
     def __init__(self, parent=None):
@@ -30,7 +30,7 @@ class TabWidget(QTabWidget):
     def reset_tabSize(self):
         self._tabSize = 1.5
 
-    tabSize = pyqtProperty(float, get_tabSize, set_tabSize, reset_tabSize)
+    tabSize = Property(float, get_tabSize, set_tabSize, reset_tabSize)
 
 class TabBar(QTabBar):
     def __init__(self, parent=None, size=1.5):
@@ -40,5 +40,5 @@ class TabBar(QTabBar):
     def tabSizeHint(self, index):
         size = QTabBar.tabSizeHint(self, index)
         w = size.height()*self._size
-        return QSize(size.width(), w)
+        return QSize(size.width(), int(w))
 

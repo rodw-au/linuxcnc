@@ -1,0 +1,16 @@
+:lang: en
+:lversion: {sys: cat ../VERSION}
+:ascii-ids:
+:masterdir: {indir}
+:revdate: 2021-10-28
+= Integrator Information V{lversion}
+
+:leveloffset: 1
+
+include::integrator/steppers.adoc[]
+
+include::integrator/stepper-timing.adoc[]
+
+include::integrator/wiring.adoc[]
+
+// vim: set syntax=asciidoc:

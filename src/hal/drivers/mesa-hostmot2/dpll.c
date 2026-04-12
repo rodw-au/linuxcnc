@@ -23,13 +23,13 @@
 
 #include <rtapi_slab.h>
 
-#include "rtapi.h"
-#include "rtapi_string.h"
-#include "rtapi_math.h"
+#include <rtapi.h>
+#include <rtapi_string.h>
+#include <rtapi_math.h>
 
-#include "hal.h"
+#include <hal.h>
 
-#include "hal/drivers/mesa-hostmot2/hostmot2.h"
+#include "hostmot2.h"
 
 int hm2_dpll_parse_md(hostmot2_t *hm2, int md_index) {
 
@@ -221,5 +221,6 @@ void hm2_dpll_write(hostmot2_t *hm2, long period) {
     }
 }
 void hm2_dpll_cleanup(hostmot2_t *hm2) {
+    (void)hm2;
     // Should all be handled by the HAL housekeeping
 }

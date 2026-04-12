@@ -17,13 +17,18 @@
 #ifndef SHCOM_HH
 #define SHCOM_HH
 
-#include "emc_nml.hh"
-#include "nml_oi.hh"            // NML_ERROR_LEN
+#include <cmath>
 
-#define CLOSE(a,b,eps) ((a)-(b) < +(eps) && (a)-(b) > -(eps))
+#include <linuxcnc.h>           // INCH_PER_MM
+#include "nml_intf/emc_nml.hh"
+#include "libnml/nml/nml_oi.hh"            // NML_ERROR_LEN
+
+static inline bool CLOSE(double a, double b, double eps)
+{
+    return std::fabs(a - b) < eps;
+}
 #define LINEAR_CLOSENESS 0.0001
 #define ANGULAR_CLOSENESS 0.0001
-#define INCH_PER_MM (1.0/25.4)
 #define CM_PER_MM 0.1
 #define GRAD_PER_DEG (100.0/90.0)
 #define RAD_PER_DEG TO_RAD	// from posemath.h
@@ -63,7 +68,7 @@ extern NML *emcErrorBuffer;
 extern char error_string[NML_ERROR_LEN];
 extern char operator_text_string[NML_TEXT_LEN];
 extern char operator_display_string[NML_DISPLAY_LEN];
-extern char defaultPath[80]; 
+extern char defaultPath[80];
 
 // default value for timeout, 0 means wait forever
 extern double emcTimeout;
@@ -75,6 +80,7 @@ enum EMC_UPDATE_TYPE {
 extern EMC_UPDATE_TYPE emcUpdateType;
 
 enum EMC_WAIT_TYPE {
+    EMC_WAIT_NEVER = 0,
     EMC_WAIT_RECEIVED = 2,
     EMC_WAIT_DONE
 };
@@ -111,8 +117,6 @@ extern int sendMistOn();
 extern int sendMistOff();
 extern int sendFloodOn();
 extern int sendFloodOff();
-extern int sendLubeOn();
-extern int sendLubeOff();
 extern int sendSpindleForward(int spindle);
 extern int sendSpindleReverse(int spindle);
 extern int sendSpindleOff(int spindle);
@@ -129,7 +133,7 @@ extern int sendRapidOverride(double override);
 extern int sendMaxVelocity(double velocity);
 extern int sendSpindleOverride(int spindle, double override);
 extern int sendTaskPlanInit();
-extern int sendProgramOpen(char *program);
+extern int sendProgramOpen(const char *program);
 extern int sendProgramRun(int line);
 extern int sendProgramPause();
 extern int sendProgramResume();
@@ -139,7 +143,6 @@ extern int sendMdiCmd(const char *mdi);
 extern int sendLoadToolTable(const char *file);
 extern int sendToolSetOffset(int tool, double length, double diameter);
 extern int sendJointSetBacklash(int jnum, double backlash);
-extern int sendJointEnable(int joint, int val);
 extern int sendJointLoadComp(int joint, const char *file, int type);
 extern int sendSetTeleopEnable(int enable);
 extern int sendClearProbeTrippedFlag();
@@ -148,3 +151,4 @@ extern int iniLoad(const char *filename);
 extern int checkStatus();
 
 #endif				/* ifndef SHCOM_HH */
+// vim: ts=4 sw=4

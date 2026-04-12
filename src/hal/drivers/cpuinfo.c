@@ -1,5 +1,8 @@
 /*
-Copyright (c) 2012 Ben Croston
+Copyright (c) 2023 Andy Pugh
+Initially (c) 2012 Ben Croston
+Rewritten according to advice at
+https://www.raspberrypi.com/documentation/computers/raspberry-pi.html#best-practice-for-revision-code-usage
 
 Permission is hereby granted, free of charge, to any person obtaining a copy of
 this software and associated documentation files (the "Software"), to deal in
@@ -22,72 +25,43 @@ SOFTWARE.
 
 #include <stdio.h>
 #include <string.h>
-#include "cpuinfo.h"
-
-char *get_cpuinfo_revision(char *revision)
-{
-   FILE *fp;
-   char buffer[1024];
-   char hardware[1024];
-   int  rpi_found = 0;
-
-   if ((fp = fopen("/proc/cpuinfo", "r")) == NULL)
-      return 0;
-
-   while(!feof(fp)) {
-      if (fgets(buffer, sizeof(buffer) , fp)){
-      sscanf(buffer, "Hardware	: %s", hardware);
-      if (strcmp(hardware, "BCM2708") == 0)
-         rpi_found = 1;
-      else if (strcmp(hardware, "BCM2709") == 0)
-         rpi_found = 1;
-      else if (strcmp(hardware, "BCM2835") == 0)
-         rpi_found = 1;
-      sscanf(buffer, "Revision	: %s", revision);
-      }
-   }
-   fclose(fp);
-
-   if (!rpi_found)
-      revision = NULL;
-   return revision;
-}
+#include <stdlib.h>
+#include <rtapi.h>
 
 int get_rpi_revision(void)
 {
-   char revision[1024] = {'\0'};
+    FILE *fp;
+    char buffer[1024];
+    char *r;
+    unsigned int revision = 0;
 
-   if (get_cpuinfo_revision(revision) == NULL)
-      return -1;
+    if ((fp = fopen("/sys/firmware/devicetree/base/model", "r")) == NULL)
+        return -1;
 
-   if ((strcmp(revision, "0002") == 0) ||
-       (strcmp(revision, "1000002") == 0 ) ||
-       (strcmp(revision, "0003") == 0) ||
-       (strcmp(revision, "1000003") == 0 ))
-      return 1;
-   else if ((strcmp(revision, "0004") == 0) ||
-            (strcmp(revision, "1000004") == 0 ) ||
-            (strcmp(revision, "0005") == 0) ||
-            (strcmp(revision, "1000005") == 0 ) ||
-            (strcmp(revision, "0006") == 0) ||
-            (strcmp(revision, "1000006") == 0 ))
-      return 2;
-   else if ((strcmp(revision, "a01041") == 0) ||
-            (strcmp(revision, "a21041") == 0) ||
-            (strcmp(revision, "a22042") == 0))
-      return 3;
-   else if ((strcmp(revision, "a22082") == 0) ||
-            (strcmp(revision, "a02082") == 0) ||
-            (strcmp(revision, "a32082") == 0) ||
-            (strcmp(revision, "a020d3") == 0))
-      return 4;
-   else if ((strcmp(revision, "a03111") == 0) ||
-            (strcmp(revision, "b03111") == 0) ||
-            (strcmp(revision, "b03112") == 0) ||
-            (strcmp(revision, "c03111") == 0) ||
-            (strcmp(revision, "c03112") == 0) ||
-            (strcmp(revision, "d03114") == 0))
-      return 5;
-   else // assume rev 6
-      return 6;
+    r = fgets(buffer, sizeof(buffer) , fp);
+    fclose(fp);
+
+    if (!r) return -1;
+    
+    rtapi_print_msg(RTAPI_MSG_INFO, "%s found\n", buffer);
+    
+    if (strncmp(buffer, "Raspberry",9) != 0)
+        return -1;
+
+    if ((fp = fopen("/proc/cpuinfo", "r")) == NULL)
+        return -1;
+
+    while(!feof(fp)) {
+        if (fgets(buffer, sizeof(buffer) , fp)){
+            sscanf(buffer, "Revision  : %x", &revision);
+        }
+    }
+    fclose(fp);
+
+    if ( ! (revision & 0x800000)){ // old-style revision code
+        if ((revision & 0xFF) <= 3) return 1;
+        return 2;
+    } else {
+        return ((revision >> 4) & 0xFF);
+    }
 }

@@ -16,13 +16,13 @@
   Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 */
 
-#include "kinematics.h"
-#include "posemath.h"
-#include "hal.h"
-#include "rtapi.h"
-#include "rtapi_math.h"
-#include "rtapi_app.h"
+#include <rtapi.h>
+#include <rtapi_math.h>
+#include <rtapi_app.h>
+#include <hal.h>
+#include <kinematics.h>
 
+KINS_NOT_SWITCHABLE
 EXPORT_SYMBOL(kinematicsType);
 EXPORT_SYMBOL(kinematicsInverse);
 EXPORT_SYMBOL(kinematicsForward);
@@ -43,6 +43,8 @@ int kinematicsForward(const double *joints,
                       const KINEMATICS_FORWARD_FLAGS * fflags,
                       KINEMATICS_INVERSE_FLAGS * iflags)
 {
+    (void)fflags;
+    (void)iflags;
     double radius,z,theta;
 
     radius = joints[0];
@@ -67,6 +69,8 @@ int kinematicsInverse(const EmcPose * pos,
                       const KINEMATICS_INVERSE_FLAGS * iflags,
                       KINEMATICS_FORWARD_FLAGS * fflags)
 {
+    (void)iflags;
+    (void)fflags;
 // There is a potential problem when accumulating bigtheta -- loss of
 // precision based on size of mantissa -- but in practice, it is probably ok
 

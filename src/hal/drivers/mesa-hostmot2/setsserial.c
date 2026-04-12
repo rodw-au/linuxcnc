@@ -21,9 +21,9 @@
 #include <rtapi_firmware.h>
 #include <rtapi_string.h>
 #include <rtapi_gfp.h>
-#include "rtapi.h"
-#include "rtapi_app.h"
-#include "hal.h"
+#include <rtapi.h>
+#include <rtapi_app.h>
+#include <hal.h>
 #include "hostmot2.h"
 #include "sserial.h"
 
@@ -93,7 +93,7 @@ int nv_access(rtapi_u32 type){
     rtapi_u32 buff = LBPNONVOL_flag + LBPWRITE;
     rtapi_print("buff = %x\n", buff);
     HM2WRITE(remote->reg_cs_addr, buff);
-    HM2WRITE(remote->reg_0_addr, type);
+    HM2WRITE(remote->rw_addr[0], type);
     return doit();
 }
 
@@ -105,7 +105,7 @@ int set_nvram_param(rtapi_u32 addr, rtapi_u32 value){
     if (nv_access(LBPNONVOLEEPROM) < 0) goto fail0;
     
     // value to set
-    HM2WRITE(remote->reg_0_addr, value);
+    HM2WRITE(remote->rw_addr[0], value);
     buff = WRITE_REM_WORD_CMD | addr; 
     HM2WRITE(remote->reg_cs_addr, buff);
     if (doit() < 0) goto fail0;
@@ -122,6 +122,7 @@ fail0: // It's all gone wrong
 }
 
 static void setsserial_release(struct rtapi_device *dev) {
+    (void)dev;
     // nothing to do here
 }
 
@@ -155,7 +156,7 @@ int setlocal(int addr, int val, int bytes){
 void sslbp_write_lbp(rtapi_u32 cmd, rtapi_u32 data){
     rtapi_u32 buff = LBPWRITE + cmd;
     HM2WRITE(remote->reg_cs_addr, buff);
-    HM2WRITE(remote->reg_0_addr, data);
+    HM2WRITE(remote->rw_addr[0], data);
     doit();
     buff = 0;
     HM2WRITE(remote->reg_cs_addr, buff);
@@ -169,7 +170,7 @@ int sslbp_read_cookie(void){
         HM2_ERR("Error in sslbp_read_cookie, trying to abort\n");
         return -1;
     }
-    HM2READ(remote->reg_0_addr, res);
+    HM2READ(remote->rw_addr[0], res);
     buff = 0;
     HM2WRITE(remote->reg_cs_addr, buff);
     return res;
@@ -183,7 +184,7 @@ rtapi_u8 sslbp_read_byte(rtapi_u32 addr){
         HM2_ERR("Error in sslbp_read_byte, trying to abort\n");
         return -1;
     }
-    HM2READ(remote->reg_0_addr, res);
+    HM2READ(remote->rw_addr[0], res);
     buff = 0;
     HM2WRITE(remote->reg_cs_addr, buff);
     return (rtapi_u8)res;
@@ -197,7 +198,7 @@ rtapi_u16 sslbp_read_word(rtapi_u32 addr){
         HM2_ERR("Error in sslbp_read_word, trying to abort\n");
         return -1;
     }
-    HM2READ(remote->reg_0_addr, res);
+    HM2READ(remote->rw_addr[0], res);
     buff = 0;
     HM2WRITE(remote->reg_cs_addr, buff);
     return (rtapi_u16)res;
@@ -211,7 +212,7 @@ rtapi_u32 sslbp_read_long(rtapi_u32 addr){
         HM2_ERR("Error in sslbp_read_long, trying to abort\n");
         return -1;
     }
-    HM2READ(remote->reg_0_addr, buff);
+    HM2READ(remote->rw_addr[0], buff);
     buff = 0;
     HM2WRITE(remote->reg_cs_addr, buff);
     return res;
@@ -225,10 +226,10 @@ rtapi_u64 sslbp_read_double(rtapi_u32 addr){
         HM2_ERR("Error in sslbp_read_double, trying to abort\n");
         return -1;
     }
-    HM2READ(remote->reg_1_addr, buff);
+    HM2READ(remote->rw_addr[1], buff);
     res = buff;
     res <<= 32;
-    HM2READ(remote->reg_0_addr, buff);
+    HM2READ(remote->rw_addr[0], buff);
     res += buff;
     buff = 0;
     HM2WRITE(remote->reg_cs_addr, buff);
@@ -238,7 +239,7 @@ rtapi_u64 sslbp_read_double(rtapi_u32 addr){
 int sslbp_write_byte(rtapi_u32 addr, rtapi_u32 data){
     rtapi_u32 buff = WRITE_REM_BYTE_CMD + addr;
     HM2WRITE(remote->reg_cs_addr, buff);
-    HM2WRITE(remote->reg_0_addr, data);
+    HM2WRITE(remote->rw_addr[0], data);
     if (doit() < 0){
         HM2_ERR("Error in sslbp_write_byte, trying to abort\n");
         return -1;
@@ -251,7 +252,7 @@ int sslbp_write_byte(rtapi_u32 addr, rtapi_u32 data){
 int sslbp_write_word(rtapi_u32 addr, rtapi_u32 data){
     rtapi_u32 buff = WRITE_REM_WORD_CMD + addr;
     HM2WRITE(remote->reg_cs_addr, buff);
-    HM2WRITE(remote->reg_0_addr, data);
+    HM2WRITE(remote->rw_addr[0], data);
     if (doit() < 0){
         HM2_ERR("Error in sslbp_write_word, trying to abort\n");
         return -1;
@@ -264,7 +265,7 @@ int sslbp_write_word(rtapi_u32 addr, rtapi_u32 data){
 int sslbp_write_long(rtapi_u32 addr, rtapi_u32 data){
     rtapi_u32 buff = WRITE_REM_LONG_CMD + addr;
     HM2WRITE(remote->reg_cs_addr, buff);
-    HM2WRITE(remote->reg_0_addr, data);
+    HM2WRITE(remote->rw_addr[0], data);
     if (doit() < 0){
         HM2_ERR("Error in sslbp_write_long, trying to abort\n");
         return -1;
@@ -277,8 +278,8 @@ int sslbp_write_long(rtapi_u32 addr, rtapi_u32 data){
 int sslbp_write_double(rtapi_u32 addr, rtapi_u32 data0, rtapi_u32 data1){
     rtapi_u32 buff = WRITE_REM_DOUBLE_CMD + addr;
     HM2WRITE(remote->reg_cs_addr, buff);
-    HM2WRITE(remote->reg_0_addr, data0);
-    HM2WRITE(remote->reg_1_addr, data1);
+    HM2WRITE(remote->rw_addr[0], data0);
+    HM2WRITE(remote->rw_addr[1], data1);
     if (doit() < 0){
         HM2_ERR("Error in sslbp_write_double, trying to abort\n");
         return -1;
@@ -301,7 +302,7 @@ int sslbp_flash(char *fname){
     const struct rtapi_firmware *fw;
     struct rtapi_device dev;
     int r;
-    int write_sz, erase_sz;
+    unsigned write_sz, erase_sz;
     
     if (strstr("8i20", remote->name)){
         if (hm2->sserial.version < 37){
@@ -347,21 +348,20 @@ int sslbp_flash(char *fname){
     
     if (setup_start() < 0) goto fail0;
     flash_start();
-    write_sz = 1 << sslbp_read_byte(LBPFLASHWRITESIZELOC);
-    erase_sz = 1 << sslbp_read_byte(LBPFLASHERASESIZELOC);
+    write_sz = 1u << sslbp_read_byte(LBPFLASHWRITESIZELOC);
+    erase_sz = 1u << sslbp_read_byte(LBPFLASHERASESIZELOC);
     HM2_PRINT("Write Size = %x, Erase Size = %x\n", write_sz, erase_sz);
     flash_stop();
     
     //Programming Loop
     {
-        int ReservedBlock = 0;
-        int StartBlock = ReservedBlock + 1;
+        unsigned ReservedBlock = 0;
+        unsigned StartBlock = ReservedBlock + 1;
         
-        int blocknum = StartBlock;
-        int block_start;
-        int i, j, t;
+        unsigned blocknum = StartBlock;
+        unsigned i, j, t;
         while (blocknum * erase_sz < fw->size){
-            block_start = blocknum * erase_sz;
+            unsigned block_start = blocknum * erase_sz;
             for (t = 0; t < erase_sz && fw->data[block_start + t] == 0 ; t++){ }
             if (t <  erase_sz){ // found a non-zero byte
                 flash_start();

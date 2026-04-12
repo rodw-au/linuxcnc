@@ -1,20 +1,22 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 import sys
 import os
-from PyQt5 import QtCore, QtGui, QtWidgets, uic
-from PyQt5.QtCore import Qt, QEvent
+from qtpy import QtGui, QtWidgets, uic
+from qtpy.QtCore import Qt, QEvent, Signal
 
-from qtvcp.core import Info
+from qtvcp.core import Info, Path
 from qtvcp import logger
 LOG = logger.getLogger(__name__)
 
-INFO = Info()
+PATH = Path()
 
 class VirtualKeyboard(QtWidgets.QWidget):
+    hideKeyboard = Signal()
+
     def __init__(self, parent=None):
         super(VirtualKeyboard, self).__init__(parent)
         # Load the widgets UI file:
-        self.filename = os.path.join(INFO.LIB_PATH,'widgets_ui', 'virtual_keyboard.ui')
+        self.filename = os.path.join(PATH.SHAREDIR,'widgets_ui', 'virtual_keyboard.ui')
         try:
             self.instance = uic.loadUi(self.filename, self)
         except AttributeError as e:
@@ -93,7 +95,8 @@ class VirtualKeyboard(QtWidgets.QWidget):
         self.numbers_buttonGroup.buttonClicked.connect(self.special_clicked)
         self.special_buttonGroup.buttonClicked.connect(self.special_clicked)
         self.control_buttonGroup.buttonClicked.connect(self.button_clicked)
-        
+        self.btn_hide.clicked.connect(lambda: self.hideKeyboard.emit())
+
     def init_letters(self):
         for val in self.letter_list:
             self['btn_' + val].setText(val)
@@ -163,7 +166,7 @@ class VirtualKeyboard(QtWidgets.QWidget):
             for val in self.number_list:
                 alt_txt = self['btn_' + val].property('fcode')
                 self['btn_' + val].setText(alt_txt)
-            for key, val in self.function_keys.items():
+            for key, val in list(self.function_keys.items()):
                 self['btn_' + key].KEY_CHAR = val
         else:
             self.init_numbers()
@@ -173,14 +176,14 @@ class VirtualKeyboard(QtWidgets.QWidget):
 
     def __setitem__(self, item, value):
         return setattr(self, item, value)
-        
+
     #############################
     # Testing                   #
     #############################
 if __name__ == "__main__":
-    from PyQt5.QtWidgets import *
-    from PyQt5.QtCore import *
-    from PyQt5.QtGui import *
+    from qtpy.QtWidgets import *
+    from qtpy.QtCore import *
+    from qtpy.QtGui import *
     app = QtWidgets.QApplication(sys.argv)
     w = VirtualKeyboard()
     w.show()

@@ -29,12 +29,12 @@
 #include <new>
 #include "rs274ngc.hh"
 #include "rs274ngc_return.hh"
-#include "interp_return.hh"
+#include "nml_intf/interp_return.hh"
 #include "interp_internal.hh"
 #include "rs274ngc_interp.hh"
-#include "python_plugin.hh"
+#include "pythonplugin/python_plugin.hh"
 #include "interp_python.hh"
-#include <rtapi_string.h>
+#include <rtapi_string.h>	// rtapi_strlcpy()
 
 namespace bp = boost::python;
 
@@ -60,7 +60,7 @@ int Interp::findFile( // ARGUMENTS
     snprintf(targetPath, PATH_MAX, "%s/%s", direct, target);
     file = fopen(targetPath, "r");
     if (file) {
-        strncpy(foundFileDirect, direct, PATH_MAX);
+        rtapi_strlcpy(foundFileDirect, direct, PATH_MAX);
         fclose(file);
         return INTERP_OK;
     }
@@ -71,8 +71,8 @@ int Interp::findFile( // ARGUMENTS
 
     while ((aFile = readdir(aDir))) {
         if (aFile->d_type == DT_DIR &&
-	    (0 != strcmp(aFile->d_name, "..")) &&
-	    (0 != strcmp(aFile->d_name, "."))) {
+	    (0 != strncmp(aFile->d_name, "..", 3)) &&
+	    (0 != strncmp(aFile->d_name, ".", 2))) {
 
             char path[PATH_MAX+1];
             snprintf(path, PATH_MAX, "%s/%s", direct, aFile->d_name);
@@ -225,7 +225,7 @@ int Interp::execute_call(setup_pointer settings,
 
 	// Set up return to next block (may be overridden by M98)
 	if (settings->file_pointer == NULL)
-	    // if the previous file was NULL, mark positon as -1 so as not to
+	    // if the previous file was NULL, mark position as -1 so as not to
 	    // reopen it on return.
 	    previous_frame->position = -1;
 	else
@@ -277,7 +277,6 @@ int Interp::execute_call(setup_pointer settings,
 	    logOword("M98 L0 instruction; skipping call");
 	else if (control_back_to(eblock, settings) == INTERP_ERROR) {
 	    settings->call_level--;
-	    ERS(NCE_UNABLE_TO_OPEN_FILE,eblock->o_name);
 	    return INTERP_ERROR;
 	}
 
@@ -292,10 +291,10 @@ int Interp::execute_call(setup_pointer settings,
 	    previous_frame->filename = strstore(settings->filename);
 	    plist.append(*settings->pythis); // self
 	    for(int i = 0; i < eblock->param_cnt; i++)
-		plist.append(eblock->params[i]); // positonal args
+		plist.append(eblock->params[i]); // positional args
 	    current_frame->pystuff.impl->tupleargs = bp::tuple(plist);
 	    current_frame->pystuff.impl->kwargs = bp::dict();
-
+	    /* Fallthrough */
 	case CS_REEXEC_PYOSUB:
 	    if (settings->call_state ==  CS_REEXEC_PYOSUB)
 		CHP(read_inputs(settings));
@@ -430,6 +429,7 @@ int Interp::execute_return(setup_pointer settings, context_pointer current_frame
 		    settings->call_state = CS_REEXEC_EPILOG;
 		    eblock->call_type = CT_REMAP;
 		    CHP(status);
+		    break;
 		default:
 		    settings->call_state = CS_NORMAL;
 		    settings->sequence_number = previous_frame->sequence_number;
@@ -439,6 +439,7 @@ int Interp::execute_return(setup_pointer settings, context_pointer current_frame
 	    }
 	}
 	// fall through to normal NGC return handling 
+	/* Fallthrough */
     case CT_NGC_OWORD_SUB:
     case CT_NGC_M98_SUB:
     case CT_NONE:  // sub definition
@@ -453,6 +454,7 @@ int Interp::execute_return(setup_pointer settings, context_pointer current_frame
 
 	    // file at this level was marked as closed, so dont reopen.
 	    if (previous_frame->position == -1) {
+		if (settings->file_pointer) fclose(settings->file_pointer);
 		settings->file_pointer = NULL;
 		rtapi_strxcpy(settings->filename, "");
 	    } else {
@@ -540,14 +542,14 @@ int Interp::control_back_to( block_pointer block, // pointer to block
 			     setup_pointer settings)   // pointer to machine settings
 {
     static char name[] = "control_back_to";
-    char newFileName[PATH_MAX+1];
+    char newFileName[PATH_MAX];
     FILE *newFP;
     offset_map_iterator it;
     offset_pointer op;
+    logOword("Entered:%s %s", name,basename(block->o_name));
+    it = settings->offset_map.find(basename(block->o_name));
 
-    logOword("Entered:%s %s", name,block->o_name);
-
-    it = settings->offset_map.find(block->o_name);
+    // #1 already defined
     if (it != settings->offset_map.end()) {
 	op = &it->second;
 	if ((settings->filename[0] != 0) &
@@ -560,12 +562,12 @@ int Interp::control_back_to( block_pointer block, // pointer to block
 	    newFP = fopen(op->filename, "r");
 	    // set the line number
 	    settings->sequence_number = 0;
-            strncpy(settings->filename, op->filename, sizeof(settings->filename));
-            if (settings->filename[sizeof(settings->filename)-1] != '\0') {
+            if (strlen(op->filename) >= sizeof(settings->filename)) {
                 fclose(settings->file_pointer);
                 logOword("filename too long: %s", op->filename);
                 ERS(NCE_UNABLE_TO_OPEN_FILE, op->filename);
             }
+            strncpy(settings->filename, op->filename, sizeof(settings->filename));
 
 	    if (newFP) {
 		// close the old file...
@@ -584,6 +586,8 @@ int Interp::control_back_to( block_pointer block, // pointer to block
 	settings->sequence_number = op->sequence_number;
 	return INTERP_OK;
     }
+
+    // #2 open the File
     newFP = find_ngc_file(settings, block->o_name, newFileName);
 
     if (newFP) {
@@ -594,20 +598,34 @@ int Interp::control_back_to( block_pointer block, // pointer to block
 	if (settings->file_pointer)
 	    fclose(settings->file_pointer);
 	settings->file_pointer = newFP;
-        strncpy(settings->filename, newFileName, sizeof(settings->filename));
-        if (settings->filename[sizeof(settings->filename)-1] != '\0') {
+        if (strlen(newFileName) >= sizeof(settings->filename)) {
             logOword("new filename '%s' is too long (max len %zu)\n", newFileName, sizeof(settings->filename)-1);
-            settings->filename[sizeof(settings->filename)-1] = '\0'; // oh well, truncate the filename
+            ERS(NCE_UNABLE_TO_OPEN_FILE, newFileName);
         }
+        strncpy(settings->filename, newFileName, sizeof(settings->filename));
     } else {
+	// No file found for this sub name.
+	// Block forward-seek if the current file is not the main program.
+	// Numbered subs after a named endsub pollute the global offset
+	// map and silently conflict across files.  Forward-seek in the
+	// main program's own file (call_level 0) is still allowed.
+	if (settings->call_level > 0) {
+	    context_pointer main_frame = &settings->sub_context[0];
+	    if (main_frame->filename == NULL ||
+		strcmp(settings->filename, main_frame->filename) != 0) {
+		ERS(_("Subroutine 'O%s' not found -- "
+		      "not in offset table and no file '%s' found"),
+		    block->o_name, newFileName);
+	    }
+	}
 	char *dirname = getcwd(NULL, 0);
 	logOword("fopen: |%s| failed CWD:|%s|", newFileName,
 		 dirname);
 	free(dirname);
     }
 
-    settings->skipping_o = block->o_name; // start skipping
-    settings->skipping_to_sub = block->o_name; // start skipping
+    settings->skipping_o = basename(block->o_name); // start skipping
+    settings->skipping_to_sub = basename(block->o_name); // start skipping
     settings->skipping_start = settings->sequence_number;
     return INTERP_OK;
 }
@@ -644,7 +662,7 @@ int Interp::handler_returned( setup_pointer settings,  context_pointer active_fr
 	    settings->value_returned = 1;
 	} else 
 	    return active_frame->pystuff.impl->py_returned_int;
-
+	break;
     case RET_ERRORMSG:
 	status = INTERP_ERROR;
 	break;
@@ -787,6 +805,14 @@ int Interp::convert_control_functions(block_pointer block, // pointer to a block
 	// if the level is not zero, this is a call
 	// not the definition
 	if (settings->call_level != 0) {
+	    // Check for nested or extra sub definitions inside a called sub.
+	    // Only the entry sub (matching the call) is allowed; any other
+	    // 'sub' keyword is an error (nested def or numbered sub in file).
+	    context_pointer cf = &settings->sub_context[settings->call_level];
+	    CHKS((cf->subName && strcmp(cf->subName, block->o_name) != 0),
+		 _("Nested subroutine definition: 'O%s sub' found inside "
+		   "called subroutine 'O%s'"),
+		 block->o_name, cf->subName);
 	    logOword("call:%f:%f:%f",
 		     settings->parameters[1],
 		     settings->parameters[2],

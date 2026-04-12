@@ -27,9 +27,9 @@
 #include "rs274ngc_return.hh"
 #include "interp_internal.hh"
 #include "rs274ngc_interp.hh"
-#include "rtapi_math.h"
+#include <rtapi_math.h>
 #include <cmath>
-#include <rtapi_string.h>
+#include <rtapi_string.h>	// rtapi_strlcpy()
 
 using namespace interp_param_global;
 
@@ -288,7 +288,7 @@ present only so that this will have the same argument list as the other
 int Interp::read_comment(char *line,     //!< string: line of RS274 code being processed   
                         int *counter,   //!< pointer to a counter for position on the line
                         block_pointer block,    //!< pointer to a block being filled from the line
-                        double *parameters)     //!< array of system parameters                   
+                        double * /*parameters*/)     //!< array of system parameters
 {
   int n;
 
@@ -302,20 +302,19 @@ int Interp::read_comment(char *line,     //!< string: line of RS274 code being p
   return INTERP_OK;
 }
 
-// A semicolon marks the beginning of a comment.  The comment goes to
-// the end of the line.
+// With the exception of lines starting with ';py,',
+// Everything after a semicolon will be ignored/treated as a comment until the end of the line.
 
 int Interp::read_semicolon(char *line,     //!< string: line of RS274 code being processed   
                            int *counter,   //!< pointer to a counter for position on the line
-                           block_pointer block,    //!< pointer to a block being filled from the line
-                           double *parameters)     //!< array of system parameters                   
+                           block_pointer /*block*/,    //!< pointer to a block being filled from the line
+                           double * /*parameters*/)     //!< array of system parameters
 {
-    char *s;
     CHKS((line[*counter] != ';'), NCE_BUG_FUNCTION_SHOULD_NOT_HAVE_BEEN_CALLED);
     (*counter) = strlen(line);
-    // pass unmutilated line to convert_comment - FIXME access to _setup
-    if (( s = strchr(_setup.linetext,';')) != NULL)
-	CHP(convert_comment(s+1, false));
+    // pass unmutilated line starting with ';py,' to convert_comment - FIXME access to _setup
+    if (strncmp (_setup.linetext, ";py,", 4) == 0)
+	CHP(convert_comment(_setup.linetext+1, false));
     return INTERP_OK;
 }
 
@@ -595,7 +594,7 @@ int Interp::read_g(char *line,   //!< string: line of RS274/NGC code being proce
       block->g_modes[mode] = value;
       return INTERP_OK;
   }
-  mode = _gees[value];
+  mode = gees[value];
   CHKS((mode == -1), NCE_UNKNOWN_G_CODE_USED);
   if ((value == G_80) && (block->g_modes[mode] != -1));
   else {
@@ -1134,7 +1133,7 @@ int Interp::read_m(char *line,   //!< string: line of RS274 code being processed
   }
 
   CHKS((value > 199), NCE_M_CODE_GREATER_THAN_199,value);
-  mode = _ems[value];
+  mode = ems[value];
   CHKS((mode == -1), NCE_UNKNOWN_M_CODE_USED,value);
   CHKS((block->m_modes[mode] != -1),
       NCE_TWO_M_CODES_USED_FROM_SAME_MODAL_GROUP);
@@ -1559,7 +1558,7 @@ int Interp::read_o(    /* ARGUMENTS                                     */
       // m98 or m99 found
       if (oNumber == 98) {
 	  CHKS(_setup.disable_fanuc_style_sub,
-	       "DISABLE_FANUC_STYLE_SUB set in .ini file, but found m98");
+	       "DISABLE_FANUC_STYLE_SUB set in INI file, but found m98");
 
 	  // Fanuc-style subroutine call with loop: "m98"
 	  block->o_type = M_98;
@@ -1585,7 +1584,7 @@ int Interp::read_o(    /* ARGUMENTS                                     */
 	  // Error checks:
 	  // - Fanuc-style subs disabled
 	  CHKS(_setup.disable_fanuc_style_sub,
-	       "DISABLE_FANUC_STYLE_SUB set in .ini file, but found m99");
+	       "DISABLE_FANUC_STYLE_SUB set in INI file, but found m99");
 	  // - Empty stack M99 (endless program) handled in read_m()
 	  CHKS(_setup.defining_sub,
 	       "Found 'M99' instead of 'O endsub' after 'O sub'");
@@ -1596,8 +1595,10 @@ int Interp::read_o(    /* ARGUMENTS                                     */
 
 	  // Subroutine name not provided in Fanuc syntax, so pull from
 	  // context
-	  strncpy(oNameBuf, _setup.sub_context[_setup.call_level].subName,
-		  LINELEN+1);
+          if (strlen(_setup.sub_context[_setup.call_level].subName) >= sizeof(oNameBuf))
+              ERS(NCE_UNABLE_TO_OPEN_FILE, _setup.sub_context[_setup.call_level].subName);
+	  rtapi_strlcpy(oNameBuf, _setup.sub_context[_setup.call_level].subName,
+                  sizeof(oNameBuf));
       } else
 	  // any other m-code should have been handled by read_m()
 	  OERR(_("%d: Bug:  Non-m98/m99 M-code passed to read_o(): '%s'"),
@@ -1659,7 +1660,7 @@ int Interp::read_o(    /* ARGUMENTS                                     */
 	      || (line+*counter)[0] == 0) {
 	  // Fanuc-style subroutine definition:  "O2000" with no following args
 	  CHKS(_setup.disable_fanuc_style_sub,
-	       "DISABLE_FANUC_STYLE_SUB disabled in .ini file, but found "
+	       "DISABLE_FANUC_STYLE_SUB disabled in INI file, but found "
 	       "bare O-word");
 
 	  block->o_type = O_;
@@ -1715,6 +1716,18 @@ int Interp::read_o(    /* ARGUMENTS                                     */
     {
 	// Check we're not already defining a main- or sub-program
 	CHKS((_setup.defining_sub == 1), NCE_NESTED_SUBROUTINE_DEFN);
+
+	// Check for sub definition inside a called subroutine.
+	// When call_level > 0 and not seeking (skipping_o == NULL),
+	// hitting a sub that doesn't match the current call is an error.
+	if (_setup.call_level > 0 && _setup.skipping_o == NULL) {
+	    const char *current_sub =
+		_setup.sub_context[_setup.call_level].subName;
+	    CHKS((current_sub && strcmp(current_sub, block->o_name) != 0),
+		 _("Nested subroutine definition: 'O%s sub' found inside "
+		   "called subroutine 'O%s'"),
+		 block->o_name, current_sub);
+	}
     }
   // in terms of execution endsub and return do the same thing
   else if ((block->o_type == O_endsub) || (block->o_type == O_return) ||
@@ -2008,7 +2021,7 @@ stored in parameter 2):
 
 Parameter setting is done in parallel, not sequentially. For example
 if #1 is 5 before the line "#1=10 #2=#1" is read, then after the line
-is is executed, #1 is 10 and #2 is 5. If parameter setting were done
+is executed, #1 is 10 and #2 is 5. If parameter setting were done
 sequentially, the value of #2 would be 10 after the line was executed.
 
 ADDED by K. Lerman
@@ -2052,7 +2065,7 @@ int Interp::read_parameter(
       }
       CHKS(((index < 1) || (index >= RS274NGC_MAX_PARAMETERS)),
           NCE_PARAMETER_NUMBER_OUT_OF_RANGE);
-      CHKS(((index >= 5420) && (index <= 5428) && (_setup.cutter_comp_side)),
+      CHKS(((index >= 5420) && (index <= 5428) && (_setup.cutter_comp_side != CUTTER_COMP::OFF)),
            _("Cannot read current position with cutter radius compensation on"));
       *double_ptr = parameters[index];
   }
@@ -2146,7 +2159,7 @@ to be evaluated. That situation is handled by read_parameter.
 int Interp::read_parameter_setting(
     char *line,   //!< string: line of RS274/NGC code being processed
     int *counter, //!< pointer to a counter for position on the line 
-    block_pointer block,  //!< pointer to a block being filled from the line 
+    block_pointer /*block*/,  //!< pointer to a block being filled from the line
     double *parameters)   //!< array of system parameters
 {
   static char name[] = "read_parameter_setting";
@@ -2189,7 +2202,7 @@ int Interp::read_parameter_setting(
       CHP(read_integer_value(line, counter, &index, parameters));
       CHKS(((index < 1) || (index >= RS274NGC_MAX_PARAMETERS)),
           NCE_PARAMETER_NUMBER_OUT_OF_RANGE);
-      CHKS((isreadonly(index)), NCE_PARAMETER_NUMBER_READONLY);
+      CHKS((is_parameter_readonly(index)), NCE_PARAMETER_NUMBER_READONLY);
       CHKS((line[*counter] != '='),
           NCE_EQUAL_SIGN_MISSING_IN_PARAMETER_SETTING);
       *counter = (*counter + 1);
@@ -2272,7 +2285,7 @@ int Interp::read_named_parameter_setting(
     char *line,   //!< string: line of RS274/NGC code being processed
     int *counter, //!< pointer to a counter for position on the line 
     char **param,  //!< pointer to the char * to be returned 
-    double *parameters)   //!< array of system parameters
+    double * /*parameters*/)   //!< array of system parameters
 {
   static char name[] = "read_named_parameter_setting";
   int status;
@@ -2484,7 +2497,7 @@ defined as a synonym for real_value, but in fact a constraint is added
 which cannot be readily written in a production language.  An
 integer_value is a real_value which is very close to an integer.
 Integer_values are needed for array and table indices and (when
-divided by 10) for the values of M codes and G codes. All numbers
+divided by 10) for the values of M-codes and G-codes. All numbers
 (including integers) are read as real numbers and stored as doubles.
 If an integer_value is required in some situation, a test for being
 close to an integer is applied to the number after it is read.
@@ -2583,7 +2596,7 @@ The manual provides that operations of the same precedence should be
 processed left to right.
 
 The first version of this function is commented out. It is suitable
-for when there are only two precendence levels. It is an improvement
+for when there are only two precedence levels. It is an improvement
 over the version used in interpreters before 2000, but not as general
 as the second version given here.
 
@@ -3153,7 +3166,7 @@ int Interp::read_text(
          index--) { // remove space at end of raw_line, especially CR & LF
       raw_line[index] = 0;
     }
-    strncpy(line, raw_line, LINELEN);
+    rtapi_strlcpy(line, raw_line, LINELEN);
     CHP(close_and_downcase(line));
     if ((line[0] == '%') && (line[1] == 0) && (_setup.percent_flag)) {
         FINISH();
@@ -3161,8 +3174,8 @@ int Interp::read_text(
     }
   } else {
     CHKS((strlen(command) >= LINELEN), NCE_COMMAND_TOO_LONG);
-    strncpy(raw_line, command, LINELEN);
-    strncpy(line, command, LINELEN);
+    rtapi_strlcpy(raw_line, command, LINELEN);
+    rtapi_strlcpy(line, command, LINELEN);
     CHP(close_and_downcase(line));
   }
 
@@ -3453,11 +3466,10 @@ int Interp::read_z(char *line,   //!< string: line of RS274 code being processed
   return INTERP_OK;
 }
 
-bool Interp::isreadonly(int index)
+bool Interp::is_parameter_readonly(int index)
 {
-  int i;
-  for (i=0; i< _n_readonly_parameters; i++) {
-    if (_readonly_parameters[i] == index) return 1;
+  for (int i = 0; i < n_readonly_parameters; i++) {
+    if (readonly_parameters[i] == index) return true;
   }
-  return 0;
+  return false;
 }

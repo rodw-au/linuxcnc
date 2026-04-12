@@ -1,4 +1,4 @@
-#!/usr/bin/python2.7
+#!/usr/bin/env python3
 # QTVcp Widget
 #
 # Copyright (c) 2017 Chris Morley
@@ -14,13 +14,12 @@
 # GNU General Public License for more details.
 ###############################################################################
 
-import os
 
-from PyQt5 import QtCore, QtWidgets
+from qtpy import QtCore
 
 from qtvcp.widgets.simple_widgets import ScaledLabel
 from qtvcp.widgets.widget_baseclass import _HalWidgetBase
-from qtvcp.core import Status
+from qtvcp.core import Status, Info
 from qtvcp import logger
 
 # Instantiate the libraries with global reference
@@ -28,8 +27,8 @@ from qtvcp import logger
 # LOG is for running code logging
 STATUS = Status()
 LOG = logger.getLogger(__name__)
-
-# Set the log level for this module
+INFO = Info()
+# Force the log level for this module
 # LOG.setLevel(logger.INFO) # One of DEBUG, INFO, WARNING, ERROR, CRITICAL
 
 
@@ -39,6 +38,7 @@ class StateLabel(ScaledLabel, _HalWidgetBase):
 
         self._true_textTemplate = 'True'
         self._false_textTemplate = 'False'
+        self.machine_units = False
         self.metric_mode = True
         self.css_mode = False
         self.fpr_mode = False
@@ -55,6 +55,8 @@ class StateLabel(ScaledLabel, _HalWidgetBase):
             STATUS.connect('fpr-mode', lambda w, data: _f(data))
         elif self.diameter_mode:
             STATUS.connect('diameter-mode', lambda w, data: _f(data))
+        elif self.machine_units:
+            self._set_text(INFO.MACHINE_IS_METRIC)
 
     def _set_text(self, data):
         if data:
@@ -64,14 +66,15 @@ class StateLabel(ScaledLabel, _HalWidgetBase):
 
     #########################################################################
     # This is how designer can interact with our widget properties.
-    # designer will show the pyqtProperty properties in the editor
+    # designer will show the Property properties in the editor
     # it will use the get set and reset calls to do those actions
     #
     # _toggle_properties makes it so we can only select one option
     ########################################################################
 
     def _toggle_properties(self, picked):
-        data = ('metric_mode', 'css_mode', 'fpr_mode', 'diameter_mode')
+        data = ('machine_is_metric', 'metric_mode', 'css_mode', 'fpr_mode',
+             'diameter_mode')
         for i in data:
             if not i == picked:
                 self[i + '_status'] = False
@@ -101,6 +104,16 @@ class StateLabel(ScaledLabel, _HalWidgetBase):
     def reset_false_textTemplate(self):
         self._false_textTemplate = '%s'
 
+    # metric unit status
+    def set_machine_units(self, data):
+        self.machine_units = data
+        if data:
+            self._toggle_properties('machine_is_metric')
+    def get_machine_units(self):
+        return self.machine_units
+    def reset_machine_units(self):
+        self.machine_units = True
+
     # metric mode status
     def set_metric_mode(self, data):
         self.metric_mode = data
@@ -125,7 +138,7 @@ class StateLabel(ScaledLabel, _HalWidgetBase):
     def set_fpr_mode(self, data):
         self.fpr_mode = data
         if data:
-            self._toggle_properties('fpr_modee')
+            self._toggle_properties('fpr_mode')
     def get_fpr_mode(self):
         return self.fpr_mode
     def reset_fpr_mode(self):
@@ -143,15 +156,16 @@ class StateLabel(ScaledLabel, _HalWidgetBase):
 
     # designer will show these properties in this order:
     # BOOL
-    metric_mode_status = QtCore.pyqtProperty(bool, get_metric_mode, set_metric_mode, reset_metric_mode)
-    css_mode_status = QtCore.pyqtProperty(bool, get_css_mode, set_css_mode, reset_css_mode)
-    fpr_mode_status = QtCore.pyqtProperty(bool, get_fpr_mode, set_fpr_mode, reset_fpr_mode)
-    diameter_mode_status = QtCore.pyqtProperty(bool, get_diameter_mode, set_diameter_mode, reset_diameter_mode)
+    machine_is_metric_status = QtCore.Property(bool, get_machine_units, set_machine_units, reset_machine_units)
+    metric_mode_status = QtCore.Property(bool, get_metric_mode, set_metric_mode, reset_metric_mode)
+    css_mode_status = QtCore.Property(bool, get_css_mode, set_css_mode, reset_css_mode)
+    fpr_mode_status = QtCore.Property(bool, get_fpr_mode, set_fpr_mode, reset_fpr_mode)
+    diameter_mode_status = QtCore.Property(bool, get_diameter_mode, set_diameter_mode, reset_diameter_mode)
 
     # Non BOOL
-    true_textTemplate = QtCore.pyqtProperty(str, get_true_textTemplate,
+    true_textTemplate = QtCore.Property(str, get_true_textTemplate,
                                             set_true_textTemplate, reset_true_textTemplate)
-    false_textTemplate = QtCore.pyqtProperty(str, get_false_textTemplate,
+    false_textTemplate = QtCore.Property(str, get_false_textTemplate,
                                              set_false_textTemplate, reset_false_textTemplate)
 
     # boilder code

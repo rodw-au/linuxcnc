@@ -17,8 +17,10 @@ pin in bit b5;
 pin in bit b6;
 pin in bit b7;
 pin out bit out "true only if in is true and a[m] matches b[m] for m = 0 thru 7";
-function _ nofp;
+option period no;
+function _;
 license "GPL";
+author "John Kasunich";
 ;;
 FUNCTION(_) {
     int tmp = 0;

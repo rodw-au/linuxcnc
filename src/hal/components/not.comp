@@ -1,7 +1,19 @@
 component not "Inverter";
 pin in bit in;
 pin out bit out;
-function _ nofp;
+description """
+The *out* output pin is set to the inverted logic level of the *in* input pin.
+""";
+function _;
+see_also """
+*and2*(9),
+*logic*(9),
+*lut5*(9),
+*or2*(9),
+*xor2*(9).
+""";
 license "GPL";
+author "Jeff Epler";
+option period no;
 ;;
 FUNCTION(_) { out = ! in; }

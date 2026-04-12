@@ -1,5 +1,5 @@
-#ifndef RTAPI_PROC_H
-#define RTAPI_PROC_H
+#ifndef __LINUXCNC_RTAPI_PROC_H
+#define __LINUXCNC_RTAPI_PROC_H
 
 /** RTAPI is a library providing a uniform API for several real time
   operating systems.  As of ver 2.0, RTLinux and RTAI are supported.
@@ -71,7 +71,7 @@
 /* The proc file system is available in 2.2 and 2.4 kernels with 
   minor differences - The 2.4 kernels have a useful helper function
   for creating the proc_fs entries.
-  It is unlikely that the following implimentaion will work on a 2.0
+  It is unlikely that the following implementation will work on a 2.0
   series kernel..
 */
 #if defined( CONFIG_PROC_FS ) && LINUX_VERSION_CODE < KERNEL_VERSION(3,10,0)

@@ -3,8 +3,9 @@ description """Converts a gray-coded number into the corresponding binary value"
 pin in unsigned in "gray code in";
 pin out unsigned out "binary code out";
 license "GPL";
-author "andy pugh";
-function _ nofp;
+author "Andy Pugh";
+function _;
+option period no;
 ;;
 unsigned int mask;
 out = in;

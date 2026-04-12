@@ -1,11 +1,11 @@
-#!/usr/bin/env linuxcnc-python
+#!/usr/bin/env python3
 # -*- encoding: utf-8 -*-
 #
 #    This is stepconf, a graphical configuration editor for LinuxCNC
 #    Copyright 2007 Jeff Epler <jepler@unpythonic.net>
 #
 #    stepconf 1.1 revamped by Chris Morley 2014
-#    replaced Gnome Druid as that is not available in future linux distrubutions
+#    replaced Gnome Druid as that is not available in future linux distributions
 #    and because of GTK/GLADE bugs, the GLADE file could only be edited with Ubuntu 8.04
 #
 #    This program is free software; you can redistribute it and/or modify
@@ -21,18 +21,11 @@
 #    You should have received a copy of the GNU General Public License
 #    along with this program; if not, write to the Free Software
 #    Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
-#
-#import pygtk
-#pygtk.require("2.0")
 
-#import gtk
-#import gtk.glade
-from __future__ import print_function
 import gi
 gi.require_version('Gtk', '3.0')
 from gi.repository import Gtk
-#import gobject
-from gi.repository import GObject
+from gi.repository import GLib
 from gi.repository import Gdk
 
 import signal
@@ -48,19 +41,14 @@ import textwrap
 import hal
 import shutil
 import time
-from multifilebuilder_gtk3 import MultiFileBuilder
+from multifilebuilder import MultiFileBuilder
 
 try:
     from defusedexpat import pyexpat as expat
 except ImportError:
     from xml.parsers import expat
 
-if sys.version_info[0] == 3:
-    import subprocess
-else:
-    import commands as subprocess
-    reload(sys)
-    sys.setdefaultencoding('utf8')
+import subprocess
 
 import traceback
 # otherwise, on hardy the user is shown spurious "[application] closed
@@ -72,12 +60,15 @@ def excepthook(exc_type, exc_obj, exc_tb):
     except NameError:
         w = None
     lines = traceback.format_exception(exc_type, exc_obj, exc_tb)
-    m = Gtk.MessageDialog(w,
-                Gtk.DialogFlags.MODAL | Gtk.DialogFlags.DESTROY_WITH_PARENT,
-                Gtk.MessageType.ERROR, Gtk.ButtonsType.OK,
-                _("Stepconf encountered an error.  The following "
-                "information may be useful in troubleshooting:\n\n")
-                + "".join(lines))
+    msg=_("Stepconf encountered an error.  The following "
+           "information may be useful in troubleshooting:\n\n")
+    m = Gtk.MessageDialog(
+        parent=w,
+        modal=True,
+        destroy_with_parent=True,
+        message_type=Gtk.MessageType.ERROR,
+        buttons=Gtk.ButtonsType.OK,
+        text=msg + "".join(lines))
     m.show()
     m.run()
     m.destroy()
@@ -89,10 +80,7 @@ BASE = os.path.abspath(os.path.join(os.path.dirname(sys.argv[0]), ".."))
 import locale, gettext
 LOCALEDIR = os.path.join(BASE, "share", "locale")
 domain = "linuxcnc"
-if sys.version_info[0] == 3:
-    gettext.install(domain, localedir=LOCALEDIR)
-else:
-    gettext.install(domain, localedir=LOCALEDIR, unicode=True)
+gettext.install(domain, localedir=LOCALEDIR)
 
 locale.setlocale(locale.LC_ALL, '')
 locale.bindtextdomain(domain, LOCALEDIR)
@@ -150,10 +138,12 @@ class Private_Data:
     def __init__(self):
         self.in_pport_prepare = True
         self.distdir = distdir
-        self.available_page =[['intro', _('Stepconf'), True],['start', _('Start'), True],
+        self.available_page =[['intro', 'Stepconf', True],['start', _('Start'), True],
                                 ['base',_('Base Information'),True],
                                 ['pport1', _('Parallel Port 1'),True],['pport2', _('Parallel Port 2'),True],
                                 ['options',_('Options'), True],['halui_page', _('HALUI'), True],
+                                ['ubuttons',_('User Buttons'), False],
+                                ['thcad',_('QtPlasmaC THCAD'), False],
                                 ['axisx', _('Axis X'), True],
                                 ['axisy', _('Axis Y'), True],['axisz', _('Axis Z'), True],
                                 ['axisu', _('Axis U'), True],['axisv', _('Axis V'), True],
@@ -177,78 +167,99 @@ class Private_Data:
                             ["jvlsmd41", _("JVL-SMD41 or 42"), 500, 500, 2500, 2500],
                             ["hobbycnc", _("Hobbycnc Pro Chopper"), 2000, 2000, 2000, 2000],
                             ["keling", _("Keling 4030"), 5000, 5000, 20000, 20000],
+                            ["dm860tv10", _("DM860T v1.0"), 5000, 5000, 5000, 5000],
+                            ["dm860tv30", _("DM860T v3.0"), 5000, 5000, 5000, 5000],
                             ]
 
         (   self.XSTEP, self.XDIR, self.YSTEP, self.YDIR,
             self.ZSTEP, self.ZDIR, self.ASTEP, self.ADIR,
             self.USTEP, self.UDIR, self.VSTEP, self.VDIR,
+            self.X2STEP, self.X2DIR, self.Y2STEP, self.Y2DIR,
             self.ON, self.CW, self.CCW, self.PWM, self.BRAKE,
             self.MIST, self.FLOOD, self.ESTOP, self.AMP,
             self.PUMP, self.DOUT0, self.DOUT1, self.DOUT2, self.DOUT3,
-            self.UNUSED_OUTPUT 
+            self.PLASMAC_TORCH,self.OHMIC_ENABLE,self.SCRIBE_ARM,self.SCRIBE_ON,self.PLASMAC_LASER,
+            self.UNUSED_OUTPUT,
         ) = self.hal_output_names = [
             "xstep", "xdir", "ystep", "ydir",
             "zstep", "zdir", "astep", "adir",
             "ustep", "udir", "vstep", "vdir",
+            "x2step", "x2dir", "y2step", "y2dir",
             "spindle-on", "spindle-cw", "spindle-ccw", "spindle-pwm", "spindle-brake",
             "coolant-mist", "coolant-flood", "estop-out", "xenable",
             "charge-pump", "dout-00", "dout-01", "dout-02", "dout-03",
+            "plasmac:torch-on", "plasmac:ohmic-enable", "plasmac:scribe-arm", "plasmac:scribe-on", "plasmac:laser-on",
             "unused-output"]
 
         (   self.ESTOP_IN, self.PROBE, self.PPR, self.PHA, self.PHB,
-            self.HOME_X, self.HOME_Y, self.HOME_Z, self.HOME_A, self.HOME_U, self.HOME_V,
-            self.MIN_HOME_X, self.MIN_HOME_Y, self.MIN_HOME_Z, self.MIN_HOME_A, self.MIN_HOME_U, self.MIN_HOME_V,
-            self.MAX_HOME_X, self.MAX_HOME_Y, self.MAX_HOME_Z, self.MAX_HOME_A, self.MAX_HOME_U, self.MAX_HOME_V,
-            self.BOTH_HOME_X, self.BOTH_HOME_Y, self.BOTH_HOME_Z, self.BOTH_HOME_A, self.BOTH_HOME_U, self.BOTH_HOME_V,
-            self.MIN_X, self.MIN_Y, self.MIN_Z, self.MIN_A, self.MIN_U, self.MIN_V,
-            self.MAX_X, self.MAX_Y, self.MAX_Z, self.MAX_A,self.MAX_U, self.MAX_V,
-            self.BOTH_X, self.BOTH_Y, self.BOTH_Z, self.BOTH_A,self.BOTH_U, self.BOTH_V,
+            self.HOME_X, self.HOME_Y, self.HOME_Z, self.HOME_A, self.HOME_U, self.HOME_V, self.HOME_TX, self.HOME_TY,
+            self.MIN_HOME_X, self.MIN_HOME_Y, self.MIN_HOME_Z, self.MIN_HOME_A, self.MIN_HOME_U, self.MIN_HOME_V, self.MIN_HOME_TX, self.MIN_HOME_TY,
+            self.MAX_HOME_X, self.MAX_HOME_Y, self.MAX_HOME_Z, self.MAX_HOME_A, self.MAX_HOME_U, self.MAX_HOME_V, self.MAX_HOME_TX, self.MAX_HOME_TY,
+            self.BOTH_HOME_X, self.BOTH_HOME_Y, self.BOTH_HOME_Z, self.BOTH_HOME_A, self.BOTH_HOME_U, self.BOTH_HOME_V, self.BOTH_HOME_TX, self.BOTH_HOME_TY,
+            self.MIN_X, self.MIN_Y, self.MIN_Z, self.MIN_A, self.MIN_U, self.MIN_V, self.MIN_TX, self.MIN_TY,
+            self.MAX_X, self.MAX_Y, self.MAX_Z, self.MAX_A,self.MAX_U, self.MAX_V, self.MAX_TX, self.MAX_TY,
+            self.BOTH_X, self.BOTH_Y, self.BOTH_Z, self.BOTH_A,self.BOTH_U, self.BOTH_V, self.BOTH_TX, self.BOTH_TY,
             self.ALL_LIMIT, self.ALL_HOME, self.ALL_LIMIT_HOME, self.DIN0, self.DIN1, self.DIN2, self.DIN3,
-            self.UNUSED_INPUT
+            self.ARC_VOLTS,self.ARC_OK,self.FLOAT_SWITCH,self.BREAKAWAY,
+            self.OHMIC_CONTACT,self.MOVE_UP,self.MOVE_DOWN,
+            self.UNUSED_INPUT,
         ) = self.hal_input_names = [
             "estop-ext", "probe-in", "spindle-index", "spindle-phase-a", "spindle-phase-b",
-            "home-x", "home-y", "home-z", "home-a","home-u", "home-v",
-            "min-home-x", "min-home-y", "min-home-z", "min-home-a","min-home-u", "min-home-v",
-            "max-home-x", "max-home-y", "max-home-z", "max-home-a","max-home-u", "max-home-v",
-            "both-home-x", "both-home-y", "both-home-z", "both-home-a", "both-home-u", "both-home-v",
-            "min-x", "min-y", "min-z", "min-a","min-u", "min-v",
-            "max-x", "max-y", "max-z", "max-a", "max-u", "max-v",
-            "both-x", "both-y", "both-z", "both-a", "both-u", "both-v",
+            "home-x", "home-y", "home-z", "home-a","home-u", "home-v", "home-x2", "home-y2",
+            "min-home-x", "min-home-y", "min-home-z", "min-home-a","min-home-u", "min-home-v", "min-home-x2", "min-home-y2",
+            "max-home-x", "max-home-y", "max-home-z", "max-home-a","max-home-u", "max-home-v", "max-home-x2", "max-home-y2",
+            "both-home-x", "both-home-y", "both-home-z", "both-home-a", "both-home-u", "both-home-v", "both-home-x2", "both-home-y2",
+            "min-x", "min-y", "min-z", "min-a","min-u", "min-v", "min-x2", "min-y2",
+            "max-x", "max-y", "max-z", "max-a", "max-u", "max-v", "max-x2", "max-y2",
+            "both-x", "both-y", "both-z", "both-a", "both-u", "both-v", "both-x1", "both-y2",
             "all-limit", "all-home", "all-limit-home", "din-00", "din-01", "din-02", "din-03",
+            "plasmac:arc-voltage-raw", "plasmac:arc-ok-in", "plasmac:float-switch", "plasmac:breakaway",
+            "plasmac:ohmic-sense-in", "plasmac:move-up", "plasmac:move-down",
             "unused-input"]
 
         self.human_output_names = (_("X Step"), _("X Direction"), _("Y Step"), _("Y Direction"),
             _("Z Step"), _("Z Direction"), _("A Step"), _("A Direction"),
             _("U Step"), _("U Direction"), _("V Step"), _("V Direction"),
+            _("Tandem X Step"), _("Tandem X Direction"), _("Tandem Y Step"), _("Tandem Y Direction"),
             _("Spindle ON"),_("Spindle CW"), _("Spindle CCW"), _("Spindle PWM"), _("Spindle Brake"),
             _("Coolant Mist"), _("Coolant Flood"), _("ESTOP Out"), _("Amplifier Enable"),
             _("Charge Pump"),
             _("Digital out 0"), _("Digital out 1"), _("Digital out 2"), _("Digital out 3"),
+            _("Plasma Torch On"),_("Plasma Ohmic Enable"), _("Plasma Scribe Arm"), _("Plasma Scribe On"),_("Plasma Laser On"),
             _("Unused"))
 
         self.human_input_names = (_("ESTOP In"), _("Probe In"),
             _("Spindle Index"), _("Spindle Phase A"), _("Spindle Phase B"),
             _("Home X"), _("Home Y"), _("Home Z"), _("Home A"), _("Home U"), _("Home V"),
+            _("Home Tandem X"), _("Home Tandem Y"),
             _("Minimum Limit + Home X"), _("Minimum Limit + Home Y"),
             _("Minimum Limit + Home Z"), _("Minimum Limit + Home A"),
             _("Minimum Limit + Home U"), _("Minimum Limit + Home V"),
+            _("Minimum Limit + Home Tandem X"), _("Minimum Limit + Home Tandem Y"),
             _("Maximum Limit + Home X"), _("Maximum Limit + Home Y"),
             _("Maximum Limit + Home Z"), _("Maximum Limit + Home A"),
             _("Maximum Limit + Home U"), _("Maximum Limit + Home V"),
+            _("Maximum Limit + Home Tandem X"), _("Maximum Limit + Home Tandem Y"),
             _("Both Limit + Home X"), _("Both Limit + Home Y"),
             _("Both Limit + Home Z"), _("Both Limit + Home A"),
             _("Both Limit + Home U"), _("Both Limit + Home V"),
+            _("Both Limit + Home Tandem X"), _("Both Limit + Home Tandem Y"),
             _("Minimum Limit X"), _("Minimum Limit Y"),
             _("Minimum Limit Z"), _("Minimum Limit A"),
             _("Minimum Limit U"), _("Minimum Limit V"),
+            _("Minimum Limit Tandem X"), _("Minimum Limit Tandem Y"),
             _("Maximum Limit X"), _("Maximum Limit Y"),
             _("Maximum Limit Z"), _("Maximum Limit A"),
             _("Maximum Limit U"), _("Maximum Limit V"),
+            _("Maximum Limit Tandem X"), _("Maximum Limit Tandem Y"),
             _("Both Limit X"), _("Both Limit Y"),
             _("Both Limit Z"), _("Both Limit A"),
             _("Both Limit U"), _("Both Limit V"),
+            _("Both Limit Tandem X"), _("Both Limit Tandem Y"),
             _("All limits"), _("All home"), _("All limits + homes"),
             _("Digital in 0"), _("Digital in 1"), _("Digital in 2"), _("Digital in 3"),
+            _("Plasma Arc Voltage"), _("Plasma Arc OK"), _("Plasma Float Switch"), _("Plasma Breakaway"),
+            _("Plasma Ohmic Contact"), _("Plasma Move Up"), _("Plasma Move Down"),
             _("Unused"))
 
         self.MESS_START = _('Start')
@@ -263,7 +274,7 @@ class Private_Data:
         self.MESS_NO_REALTIME = _("You are using a simulated-realtime version of LinuxCNC, so testing / tuning of hardware is unavailable.")
         self.MESS_KERNEL_WRONG = _("You are using a realtime version of LinuxCNC but didn't load a realtime kernel so testing / tuning of hardware is\
                  unavailable.\nThis is possibly because you updated the OS and it doesn't automatically load the RTAI kernel anymore.\n"+
-            "You are using the  %(actual)s  kernel.\nYou need to use kernel:")% {'actual':os.uname()[2]}
+            "You are using the {} kernel.\nYou need to use kernel:".format(os.uname()[2]))
 
     def __getitem__(self, item):
         return getattr(self, item)
@@ -315,6 +326,8 @@ class Data:
 
         self.select_axis = True
         self.select_gmoccapy = False
+        self.select_qtdragon = False
+        self.select_qtplasmac = False
 
         self.pin1inv = 0
         self.pin2inv = 0
@@ -421,6 +434,33 @@ class Data:
         self.halui_list = []
         self.createsymlink = 1
         self.createshortcut = 1
+
+        # QtPlasmaC
+        self.qtplasmacmode = 0
+        self.qtplasmacscreen = 0
+        self.qtplasmacestop = 0
+        self.qtplasmacdro = 0
+        self.qtplasmacerror = 0
+        self.qtplasmacstart = 0
+        self.qtplasmacpause = 0
+        self.qtplasmacstop = 0
+        self.qtplasmacpmx = ""
+        self.qtplasmacbase = BASE
+        self.qtplasmac_bnames = ["OHMIC\\TEST","PROBE\\TEST","SINGLE\\CUT","NORMAL\\CUT","TORCH\\PULSE","FRAMING", "USER\\MANUAL",
+                                 "","","","","","","","","","","","",""]
+        self.qtplasmac_bcodes = ["ohmic-test","probe-test 10","single-cut","cut-type","torch-pulse 0.5","framing", "user-manual",
+                                 "","","","","","","","","","","","",""]
+        self.thcadenc = 0
+        self.voltsmodel = "10"
+        self.voltsfjumper = "64"
+        self.voltszerof = 100.0
+        self.voltsfullf = 999.0
+        self.voltsrdiv = 20
+        self.ohmiccontact = 0
+
+        # tandem joints
+        self.tandemjoints = []
+        self.axislist = []
 
     # change the XYZ axis defaults to metric or imperial
     # This only sets data that makes sense to change eg gear ratio don't change
@@ -606,10 +646,13 @@ class Data:
             warnings.append("")
             warnings.append(_("Saving this configuration file will discard configuration changes made outside stepconf."))
             if app:
-                dialog = Gtk.MessageDialog(app.w.window1,
-                    Gtk.DialogFlags.MODAL | Gtk.DialogFlags.DESTROY_WITH_PARENT,
-                    Gtk.MessageType.WARNING, Gtk.ButtonsType.OK,
-                         "\n".join(warnings))
+                dialog = Gtk.MessageDialog(
+                    parent=app.w.window1,
+                    modal=True,
+                    destroy_with_parent=True,
+                    message_type=Gtk.MessageType.WARNING,
+                    buttons=Gtk.ButtonsType.OK,
+                    text=warnings)
                 dialog.show_all()
                 dialog.run()
                 dialog.destroy()
@@ -760,7 +803,8 @@ class StepconfApp:
             dbg("loading glade page REFERENCE:%s TITLE:%s STATE:%s"% (x,y,z))
             self.builder.add_from_file(os.path.join(datadir, '%s.glade'%x))
             page = self.builder.get_object(x)
-            notebook1.append_page(page, Gtk.Label(x))
+            label = Gtk.Label(label=x)
+            notebook1.append_page(child=page, tab_label=label)
         notebook1.set_show_tabs(False)
 
         self.w = Widgets(self.builder)
@@ -779,11 +823,11 @@ class StepconfApp:
         except expat.ExpatError as ee:
             message = _("Loading configuration error:\n\n{}").format(str(ee))
             dialog = Gtk.MessageDialog(
-                         parent=window,
-                         modal=True,
-                         message_type=Gtk.MessageType.WARNING,
-                         buttons=Gtk.ButtonsType.OK,
-                         text=message)
+                parent=window,
+                modal=True,
+                message_type=Gtk.MessageType.WARNING,
+                buttons=Gtk.ButtonsType.OK,
+                text=message)
             dialog.show_all()
             dialog.run()
             dialog.destroy()
@@ -791,6 +835,10 @@ class StepconfApp:
         self.p.initialize()
         window.show()
         #self.w.xencoderscale.realize()
+        window.set_position(Gtk.WindowPosition.CENTER)
+        window.hide()
+        window.unrealize()
+        window.show()
 
     def build_base(self):
         base = os.path.expanduser("~/linuxcnc/configs/%s" % self.d.machinename)
@@ -817,6 +865,14 @@ class StepconfApp:
         #self.write_readme(base)
         self.INI.write_inifile(base)
         self.HAL.write_halfile(base)
+        # qtplasmac specific
+        if self.d.select_qtplasmac:
+            # different tool table for qtplasmac
+            filename = os.path.join(base, "tool.tbl")
+            file = open(filename, "w")
+            print("T0 P1 X0 Y0 ;torch", file=file)
+            print("T1 P2 X0 Y0 ;scribe", file=file)
+            file.close()
         self.copy(base, "tool.tbl")
         if self.warning_dialog(self._p.MESS_QUIT,False):
             Gtk.main_quit()
@@ -861,17 +917,25 @@ class StepconfApp:
     # pop up dialog
     def warning_dialog(self,message,is_ok_type):
         if is_ok_type:
-           dialog = Gtk.MessageDialog(app.w.window1,
-                Gtk.DialogFlags.MODAL | Gtk.DialogFlags.DESTROY_WITH_PARENT,
-                Gtk.MessageType.WARNING, Gtk.ButtonsType.OK,message)
+           dialog = Gtk.MessageDialog(
+                parent=app.w.window1,
+                modal=True,
+                destroy_with_parent=True,
+                message_type=Gtk.MessageType.WARNING,
+                buttons=Gtk.ButtonsType.OK,
+                text=message)
            dialog.show_all()
            result = dialog.run()
            dialog.destroy()
            return True
         else:   
-            dialog = Gtk.MessageDialog(self.w.window1,
-               Gtk.DialogFlags.MODAL | Gtk.DialogFlags.DESTROY_WITH_PARENT,
-               Gtk.MessageType.QUESTION, Gtk.ButtonsType.YES_NO, message)
+            dialog = Gtk.MessageDialog(
+                parent=app.w.window1,
+                modal=True,
+                destroy_with_parent=True,
+                message_type=Gtk.MessageType.QUESTION,
+                buttons=Gtk.ButtonsType.YES_NO,
+                text=message)
             dialog.show_all()
             result = dialog.run()
             dialog.destroy()
@@ -962,7 +1026,7 @@ class StepconfApp:
                     # read base-addr file
                     try:
                         for line in in_file:
-                            # get init_address (Not used)
+                            # get init_address
                             lline=line.split()
                             dec_address=lline[0].strip()
                             init_address=hex(int(dec_address))
@@ -1149,58 +1213,80 @@ class StepconfApp:
             SIG.HOME_Y: (SIG.MAX_HOME_Y, SIG.MIN_HOME_Y, SIG.BOTH_HOME_Y, SIG.ALL_HOME, SIG.ALL_LIMIT_HOME),
             SIG.HOME_Z: (SIG.MAX_HOME_Z, SIG.MIN_HOME_Z, SIG.BOTH_HOME_Z, SIG.ALL_HOME, SIG.ALL_LIMIT_HOME),
             SIG.HOME_A: (SIG.MAX_HOME_A, SIG.MIN_HOME_A, SIG.BOTH_HOME_A, SIG.ALL_HOME, SIG.ALL_LIMIT_HOME),
+            SIG.HOME_TX: (SIG.MAX_HOME_TX, SIG.MIN_HOME_TX, SIG.BOTH_HOME_TX, SIG.ALL_HOME, SIG.ALL_LIMIT_HOME),
+            SIG.HOME_TY: (SIG.MAX_HOME_TY, SIG.MIN_HOME_TY, SIG.BOTH_HOME_TY, SIG.ALL_HOME, SIG.ALL_LIMIT_HOME),
 
             SIG.MAX_HOME_X: (SIG.HOME_X, SIG.MIN_HOME_X, SIG.MAX_HOME_X, SIG.BOTH_HOME_X, SIG.ALL_LIMIT, SIG.ALL_HOME, SIG.ALL_LIMIT_HOME),
             SIG.MAX_HOME_Y: (SIG.HOME_Y, SIG.MIN_HOME_Y, SIG.MAX_HOME_Y, SIG.BOTH_HOME_Y, SIG.ALL_LIMIT, SIG.ALL_HOME, SIG.ALL_LIMIT_HOME),
             SIG.MAX_HOME_Z: (SIG.HOME_Z, SIG.MIN_HOME_Z, SIG.MAX_HOME_Z, SIG.BOTH_HOME_Z, SIG.ALL_LIMIT, SIG.ALL_HOME, SIG.ALL_LIMIT_HOME),
             SIG.MAX_HOME_A: (SIG.HOME_A, SIG.MIN_HOME_A, SIG.MAX_HOME_A, SIG.BOTH_HOME_A, SIG.ALL_LIMIT, SIG.ALL_HOME, SIG.ALL_LIMIT_HOME),
+            SIG.MAX_HOME_TX: (SIG.HOME_TX, SIG.MIN_HOME_TX, SIG.MAX_HOME_TX, SIG.BOTH_HOME_TX, SIG.ALL_LIMIT, SIG.ALL_HOME, SIG.ALL_LIMIT_HOME),
+            SIG.MAX_HOME_TY: (SIG.HOME_TY, SIG.MIN_HOME_TY, SIG.MAX_HOME_TY, SIG.BOTH_HOME_TY, SIG.ALL_LIMIT, SIG.ALL_HOME, SIG.ALL_LIMIT_HOME),
 
             SIG.MIN_HOME_X:  (SIG.HOME_X, SIG.MAX_HOME_X, SIG.BOTH_HOME_X, SIG.ALL_LIMIT, SIG.ALL_HOME, SIG.ALL_LIMIT_HOME),
             SIG.MIN_HOME_Y:  (SIG.HOME_Y, SIG.MAX_HOME_Y, SIG.BOTH_HOME_Y, SIG.ALL_LIMIT, SIG.ALL_HOME, SIG.ALL_LIMIT_HOME),
             SIG.MIN_HOME_Z:  (SIG.HOME_Z, SIG.MAX_HOME_Z, SIG.BOTH_HOME_Z, SIG.ALL_LIMIT, SIG.ALL_HOME, SIG.ALL_LIMIT_HOME),
             SIG.MIN_HOME_A:  (SIG.HOME_A, SIG.MAX_HOME_A, SIG.BOTH_HOME_A, SIG.ALL_LIMIT, SIG.ALL_HOME, SIG.ALL_LIMIT_HOME),
+            SIG.MIN_HOME_TX:  (SIG.HOME_TX, SIG.MAX_HOME_TX, SIG.BOTH_HOME_TX, SIG.ALL_LIMIT, SIG.ALL_HOME, SIG.ALL_LIMIT_HOME),
+            SIG.MIN_HOME_TY:  (SIG.HOME_TY, SIG.MAX_HOME_TY, SIG.BOTH_HOME_TY, SIG.ALL_LIMIT, SIG.ALL_HOME, SIG.ALL_LIMIT_HOME),
 
             SIG.BOTH_HOME_X:  (SIG.HOME_X, SIG.MAX_HOME_X, SIG.MIN_HOME_X, SIG.ALL_LIMIT, SIG.ALL_HOME, SIG.ALL_LIMIT_HOME),
             SIG.BOTH_HOME_Y:  (SIG.HOME_Y, SIG.MAX_HOME_Y, SIG.MIN_HOME_Y, SIG.ALL_LIMIT, SIG.ALL_HOME, SIG.ALL_LIMIT_HOME),
             SIG.BOTH_HOME_Z:  (SIG.HOME_Z, SIG.MAX_HOME_Z, SIG.MIN_HOME_Z, SIG.ALL_LIMIT, SIG.ALL_HOME, SIG.ALL_LIMIT_HOME),
             SIG.BOTH_HOME_A:  (SIG.HOME_A, SIG.MAX_HOME_A, SIG.MIN_HOME_A, SIG.ALL_LIMIT, SIG.ALL_HOME, SIG.ALL_LIMIT_HOME),
+            SIG.BOTH_HOME_TX:  (SIG.HOME_TX, SIG.MAX_HOME_TX, SIG.MIN_HOME_TX, SIG.ALL_LIMIT, SIG.ALL_HOME, SIG.ALL_LIMIT_HOME),
+            SIG.BOTH_HOME_TY:  (SIG.HOME_TY, SIG.MAX_HOME_TY, SIG.MIN_HOME_TY, SIG.ALL_LIMIT, SIG.ALL_HOME, SIG.ALL_LIMIT_HOME),
 
             SIG.MIN_X: (SIG.BOTH_X, SIG.BOTH_HOME_X, SIG.MIN_HOME_X, SIG.ALL_LIMIT, SIG.ALL_LIMIT_HOME),
             SIG.MIN_Y: (SIG.BOTH_Y, SIG.BOTH_HOME_Y, SIG.MIN_HOME_Y, SIG.ALL_LIMIT, SIG.ALL_LIMIT_HOME),
             SIG.MIN_Z: (SIG.BOTH_Z, SIG.BOTH_HOME_Z, SIG.MIN_HOME_Z, SIG.ALL_LIMIT, SIG.ALL_LIMIT_HOME),
             SIG.MIN_A: (SIG.BOTH_A, SIG.BOTH_HOME_A, SIG.MIN_HOME_A, SIG.ALL_LIMIT, SIG.ALL_LIMIT_HOME),
+            SIG.MIN_TX: (SIG.BOTH_TX, SIG.BOTH_HOME_TX, SIG.MIN_HOME_TX, SIG.ALL_LIMIT, SIG.ALL_LIMIT_HOME),
+            SIG.MIN_TY: (SIG.BOTH_TY, SIG.BOTH_HOME_TY, SIG.MIN_HOME_TY, SIG.ALL_LIMIT, SIG.ALL_LIMIT_HOME),
 
             SIG.MAX_X: (SIG.BOTH_X, SIG.BOTH_HOME_X, SIG.MIN_HOME_X, SIG.ALL_LIMIT, SIG.ALL_LIMIT_HOME),
             SIG.MAX_Y: (SIG.BOTH_Y, SIG.BOTH_HOME_Y, SIG.MIN_HOME_Y, SIG.ALL_LIMIT, SIG.ALL_LIMIT_HOME),
             SIG.MAX_Z: (SIG.BOTH_Z, SIG.BOTH_HOME_Z, SIG.MIN_HOME_Z, SIG.ALL_LIMIT, SIG.ALL_LIMIT_HOME),
             SIG.MAX_A: (SIG.BOTH_A, SIG.BOTH_HOME_A, SIG.MIN_HOME_A, SIG.ALL_LIMIT, SIG.ALL_LIMIT_HOME),
+            SIG.MAX_TX: (SIG.BOTH_TX, SIG.BOTH_HOME_TX, SIG.MIN_HOME_TX, SIG.ALL_LIMIT, SIG.ALL_LIMIT_HOME),
+            SIG.MAX_TY: (SIG.BOTH_TY, SIG.BOTH_HOME_TY, SIG.MIN_HOME_TY, SIG.ALL_LIMIT, SIG.ALL_LIMIT_HOME),
 
             SIG.BOTH_X: (SIG.MIN_X, SIG.MAX_X, SIG.MIN_HOME_X, SIG.MAX_HOME_X, SIG.BOTH_HOME_X, SIG.ALL_LIMIT, SIG.ALL_LIMIT_HOME),
             SIG.BOTH_Y: (SIG.MIN_Y, SIG.MAX_Y, SIG.MIN_HOME_Y, SIG.MAX_HOME_Y, SIG.BOTH_HOME_Y, SIG.ALL_LIMIT, SIG.ALL_LIMIT_HOME),
             SIG.BOTH_Z: (SIG.MIN_Z, SIG.MAX_Z, SIG.MIN_HOME_Z, SIG.MAX_HOME_Z, SIG.BOTH_HOME_Z, SIG.ALL_LIMIT, SIG.ALL_LIMIT_HOME),
             SIG.BOTH_A: (SIG.MIN_A, SIG.MAX_A, SIG.MIN_HOME_A, SIG.MAX_HOME_A, SIG.BOTH_HOME_A, SIG.ALL_LIMIT, SIG.ALL_LIMIT_HOME),
+            SIG.BOTH_TX: (SIG.MIN_TX, SIG.MAX_TX, SIG.MIN_HOME_TX, SIG.MAX_HOME_TX, SIG.BOTH_HOME_TX, SIG.ALL_LIMIT, SIG.ALL_LIMIT_HOME),
+            SIG.BOTH_TY: (SIG.MIN_TY, SIG.MAX_TY, SIG.MIN_HOME_TY, SIG.MAX_HOME_TY, SIG.BOTH_HOME_TY, SIG.ALL_LIMIT, SIG.ALL_LIMIT_HOME),
 
             SIG.ALL_LIMIT: (
                 SIG.MIN_X, SIG.MAX_X, SIG.BOTH_X, SIG.MIN_HOME_X, SIG.MAX_HOME_X, SIG.BOTH_HOME_X,
                 SIG.MIN_Y, SIG.MAX_Y, SIG.BOTH_Y, SIG.MIN_HOME_Y, SIG.MAX_HOME_Y, SIG.BOTH_HOME_Y,
                 SIG.MIN_Z, SIG.MAX_Z, SIG.BOTH_Z, SIG.MIN_HOME_Z, SIG.MAX_HOME_Z, SIG.BOTH_HOME_Z,
                 SIG.MIN_A, SIG.MAX_A, SIG.BOTH_A, SIG.MIN_HOME_A, SIG.MAX_HOME_A, SIG.BOTH_HOME_A,
+                SIG.MIN_TX, SIG.MAX_TX, SIG.BOTH_TX, SIG.MIN_HOME_TX, SIG.MAX_HOME_TX, SIG.BOTH_HOME_TX,
+                SIG.MIN_TY, SIG.MAX_TY, SIG.BOTH_TY, SIG.MIN_HOME_TY, SIG.MAX_HOME_TY, SIG.BOTH_HOME_TY,
                 SIG.ALL_LIMIT_HOME),
             SIG.ALL_HOME: (
                 SIG.HOME_X, SIG.MIN_HOME_X, SIG.MAX_HOME_X, SIG.BOTH_HOME_X,
                 SIG.HOME_Y, SIG.MIN_HOME_Y, SIG.MAX_HOME_Y, SIG.BOTH_HOME_Y,
                 SIG.HOME_Z, SIG.MIN_HOME_Z, SIG.MAX_HOME_Z, SIG.BOTH_HOME_Z,
                 SIG.HOME_A, SIG.MIN_HOME_A, SIG.MAX_HOME_A, SIG.BOTH_HOME_A,
+                SIG.HOME_TX, SIG.MIN_HOME_TX, SIG.MAX_HOME_TX, SIG.BOTH_HOME_TX,
+                SIG.HOME_TY, SIG.MIN_HOME_TY, SIG.MAX_HOME_TY, SIG.BOTH_HOME_TY,
                 SIG.ALL_LIMIT_HOME),
             SIG.ALL_LIMIT_HOME: (
                 SIG.HOME_X, SIG.MIN_HOME_X, SIG.MAX_HOME_X, SIG.BOTH_HOME_X,
                 SIG.HOME_Y, SIG.MIN_HOME_Y, SIG.MAX_HOME_Y, SIG.BOTH_HOME_Y,
                 SIG.HOME_Z, SIG.MIN_HOME_Z, SIG.MAX_HOME_Z, SIG.BOTH_HOME_Z,
                 SIG.HOME_A, SIG.MIN_HOME_A, SIG.MAX_HOME_A, SIG.BOTH_HOME_A,
+                SIG.HOME_TX, SIG.MIN_HOME_TX, SIG.MAX_HOME_TX, SIG.BOTH_HOME_TX,
+                SIG.HOME_TY, SIG.MIN_HOME_TY, SIG.MAX_HOME_TY, SIG.BOTH_HOME_TY,
                 SIG.MIN_X, SIG.MAX_X, SIG.BOTH_X, SIG.MIN_HOME_X, SIG.MAX_HOME_X, SIG.BOTH_HOME_X,
                 SIG.MIN_Y, SIG.MAX_Y, SIG.BOTH_Y, SIG.MIN_HOME_Y, SIG.MAX_HOME_Y, SIG.BOTH_HOME_Y,
                 SIG.MIN_Z, SIG.MAX_Z, SIG.BOTH_Z, SIG.MIN_HOME_Z, SIG.MAX_HOME_Z, SIG.BOTH_HOME_Z,
                 SIG.MIN_A, SIG.MAX_A, SIG.BOTH_A, SIG.MIN_HOME_A, SIG.MAX_HOME_A, SIG.BOTH_HOME_A,
+                SIG.MIN_TX, SIG.MAX_TX, SIG.BOTH_TX, SIG.MIN_HOME_TX, SIG.MAX_HOME_TX, SIG.BOTH_HOME_TX,
+                SIG.MIN_TY, SIG.MAX_TY, SIG.BOTH_TY, SIG.MIN_HOME_TY, SIG.MAX_HOME_TY, SIG.BOTH_HOME_TY,
                 SIG.ALL_LIMIT, SIG.ALL_HOME),
         }
         v = pin.get_active()
@@ -1238,7 +1324,7 @@ class StepconfApp:
         self.latency_pid = os.spawnvp(os.P_NOWAIT,
                                 "latency-test", ["latency-test"])
         self.w['window1'].set_sensitive(0)
-        GObject.timeout_add(15, self.latency_running_callback)
+        GLib.timeout_add(15, self.latency_running_callback)
 
     def latency_running_callback(self):
         pid, status = os.waitpid(self.latency_pid, os.WNOHANG)

@@ -1,4 +1,3 @@
-#!/usr/bin/env python
 #    This is 'halcompile', a tool to write HAL boilerplate
 #    Copyright 2006 Jeff Epler <jepler@unpythonic.net>
 #
@@ -15,7 +14,6 @@
 #    You should have received a copy of the GNU General Public License
 #    along with this program; if not, write to the Free Software
 #    Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
-from __future__ import print_function
 
 %%
 parser Hal:
@@ -26,12 +24,12 @@ parser Hal:
     token END: ";;"
     token PARAMDIRECTION: "rw|r"
     token PINDIRECTION: "in|out|io"
-    token TYPE: "float|bit|signed|unsigned|u32|s32"
+    token TYPE: "float|bit|signed|unsigned|u32|s32|u64|s64|port"
     token NAME: "[a-zA-Z_][a-zA-Z0-9_]*"
     token STARREDNAME: "[*]*[a-zA-Z_][a-zA-Z0-9_]*"
     token HALNAME: "[#a-zA-Z_][-#a-zA-Z0-9_.]*"
-    token FPNUMBER: "-?([0-9]*\.[0-9]+|[0-9]+\.?)([Ee][+-]?[0-9]+)?f?"
-    token NUMBER: "0x[0-9a-fA-F]+|[+-]?[0-9]+"
+    token FPNUMBER: "[+-]?((([0-9]*\\.[0-9]+|[0-9]+\\.)([Ee][+-]?[0-9]+)?)|([0-9]+[Ee][+-]?[0-9]+))[fF]?"
+    token NUMBER: "0x[0-9a-fA-F]+|0b[01]+|0o[0-7]+|[+-]?[0-9]+"
     token STRING: "\"(\\.|[^\\\"])*\""
     token HEADER: "<.*?>"
     token POP: "[-()+*/:?]|&&|\\|\\||personality|==|&|!=|<<|<|<=|>>|>|>="
@@ -49,44 +47,45 @@ parser Hal:
       | "see_also" String ";"   {{ see_also(String) }}
       | "notes" String ";"   {{ notes(String) }}
       | "description" String ";"   {{ description(String) }}
-      | "license" String ";"   {{ license(String) }}
+      | "examples" String ";"   {{ examples(String) }}
+      | "license" String ";"   {{ license_(String) }}
       | "author" String ";"   {{ author(String) }}
       | "include" Header ";"   {{ include(Header) }}
       | "modparam" NAME {{ NAME1=NAME; }} NAME OptSAssign OptString ";" {{ modparam(NAME1, NAME, OptSAssign, OptString) }}
 
     rule Header: STRING {{ return STRING }} | HEADER {{ return HEADER }}
 
-    rule String: TSTRING {{ return eval(TSTRING) }} 
+    rule String: TSTRING {{ return eval(TSTRING) }}
             | STRING {{ return eval(STRING) }}
- 
+
     rule OptPersonality: "if" Personality {{ return Personality }}
             | {{ return None }}
     rule Personality: {{ pp = [] }} (PersonalityPart {{ pp.append(PersonalityPart) }} )* {{ return " ".join(pp) }}
     rule PersonalityPart: NUMBER {{ return NUMBER }}
             | POP {{ return POP }}
-    rule OptSimpleArray: "\[" NUMBER "\]" {{ return int(NUMBER) }}
+    rule OptSimpleArray: "\\[" NUMBER "\\]" {{ return int(NUMBER) }}
             | {{ return 0 }}
-    rule OptArray: "\[" NUMBER OptArrayPersonality "\]" {{ return OptArrayPersonality and (int(NUMBER), OptArrayPersonality) or int(NUMBER) }}
+    rule OptArray: "\\[" NUMBER OptArrayPersonality "\\]" {{ return OptArrayPersonality and (int(NUMBER), OptArrayPersonality) or int(NUMBER) }}
             | {{ return 0 }}
     rule OptArrayPersonality: ":" Personality {{ return Personality }}
-            | {{ return None }} 
-    rule OptString: TSTRING {{ return eval(TSTRING) }} 
+            | {{ return None }}
+    rule OptString: TSTRING {{ return eval(TSTRING) }}
             | STRING {{ return eval(STRING) }}
             | {{ return '' }}
     rule OptAssign: "=" Value {{ return Value; }}
                 | {{ return None }}
     rule OptSAssign: "=" SValue {{ return SValue; }}
                 | {{ return None }}
-    rule OptFP: "fp" {{ return 1 }} | "nofp" {{ return 0 }} | {{ return 1 }}
-    rule Value: "yes" {{ return 1 }} | "no" {{ return 0 }}  
-                | "true" {{ return 1 }} | "false" {{ return 0 }}  
-                | "TRUE" {{ return 1 }} | "FALSE" {{ return 0 }}  
+    rule OptFP: "fp" {{ return optfp_warn(1) }} | "nofp" {{ return optfp_warn(0) }} | {{ return 1 }}
+    rule Value: "yes" {{ return 1 }} | "no" {{ return 0 }}
+                | "true" {{ return 1 }} | "false" {{ return 0 }}
+                | "TRUE" {{ return 1 }} | "FALSE" {{ return 0 }}
                 | NAME {{ return NAME }}
                 | FPNUMBER {{ return float(FPNUMBER.rstrip("f")) }}
                 | NUMBER {{ return int(NUMBER,0) }}
-    rule SValue: "yes" {{ return "yes" }} | "no" {{ return "no" }}  
-                | "true" {{ return "true" }} | "false" {{ return "false" }}  
-                | "TRUE" {{ return "TRUE" }} | "FALSE" {{ return "FALSE" }}  
+    rule SValue: "yes" {{ return "yes" }} | "no" {{ return "no" }}
+                | "true" {{ return "true" }} | "false" {{ return "false" }}
+                | "TRUE" {{ return "TRUE" }} | "FALSE" {{ return "FALSE" }}
                 | NAME {{ return NAME }}
                 | FPNUMBER {{ return FPNUMBER }}
                 | NUMBER {{ return NUMBER }}
@@ -99,6 +98,7 @@ parser Hal:
 %%
 
 import os, sys, tempfile, shutil, getopt, time
+import subprocess
 BASE = os.path.abspath(os.path.join(os.path.dirname(sys.argv[0]), ".."))
 BINDIR = os.getenv('USER_MODULE_DIR', None) or os.path.join(BASE, "bin")
 sys.path.insert(0, os.path.join(BASE, "lib", "python"))
@@ -143,6 +143,10 @@ def parse(filename):
     if require_license:
         if not finddoc('license'):
             raise SystemExit("%s:0: License not specified" % filename)
+
+    if not "period" in options:
+        options["period"] = 1    # Option period defaults to on
+
     return a, b
 
 dirmap = {'r': 'HAL_RO', 'rw': 'HAL_RW', 'in': 'HAL_IN', 'out': 'HAL_OUT', 'io': 'HAL_IO' }
@@ -151,7 +155,7 @@ deprmap = {'s32': 'signed', 'u32': 'unsigned'}
 deprecated = ['s32', 'u32']
 
 def initialize():
-    global functions, params, pins, options, comp_name, names, docs, variables
+    global functions, params, pins, comp_name, names, docs, variables
     global modparams, includes
 
     functions = []; params = []; pins = []; options = {}; variables = []
@@ -170,6 +174,13 @@ def Error(msg, *args):
         msg = msg % args
     raise runtime.SyntaxError(S.get_pos(), msg, None)
 
+def optfp_warn(state):
+    s = "nofp" if 0 == state else "fp"
+    Warn("'%s' is no longer supported and will be removed in a future version. "
+         "All threads are now floating point capable. "
+         "Please remove '%s' from the function declaration." % (s, s))
+    return 1
+
 def comp(name, doc):
     docs.append(('component', name, doc))
     global comp_name
@@ -180,7 +191,10 @@ def comp(name, doc):
 def description(doc):
     docs.append(('descr', doc));
 
-def license(doc):
+def examples(doc):
+    docs.append(('examples', doc));
+
+def license_(doc):
     docs.append(('license', doc));
 
 def author(doc):
@@ -192,10 +206,10 @@ def see_also(doc):
 def notes(doc):
     docs.append(('notes', doc));
 
-def type2type(type):
+def type2type(type_):
     # When we start warning about s32/u32 this is where the warning goes
-    return typemap.get(type, type)
-    
+    return typemap.get(type_, type_)
+
 def checkarray(name, array):
     hashes = len(re.findall("#+", name))
     if array:
@@ -210,21 +224,21 @@ def check_name_ok(name):
     if name in names:
         Error("Duplicate item name %s" % name)
 
-def pin(name, type, array, dir, doc, value, personality):
+def pin(name, type_, array, dir_, doc, value, personality):
     checkarray(name, array)
-    type = type2type(type)
+    type_ = type2type(type_)
     check_name_ok(name)
-    docs.append(('pin', name, type, array, dir, doc, value, personality))
+    docs.append(('pin', name, type_, array, dir_, doc, value, personality))
     names[name] = None
-    pins.append((name, type, array, dir, value, personality))
+    pins.append((name, type_, array, dir_, value, personality))
 
-def param(name, type, array, dir, doc, value, personality):
+def param(name, type_, array, dir_, doc, value, personality):
     checkarray(name, array)
-    type = type2type(type)
+    type_ = type2type(type_)
     check_name_ok(name)
-    docs.append(('param', name, type, array, dir, doc, value, personality))
+    docs.append(('param', name, type_, array, dir_, doc, value, personality))
     names[name] = None
-    params.append((name, type, array, dir, value, personality))
+    params.append((name, type_, array, dir_, value, personality))
 
 def function(name, fp, doc):
     check_name_ok(name)
@@ -237,15 +251,15 @@ def option(name, value):
         Error("Duplicate option name %s" % name)
     options[name] = value
 
-def variable(type, name, array, default):
+def variable(type_, name, array, default):
     check_name_ok(name)
     names[name] = None
-    variables.append((type, name, array, default))
+    variables.append((type_, name, array, default))
 
-def modparam(type, name, default, doc):
+def modparam(type_, name, default, doc):
     check_name_ok(name)
     names[name] = None
-    modparams.append((type, name, default, doc))
+    modparams.append((type_, name, default, doc))
 
 def include(value):
     includes.append((value))
@@ -266,14 +280,14 @@ def prologue(f):
     print("/* Autogenerated by %s on %s -- do not edit */" % (
         sys.argv[0], time.asctime()), file=f)
     print("""\
-#include "rtapi.h"
+#include <rtapi.h>
 #ifdef RTAPI
-#include "rtapi_app.h"
+#include <rtapi_app.h>
 #endif
-#include "rtapi_string.h"
-#include "rtapi_errno.h"
-#include "hal.h"
-#include "rtapi_math64.h"
+#include <rtapi_string.h>
+#include <rtapi_errno.h>
+#include <rtapi_math64.h>
+#include <hal.h>
 
 static int comp_id;
 """, file=f)
@@ -292,13 +306,14 @@ static int comp_id;
         return '"%s"' % s
 
     print("#ifdef MODULE_INFO", file=f)
+    licens = None
     for v in docs:
         if not v: continue
         v = ":".join(map(str, v))
         print("MODULE_INFO(linuxcnc, %s);" % q(v), file=f)
-        license = finddoc('license')
-    if license and license[1]:
-        print("MODULE_LICENSE(\"%s\");" % license[1].split("\n")[0], file=f)
+        licens = finddoc('license')
+    if licens and licens[1]:
+        print("MODULE_LICENSE(\"%s\");" % licens[1].split("\n")[0], file=f)
     print("#endif // MODULE_INFO", file=f)
     print("", file=f)
 
@@ -307,49 +322,49 @@ static int comp_id;
 
     has_array = False
     has_personality = False
-    for name, type, array, dir, value, personality in pins:
+    for name, type_, array, dir_, value, personality in pins:
         if array: has_array = True
         if isinstance(array, tuple): has_personality = True
         if personality: has_personality = True
-    for name, type, array, dir, value, personality in params:
+    for name, type_, array, dir_, value, personality in params:
         if array: has_array = True
         if isinstance(array, tuple): has_personality = True
         if personality: has_personality = True
-    for type, name, default, doc in modparams:
-        decl = mp_decl_map[type]
+    for type_, name, default, doc in modparams:
+        decl = mp_decl_map[type_]
         if decl:
-            print("%s %s" % (type, name), end=' ', file=f)
+            print("%s %s" % (type_, name), end=' ', file=f)
             if default: print("= %s;" % default, file=f)
             else: print(";", file=f)
             print("%s(%s, %s);" % (decl, name, q(doc)), file=f)
-            
+
     print("", file=f)
     print("struct __comp_state {", file=f)
     print("    struct __comp_state *_next;", file=f)
     if has_personality:
         print("    int _personality;", file=f)
 
-    for name, type, array, dir, value, personality in pins:
+    for name, type_, array, dir_, value, personality in pins:
         if array:
             if isinstance(array, tuple): array = array[0]
-            print("    hal_%s_t *%s[%s];" % (type, to_c(name), array), file=f)
+            print("    hal_%s_t *%s_p[%s];" % (type_, to_c(name), array), file=f)
         else:
-            print("    hal_%s_t *%s;" % (type, to_c(name)), file=f)
+            print("    hal_%s_t *%s_p;" % (type_, to_c(name)), file=f)
         names[name] = 1
 
-    for name, type, array, dir, value, personality in params:
+    for name, type_, array, dir_, value, personality in params:
         if array:
             if isinstance(array, tuple): array = array[0]
-            print("    hal_%s_t %s[%s];" % (type, to_c(name), array), file=f)
+            print("    hal_%s_t %s_p[%s];" % (type_, to_c(name), array), file=f)
         else:
-            print("    hal_%s_t %s;" % (type, to_c(name)), file=f)
+            print("    hal_%s_t %s_p;" % (type_, to_c(name)), file=f)
         names[name] = 1
 
-    for type, name, array, value in variables:
+    for type_, name, array, value in variables:
         if array:
-            print("    %s %s[%d];\n" % (type, name, array), file=f)
+            print("    %s %s_p[%d];" % (type_, name, array), file=f)
         else:
-            print("    %s %s;\n" % (type, name), file=f)
+            print("    %s %s_p;" % (type_, name), file=f)
     if has_data:
         print("    void *_data;", file=f)
 
@@ -359,12 +374,20 @@ static int comp_id;
         print("#include <stdlib.h>", file=f)
 
     print("struct __comp_state *__comp_first_inst=0, *__comp_last_inst=0;", file=f)
-    
+
     print("", file=f)
     for name, fp in functions:
         if name in names:
             Error("Duplicate item name: %s" % name)
-        print("static void %s(struct __comp_state *__comp_inst, long period);" % to_c(name), file=f)
+        if options.get("period"):
+            print("static void %s(struct __comp_state *__comp_inst, long period);" % to_c(name), file=f)
+        else:
+            print("static void __no_period_%s(struct __comp_state *__comp_inst);" % to_c(name), file=f)
+            # Define a tail-call function that the compiler can eliminate. It
+            # hides the period parameter from the user function. Worst case it
+            # becomes a jump instruction.
+            print("static void %s(struct __comp_state *__comp_inst, long period)" % to_c(name), file=f)
+            print("{ (void)period; __no_period_%s(__comp_inst); }" % to_c(name), file=f)
         names[name] = 1
 
     print("static int __comp_get_data_size(void);", file=f)
@@ -388,6 +411,7 @@ static int comp_id;
         print("static int export(char *prefix, long extra_arg, long personality) {", file=f)
     else:
         print("static int export(char *prefix, long extra_arg) {", file=f)
+    print("    (void)extra_arg;", file=f)
     if len(functions) > 0:
         print("    char buf[HAL_NAME_LEN + 1];", file=f)
     print("    int r = 0;", file=f)
@@ -406,7 +430,7 @@ static int comp_id;
         # the extra_setup() function may have changed the personality
         if has_personality:
             print("    personality = inst->_personality;", file=f)
-    for name, type, array, dir, value, personality in pins:
+    for name, type_, array, dir_, value, personality in pins:
         if personality:
             print("if(%s) {" % personality, file=f)
         if array:
@@ -420,24 +444,24 @@ static int comp_id;
                 print("    }", file=f)
             else: cnt = array
             print("    for(j=0; j < (%s); j++) {" % cnt, file=f)
-            print("        r = hal_pin_%s_newf(%s, &(inst->%s[j]), comp_id," % (
-                type, dirmap[dir], to_c(name)), file=f)
+            print("        r = hal_pin_%s_newf(%s, &(inst->%s_p[j]), comp_id," % (
+                type_, dirmap[dir_], to_c(name)), file=f)
             print("            \"%%s%s\", prefix, j);" % to_hal("." + name), file=f)
             print("        if(r != 0) return r;", file=f)
             if value is not None:
-                print("    *(inst->%s[j]) = %s;" % (to_c(name), value), file=f)
+                print("    *(inst->%s_p[j]) = %s;" % (to_c(name), value), file=f)
             print("    }", file=f)
         else:
-            print("    r = hal_pin_%s_newf(%s, &(inst->%s), comp_id," % (
-                type, dirmap[dir], to_c(name)), file=f)
+            print("    r = hal_pin_%s_newf(%s, &(inst->%s_p), comp_id," % (
+                type_, dirmap[dir_], to_c(name)), file=f)
             print("        \"%%s%s\", prefix);" % to_hal("." + name), file=f)
             print("    if(r != 0) return r;", file=f)
             if value is not None:
-                print("    *(inst->%s) = %s;" % (to_c(name), value), file=f)
+                print("    *(inst->%s_p) = %s;" % (to_c(name), value), file=f)
         if personality:
             print("}", file=f)
 
-    for name, type, array, dir, value, personality in params:
+    for name, type_, array, dir_, value, personality in params:
         if personality:
             print("if(%s) {" % personality, file=f)
         if array:
@@ -451,31 +475,31 @@ static int comp_id;
                 print("    }", file=f)
             else: cnt = array
             print("    for(j=0; j < (%s); j++) {" % cnt, file=f)
-            print("        r = hal_param_%s_newf(%s, &(inst->%s[j]), comp_id," % (
-                type, dirmap[dir], to_c(name)), file=f)
+            print("        r = hal_param_%s_newf(%s, &(inst->%s_p[j]), comp_id," % (
+                type_, dirmap[dir_], to_c(name)), file=f)
             print("            \"%%s%s\", prefix, j);" % to_hal("." + name), file=f)
             print("        if(r != 0) return r;", file=f)
             if value is not None:
-                print("    inst->%s[j] = %s;" % (to_c(name), value), file=f)
+                print("    inst->%s_p[j] = %s;" % (to_c(name), value), file=f)
             print("    }", file=f)
         else:
-            print("    r = hal_param_%s_newf(%s, &(inst->%s), comp_id," % (
-                type, dirmap[dir], to_c(name)), file=f)
+            print("    r = hal_param_%s_newf(%s, &(inst->%s_p), comp_id," % (
+                type_, dirmap[dir_], to_c(name)), file=f)
             print("        \"%%s%s\", prefix);" % to_hal("." + name), file=f)
             if value is not None:
-                print("    inst->%s = %s;" % (to_c(name), value), file=f)
+                print("    inst->%s_p = %s;" % (to_c(name), value), file=f)
             print("    if(r != 0) return r;", file=f)
         if personality:
             print("}", file=f)
 
-    for type, name, array, value in variables:
+    for type_, name, array, value in variables:
         if value is None: continue
         if array:
             print("    for(j=0; j < %s; j++) {" % array, file=f)
-            print("        inst->%s[j] = %s;" % (name, value), file=f)
+            print("        inst->%s_p[j] = %s;" % (name, value), file=f)
             print("    }", file=f)
         else:
-            print("    inst->%s = %s;" % (name, value), file=f)
+            print("    inst->%s_p = %s;" % (name, value), file=f)
 
     for name, fp in functions:
         print("    rtapi_snprintf(buf, sizeof(buf), \"%%s%s\", prefix);"\
@@ -514,7 +538,7 @@ static int comp_id;
             print("RTAPI_MP_ARRAY_INT(personality, %d, \"personality of each %s\");" %(MAX_PERSONALITIES,comp_name), file=f)
 
             # Return personality value.
-            # If requested index excedes MAX_PERSONALITIES, use modulo indexing and give message
+            # If requested index exceeds MAX_PERSONALITIES, use modulo indexing and give message
             print("""
             static int p_value(char* cname, char *name, int idx) {
                 int ans = personality[idx%%%d];
@@ -716,36 +740,43 @@ int __comp_parse_names(int *argc, char **argv) {
     print("", file=f)
     if not options.get("no_convenience_defines"):
         print("#undef FUNCTION", file=f)
-        print("#define FUNCTION(name) static void name(struct __comp_state *__comp_inst, long period)", file=f)
+        if options.get("period"):
+            print("#define FUNCTION(name) static void name(struct __comp_state *__comp_inst, long period)", file=f)
+        else:
+            print("#define FUNCTION(name) static void __no_period_##name(struct __comp_state *__comp_inst)", file=f)
         print("#undef EXTRA_SETUP", file=f)
         print("#define EXTRA_SETUP() static int extra_setup(struct __comp_state *__comp_inst, char *prefix, long extra_arg)", file=f)
         print("#undef EXTRA_CLEANUP", file=f)
         print("#define EXTRA_CLEANUP() static void extra_cleanup(void)", file=f)
-        print("#undef fperiod", file=f)
-        print("#define fperiod (period * 1e-9)", file=f)
-        for name, type, array, dir, value, personality in pins:
+        if options.get("period"):
+            print("#undef fperiod", file=f)
+            print("#define fperiod (period * 1e-9)", file=f)
+        for name, type_, array, dir_, value, personality in pins:
+            print("#undef %s" % to_c(name), file=f)
+            print("#undef %s_ptr" % to_c(name), file=f)
+            if array:
+                print("#define %s_ptr(i) (__comp_inst->%s_p[i])" % (to_c(name), to_c(name)), file=f)
+                if dir_ == 'in':
+                    print("#define %s(i) (0+*(__comp_inst->%s_p[i]))" % (to_c(name), to_c(name)), file=f)
+                else:
+                    print("#define %s(i) (*(__comp_inst->%s_p[i]))" % (to_c(name), to_c(name)), file=f)
+            else:
+                print("#define %s_ptr (__comp_inst->%s_p)" % (to_c(name), to_c(name)), file=f)
+                if dir_ == 'in':
+                    print("#define %s (0+*__comp_inst->%s_p)" % (to_c(name), to_c(name)), file=f)
+                else:
+                    print("#define %s (*__comp_inst->%s_p)" % (to_c(name), to_c(name)), file=f)
+        for name, type_, array, dir_, value, personality in params:
             print("#undef %s" % to_c(name), file=f)
             if array:
-                if dir == 'in':
-                    print("#define %s(i) (0+*(__comp_inst->%s[i]))" % (to_c(name), to_c(name)), file=f)
-                else:
-                    print("#define %s(i) (*(__comp_inst->%s[i]))" % (to_c(name), to_c(name)), file=f)
+                print("#define %s(i) (__comp_inst->%s_p[i])" % (to_c(name), to_c(name)), file=f)
             else:
-                if dir == 'in':
-                    print("#define %s (0+*__comp_inst->%s)" % (to_c(name), to_c(name)), file=f)
-                else:
-                    print("#define %s (*__comp_inst->%s)" % (to_c(name), to_c(name)), file=f)
-        for name, type, array, dir, value, personality in params:
-            print("#undef %s" % to_c(name), file=f)
-            if array:
-                print("#define %s(i) (__comp_inst->%s[i])" % (to_c(name), to_c(name)), file=f)
-            else:
-                print("#define %s (__comp_inst->%s)" % (to_c(name), to_c(name)), file=f)
+                print("#define %s (__comp_inst->%s_p)" % (to_c(name), to_c(name)), file=f)
 
-        for type, name, array, value in variables:
+        for type_, name, array, value in variables:
             name = name.replace("*", "")
             print("#undef %s" % name, file=f)
-            print("#define %s (__comp_inst->%s)" % (name, name), file=f)
+            print("#define %s (__comp_inst->%s_p)" % (name, name), file=f)
 
         if has_data:
             print("#undef data", file=f)
@@ -793,7 +824,9 @@ def build_usr(tempdir, filename, mode, origfilename):
     makefile = os.path.join(tempdir, "Makefile")
     f = open(makefile, "w")
     print("%s: %s" % (binname, filename), file=f)
-    print("\t$(CC) -I$(EMC2_HOME)/include -I/usr/include/linuxcnc -URTAPI -U__MODULE__ -DULAPI -Os %s -o $@ $< -Wl,-rpath,$(LIBDIR) -L$(LIBDIR) -llinuxcnchal %s" % (
+    print("\t$(CC) -I%s -I$(EMC2_HOME)/include -I/usr/include/linuxcnc -URTAPI -U__MODULE__ -DULAPI -O2 %s -o $@ $< -Wl,-rpath,$(LIBDIR) -L$(LIBDIR) -llinuxcnchal %s" % (
+
+        os.path.abspath(os.path.dirname(origfilename)),
         options.get("extra_compile_args", ""),
         options.get("extra_link_args", "")), file=f)
     print("include %s" % find_modinc(), file=f)
@@ -844,124 +877,137 @@ def finddocs(section=None, name=None):
                 (name == None or name == item[1])):
                     yield item
 
-def to_hal_man_unnumbered(s):
-    s = "%s.%s" % (comp_name, s)
-    s = s.replace("_", "-")
-    s = s.rstrip("-")
-    s = s.rstrip(".")
-    s = re.sub("#+", lambda m: "\\fI" + "M" * len(m.group(0)) + "\\fB", s)
-    # s = s.replace("-", "\\-")
-    return s
-
+######
 
 def to_hal_man(s):
-    if options.get("singleton"):
-        s = "%s.%s" % (comp_name, s)
-    else:
-        s = "%s.\\fIN\\fB.%s" % (comp_name, s)
+    fn = s
     s = s.replace("_", "-")
-    s = s.rstrip("-")
-    s = s.rstrip(".")
-    s = re.sub("#+", lambda m: "\\fI" + "M" * len(m.group(0)) + "\\fB", s)
-    # s = s.replace("-", "\\-")
+    c = comp_name.replace("_", "-")
+    if options.get("singleton"):
+        s = "**%s**.**%s**" % (c, s)
+    elif "_" == fn:
+        s = "**%s**.__N__" % (c)
+    else:
+        s = "**%s**.__N__.**%s**" % (c, s)
+    s = s.rstrip("-").rstrip(".")
+    s = re.sub("#+", lambda m: "__" + "M" * len(m.group(0)) + "__", s)
     return s
 
-def document(filename, outfilename):
-    if outfilename is None:
-        outfilename = os.path.splitext(filename)[0] + ".9"
-
+# Generate an adoc file from the embedded declarations, defines and
+# documentation.
+def document(filename, outfilebase):
     a, b = parse(filename)
+    if outfilebase is None:
+        outfilename = os.path.splitext(filename)[0] + ".1.adoc" if options.get("userspace") else ".9.adoc"
+    else:
+        outfilename = outfilebase
+        outfilename += ".1.adoc" if options.get("userspace") else ".9.adoc"
+
     f = open(outfilename, "w")
 
     has_personality = False
-    for name, type, array, dir, value, personality in pins:
+    for name, type_, array, dir_, value, personality in pins:
         if personality: has_personality = True
         if isinstance(array, tuple): has_personality = True
-    for name, type, array, dir, value, personality in params:
+    for name, type_, array, dir_, value, personality in params:
         if personality: has_personality = True
         if isinstance(array, tuple): has_personality = True
 
-    print(".TH %s \"9\" \"%s\" \"LinuxCNC Documentation\" \"HAL Component\"" % (
-        comp_name.upper(), time.strftime("%F")), file=f)
-    print(".de TQ\n.br\n.ns\n.TP \\\\$1\n..\n", file=f)
+    print("""//
+// *******************************************************************
+//
+// This file was extracted from %s using halcompile.g.
+// Modify the source file.
+//
+// *******************************************************************
+//
+""" % filename, file=f)
 
-    print(".SH NAME\n", file=f)
-    doc = finddoc('component')    
+    # = manpage(section)
+    print("= {}({})".format(comp_name.upper(), "1" if options.get("userspace") else "9"), file=f)
+
+    print("\n== NAME\n", file=f)
+    doc = finddoc('component')
     if doc and doc[2]:
         if '\n' in doc[2]:
             firstline, rest = doc[2].split('\n', 1)
         else:
             firstline = doc[2]
             rest = ''
-        print("%s \\- %s" % (doc[1], firstline), file=f)
+        print("%s - %s" % (doc[1], firstline), file=f)
     else:
         rest = ''
-        print("%s" % doc[1], file=f)
+        # A valid NAME section is formatted like "compname - brief description"
+        # Missing the brief description would fail conversion
+        print("%s - ." % doc[1], file=f)
 
-
-    print(".SH SYNOPSIS", file=f)
+    print("\n== SYNOPSIS\n", file=f)
     if options.get("userspace"):
-        print(".B %s" % comp_name, file=f)
+        print("*%s*" % comp_name, file=f)
     else:
         if rest:
             print(rest, file=f)
         else:
-            print(".HP", file=f)
-            if options.get("singleton") or options.get("count_function"):
+            if options.get("homemod"):
+                print("Custom Homing module loaded with *[EMCMOT]HOMEMOD=_%s_*"%comp_name, file=f)
+            elif options.get("tpmod"):
+                print("Custom Trajectory Planning module loaded with *[TRAJ]TPMOD=_%s_*"%comp_name, file=f)
+            elif options.get("singleton") or options.get("count_function"):
                 if has_personality:
-                    print(".B loadrt %s personality=\\fIP\\fB" % comp_name, end='', file=f)
+                    print("*loadrt %s* *personality*=_P_" % comp_name, end='', file=f)
                 else:
-                    print(".B loadrt %s" % comp_name, end='', file=f)
+                    print("*loadrt %s*" % comp_name, end='', file=f)
             else:
                 if has_personality:
-                    print(".B loadrt %s [count=\\fIN\\fB|names=\\fIname1\\fB[,\\fIname2...\\fB]] [personality=\\fIP,P,...\\fB]" % comp_name, end='', file=f)
+                    print("*loadrt %s* [*count*=_N_|*names*=_name1_[,_name2_...]] [*personality*=_P1_[,_P2_...]]" % comp_name, end='', file=f)
                 else:
-                    print(".B loadrt %s [count=\\fIN\\fB|names=\\fIname1\\fB[,\\fIname2...\\fB]]" % comp_name, end='', file=f)
-            for type, name, default, doc in modparams:
-                print(" [%s=\\fIN\\fB]" % name, end='', file=f)
+                    print("*loadrt %s* [*count*=_N_|*names*=_name1_[,_name2_...]]" % comp_name, end='', file=f)
+            for type_, name, default, doc in modparams:
+                if type_ == "dummy":
+                    print(" [*%s*=_value_[,_value_...]]" % name, end='', file=f)
+                else:
+                    print(" [*%s*=_N_]" % name, end='', file=f)
             print("", file=f)
 
             hasparamdoc = False
-            for type, name, default, doc in modparams:
+            for type_, name, default, doc in modparams:
                 if doc: hasparamdoc = True
 
             if hasparamdoc:
-                print(".RS 4", file=f)
-                for type, name, default, doc in modparams:
-                    print(".TP", file=f)
-                    print("\\fB%s\\fR" % name, end='', file=f)
+                for type_, name, default, doc in modparams:
+                    print("\n*%s*" % name, end='', file=f)
                     if default:
-                        print(" [default: %s]" % default, file=f)
+                        print(" [default: %s]::" % default, file=f)
                     else:
-                        print("", file=f)
+                        print("::", file=f)
                     print(doc, file=f)
-                print(".RE", file=f)
 
         if options.get("constructable") and not options.get("singleton"):
-            print(".PP\n.B newinst %s \\fIname\\fB" % comp_name, file=f)
+            print("\n*newinst %s* _name_" % comp_name, file=f)
 
-    doc = finddoc('descr')    
+    doc = finddoc('descr')
     if doc and doc[1]:
-        print(".SH DESCRIPTION\n", file=f)
+        print("\n== DESCRIPTION\n", file=f)
         print("%s" % doc[1], file=f)
 
     if functions:
-        print(".SH FUNCTIONS", file=f)
+        print("\n== FUNCTIONS\n", file=f)
         for _, name, fp, doc in finddocs('funct'):
-            print(".TP", file=f)
-            print("\\fB%s\\fR" % to_hal_man(name), end='', file=f)
+            print("%s" % to_hal_man(name), end='', file=f)
             if fp:
-                print(" (requires a floating-point thread)", file=f)
+                print(" (requires a floating-point thread)::", file=f)
             else:
-                print("", file=f)
-            print(doc, file=f)
+                print("::", file=f)
+            if doc:
+                print(doc, file=f)
+            else:
+                # Need something to follow ::
+                print("// missing description\n", file=f)
 
-    lead = ".TP"
-    print(".SH PINS", file=f)
-    for _, name, type, array, dir, doc, value, personality in finddocs('pin'):
-        print(lead, file=f)
-        print(".B %s\\fR" % to_hal_man(name), end=' ', file=f)
-        print(type, dir, end=' ', file=f)
+    print("\n== PINS\n", file=f)
+    for _, name, type_, array, dir_, doc, value, personality in finddocs('pin'):
+        print("%s" % to_hal_man(name), end=' ', file=f)
+        print(type_, dir_, end=' ', file=f)
         if array:
             sz = name.count("#")
             if isinstance(array, tuple):
@@ -971,22 +1017,20 @@ def document(filename, outfilename):
         if personality:
             print(" [if %s]" % personality, end=' ', file=f)
         if value:
-            print("\\fR(default: \\fI%s\\fR)" % value, file=f)
+            print("(default: _%s_)::" % value, file=f)
         else:
-            print("\\fR", file=f)
+            print("::", file=f)
         if doc:
             print(doc, file=f)
-            lead = ".TP"
         else:
-            lead = ".TQ"
+            # Need something to follow ::
+            print("// missing description\n", file=f)
 
-    lead = ".TP"
     if params:
-        print(".SH PARAMETERS", file=f)
-        for _, name, type, array, dir, doc, value, personality in finddocs('param'):
-            print(lead, file=f)
-            print(".B %s\\fR" % to_hal_man(name), end=' ', file=f)
-            print(type, dir, end=' ', file=f)
+        print("\n== PARAMETERS\n", file=f)
+        for _, name, type_, array, dir_, doc, value, personality in finddocs('param'):
+            print("%s" % to_hal_man(name), end=' ', file=f)
+            print(type_, dir_, end=' ', file=f)
             if array:
                 sz = name.count("#")
                 if isinstance(array, tuple):
@@ -996,34 +1040,78 @@ def document(filename, outfilename):
             if personality:
                 print(" [if %s]" % personality, end=' ', file=f)
             if value:
-                print("\\fR(default: \\fI%s\\fR)" % value, file=f)
+                print("(default: _%s_)::" % value, file=f)
             else:
-                print("\\fR", file=f)
+                print("::", file=f)
             if doc:
                 print(doc, file=f)
-                lead = ".TP"
             else:
-                lead = ".TQ"
+                # Need something to follow ::
+                print("// missing description\n", file=f)
 
-    doc = finddoc('see_also')    
+    doc = finddoc('examples')
     if doc and doc[1]:
-        print(".SH SEE ALSO\n", file=f)
+        print("\n== EXAMPLES\n", file=f)
         print("%s" % doc[1], file=f)
 
-    doc = finddoc('notes')    
+    doc = finddoc('see_also')
     if doc and doc[1]:
-        print(".SH NOTES\n", file=f)
+        print("\n== SEE ALSO\n", file=f)
         print("%s" % doc[1], file=f)
 
-    doc = finddoc('author')    
+    doc = finddoc('notes')
     if doc and doc[1]:
-        print(".SH AUTHOR\n", file=f)
+        print("\n== NOTES\n", file=f)
         print("%s" % doc[1], file=f)
 
-    doc = finddoc('license')    
+    doc = finddoc('author')
     if doc and doc[1]:
-        print(".SH LICENSE\n", file=f)
+        print("\n== AUTHOR\n", file=f)
         print("%s" % doc[1], file=f)
+
+    doc = finddoc('license')
+    if doc and doc[1]:
+        print("\n== LICENSE\n", file=f)
+        print("%s" % doc[1], file=f)
+
+    f.close()
+    return outfilename
+######
+
+def make_manpage(fdir, fname):
+    # Conversion to manpage format required
+    try:
+        # Try asciidoctor
+        args = ["asciidoctor",
+                "--doctype=manpage",
+                "--backend=manpage",
+                "--destination-dir=" + fdir,
+                "-a", "mansource=LinuxCNC",
+                "-a", "manmanual=LinuxCNC Documentation",
+                fname]
+        subprocess.call(args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except:
+        try:
+            # Alternative, try a2x
+            #opts += ["--format=manpage", "--xsltproc-opts=--nonet"]
+            args = ["a2x",
+                    "--doctype=manpage",
+                    "--format=manpage",
+                    "--destination-dir=" + fdir,
+                    "--xsltproc-opts=--nonet",
+                    "-a", "mansource=LinuxCNC",
+                    "-a", "manmanual=LinuxCNC Documentation",
+                    fname]
+            subprocess.call(args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except:
+            raise SystemExit("Error: Missing asciidoctor or a2x for adoc-to-manpage conversion or use --adoc for asciidoc file only")
+
+    # We should have a file with the extension removed
+    manfile = os.path.join(fdir, os.path.basename(fname).removesuffix(".adoc"))
+    if not os.access(manfile, os.R_OK):
+        raise SystemExit("Error: Manpage '%s' not generated" % manfile)
+    return manfile
+######
 
 def process(filename, mode, outfilename):
     tempdir = tempfile.mkdtemp()
@@ -1041,6 +1129,10 @@ def process(filename, mode, outfilename):
             raise SystemExit("Component name (%s) does not match filename (%s)" % (comp_name, base_name))
 
         f = open(outfilename, "w")
+
+        if options.get("homemod"): options["singleton"] = 1
+        if options.get("tpmod"):   options["singleton"] = 1
+        if options.get("no_convenience_defines"): options["period"] = 1
 
         if options.get("userinit") and not options.get("userspace"):
             print("Warning: comp '%s' sets 'userinit' without 'userspace', ignoring" % filename, file=sys.stderr)
@@ -1079,13 +1171,13 @@ def process(filename, mode, outfilename):
                 build_rt(tempdir, outfilename, mode, filename)
 
     finally:
-        shutil.rmtree(tempdir) 
+        shutil.rmtree(tempdir)
 
 def usage(exitval=0):
     print("""%(name)s: Build, compile, and install LinuxCNC HAL components
 
 Usage:
-           %(name)s [--compile|--preprocess|--document|--view-doc] compfile...
+           %(name)s [--compile|--preprocess|--document|--adoc|--view-doc] compfile...
     [sudo] %(name)s [--install|--install-doc] compfile...
            %(name)s --compile --userspace cfile...
     [sudo] %(name)s --install --userspace cfile...
@@ -1094,6 +1186,13 @@ Usage:
 
 Option to set maximum 'personalities' items:
     --personalities=integer_value   (default is %(dflt)d)
+
+Options to add compile and link flags (only for userspace, only for .c files)
+    --extra-compile-args="-I/usr/include/..."
+    --extra-link-args="-l..."
+
+Do not use [sudo] for RIP installation.
+
 """ % {'name': os.path.basename(sys.argv[0]),'dflt':MAX_PERSONALITIES})
     raise SystemExit(exitval)
 
@@ -1105,17 +1204,21 @@ def main():
     global require_unix_line_endings
     require_unix_line_endings = False
     mode = PREPROCESS
+    adoc = False
+    keepadoc = None
     outfile = None
     userspace = False
+    global options
+    options = {}
     try:
-        opts, args = getopt.getopt(sys.argv[1:], "Uluijcpdo:h?P:",
+        opts, args = getopt.getopt(sys.argv[1:], "UluijJcpdak:o:h?P:",
                            ['unix', 'install', 'compile', 'preprocess', 'outfile=',
-                            'document', 'help', 'userspace', 'install-doc',
+                            'document', 'adoc', 'keep-adoc=', 'help', 'userspace', 'install-doc',
                             'view-doc', 'require-license', 'print-modinc',
-                            'personalities='])
+                            'personalities=', "extra-compile-args=",
+                            'extra-link-args='])
     except getopt.GetoptError:
         usage(1)
-
     for k, v in opts:
         if k in ("-U", "--unix"):
             require_unix_line_endings = True
@@ -1129,9 +1232,16 @@ def main():
             mode = PREPROCESS
         if k in ("-d", "--document"):
             mode = DOCUMENT
+        if k in ("-a", "--adoc"):
+            mode = DOCUMENT
+            adoc = True
+        if k in ("-k", "--keep-adoc"):
+            if len(args) != 1:
+                raise SystemExit("Cannot specify -k with multiple input files")
+            keepadoc = v
         if k in ("-j", "--install-doc"):
             mode = INSTALLDOC
-        if k in ("-j", "--view-doc"):
+        if k in ("-J", "--view-doc"):
             mode = VIEWDOC
         if k in ("--print-modinc",):
             mode = MODINC
@@ -1140,13 +1250,17 @@ def main():
         if k in ("-o", "--outfile"):
             if len(args) != 1:
                 raise SystemExit("Cannot specify -o with multiple input files")
-            outfile = v 
+            outfile = v
         if k in ("-P", "--personalities"):
             try:
                 MAX_PERSONALITIES = int(v)
                 print("MAX_PERSONALITIES=%d"%(MAX_PERSONALITIES))
             except Exception as detail:
                 raise SystemExit("Bad value for -P (--personalities)=",v,"\n",detail)
+        if k in ("--extra-compile-args"):
+            option("extra_compile_args", v)
+        if k in ("--extra-link-args"):
+            option("extra_link_args", v)
         if k in ("-?", "-h", "--help"):
             usage(0)
 
@@ -1164,28 +1278,53 @@ def main():
         try:
             basename = os.path.basename(os.path.splitext(f)[0])
             if f.endswith(".comp") and mode == DOCUMENT:
-                document(f, outfile)            
+                tempdir = tempfile.mkdtemp()
+                try:
+                    docfile = document(f, os.path.join(tempdir, basename))
+                    if adoc:    # Adoc is created
+                        if None == outfile:
+                            outfile = os.path.join(os.path.dirname(f), os.path.basename(docfile))
+                        shutil.move(docfile, outfile)
+                    else:       # Else we do manpage conversion
+                        manfile = make_manpage(tempdir, docfile)
+                        if None == outfile:
+                            outfile = os.path.join(os.path.dirname(f), os.path.basename(manfile))
+                        shutil.move(manfile, outfile)
+                        if keepadoc:
+                            shutil.move(docfile, keepadoc)
+                finally:
+                    shutil.rmtree(tempdir)
             elif f.endswith(".comp") and mode == VIEWDOC:
                 tempdir = tempfile.mkdtemp()
                 try:
-                    outfile = os.path.join(tempdir, basename + ".9")
-                    document(f, outfile)
-                    os.spawnvp(os.P_WAIT, "man", ["man", outfile])
+                    docfile = document(f, os.path.join(tempdir, basename))
+                    manfile = make_manpage(tempdir, docfile)
+                    os.spawnvp(os.P_WAIT, "man", ["man", manfile])
                 finally:
                     shutil.rmtree(tempdir)
             elif f.endswith(".comp") and mode == INSTALLDOC:
-                manpath = os.path.join(BASE, "share/man/man9")
-                if not os.path.isdir(manpath):
-                    manpath = os.path.join(BASE, "docs/man/man9")
-                outfile = os.path.join(manpath, basename + ".9")
+                tempdir = tempfile.mkdtemp()
                 print("INSTALLDOC", outfile)
-                document(f, outfile)            
+                try:
+                    docfile = document(f, os.path.join(tempdir, basename))
+                    manfile = make_manpage(tempdir, docfile)
+                    section = "1" if options.get("userspace") else "9"
+                    manpath = os.path.join(BASE, "share/man/man" + section)
+                    sharepath = manpath
+                    if not os.path.isdir(manpath):
+                        manpath = os.path.join(BASE, "docs/man/man" + section)
+                        if not os.path.isdir(manpath):
+                            raise SystemExit("Error: directory '%s' (nor alternative '%s') found" % (sharepath, manpath))
+                    outfile = os.path.join(manpath, basename + "." + section)
+                    shutil.move(manfile, outfile)
+                finally:
+                    shutil.rmtree(tempdir)
             elif f.endswith(".comp"):
                 process(f, mode, outfile)
             elif f.endswith(".py") and mode == INSTALL:
                 lines = open(f).readlines()
                 if lines[0].startswith("#!"): del lines[0]
-                lines[0] = "#!%s\n" % sys.executable
+                lines.insert(0, "#!%s\n" % sys.executable)
                 outfile = os.path.join(BINDIR, basename)
                 try: os.unlink(outfile)
                 except os.error: pass
@@ -1201,7 +1340,7 @@ def main():
                     else:
                         build_rt(tempdir, os.path.join(tempdir, os.path.basename(f)), mode, f)
                 finally:
-                    shutil.rmtree(tempdir) 
+                    shutil.rmtree(tempdir)
             else:
                 raise SystemExit("Unrecognized file type for mode %s: %r" % (modename[mode], f))
         except Exception as e:
@@ -1213,4 +1352,4 @@ def main():
 if __name__ == '__main__':
     main()
 
-# vim:sw=4:sts=4:et
+# vim:sw=4:sts=4:et:syn=python

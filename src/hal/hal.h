@@ -1,5 +1,5 @@
-#ifndef HAL_H
-#define HAL_H
+#ifndef __LINUXCNC_HAL_H
+#define __LINUXCNC_HAL_H
 
 /** HAL stands for Hardware Abstraction Layer, and is used by EMC to
     transfer realtime data to and from I/O devices and other low-level
@@ -34,14 +34,14 @@
 */
 
 /** This library is free software; you can redistribute it and/or
-    modify it under the terms of version 2.1 of the GNU Lesser General
+    modify it under the terms of version 2 of the GNU Library General
     Public License as published by the Free Software Foundation.
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
     GNU Lesser General Public License for more details.
 
-    You should have received a copy of the GNU Lesser General Public
+    You should have received a copy of the GNU Library General Public
     License along with this library; if not, write to the Free Software
     Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 
@@ -123,7 +123,7 @@
 
 */
 
-#include <rtapi.h>
+#include "rtapi.h"
 RTAPI_BEGIN_DECLS
 
 #if ( !defined RTAPI ) && ( !defined ULAPI )
@@ -134,7 +134,7 @@ RTAPI_BEGIN_DECLS
 #include <signal.h>
 #endif
 
-#include <rtapi_errno.h>
+#include "rtapi_errno.h"
 
 #define HAL_NAME_LEN     47	/* length for pin, signal, etc, names */
 
@@ -146,6 +146,9 @@ RTAPI_BEGIN_DECLS
 #define HAL_LOCK_CONFIG   2     /* locking of link and addf related commands */
 #define HAL_LOCK_PARAMS   4     /* locking of parameter set commands */
 #define HAL_LOCK_RUN      8     /* locking of start/stop of HAL threads */
+
+/* locks required for the 'tune' command */
+#define HAL_LOCK_TUNE (HAL_LOCK_LOAD | HAL_LOCK_CONFIG)
 
 #define HAL_LOCK_ALL      255   /* locks every action */
 
@@ -183,7 +186,7 @@ extern int hal_init(const char *name);
     crashes when the component's code and data is unmapped.
     'hal_exit()' calls 'rtapi_exit()', so any rtapi reaources
     allocated should be discarded before calling hal_exit(), and
-    rtapi functios should not be called afterwards.
+    rtapi functions should not be called afterwards.
     On success, hal_exit() returns 0, on failure it
     returns a negative error code.
 */
@@ -213,6 +216,21 @@ extern void *hal_malloc(long int size);
     component 'hal_example' is ready before continuing.
 */
 extern int hal_ready(int comp_id);
+
+/** hal_set_unready() sets a component state to unready so
+    additional pins can be added.  A subsequent call to
+    hal_ready() must be issued to make the component ready
+    again. Kinematics modules created with halcompile use
+    this function to add pins to a parent component.
+*/
+extern int hal_set_unready(int comp_id);
+
+/** hal_unready() indicates that this component is ready.  This allows
+    halcmd 'loadusr -W hal_example' to wait until the userspace
+    component 'hal_example' is ready before continuing.
+*/
+extern int hal_unready(int comp_id);
+
 
 /** hal_comp_name() returns the name of the given component, or NULL
     if comp_id is not a loaded component
@@ -261,7 +279,10 @@ typedef enum {
     HAL_FLOAT = 2,
     HAL_S32 = 3,
     HAL_U32 = 4,
-    HAL_PORT = 5
+    HAL_PORT = 5,
+    HAL_S64 = 6,
+    HAL_U64 = 7,
+    HAL_TYPE_MAX,
 } hal_type_t;
 
 /** HAL pins have a direction attribute.  A pin may be an input to 
@@ -292,11 +313,13 @@ typedef enum {
 
 /* Use these for x86 machines, and anything else that can write to
    individual bytes in a machine word. */
-#include <rtapi_bool.h>
-#include <rtapi_stdint.h>
+#include "rtapi_bool.h"
+#include "rtapi_stdint.h"
 typedef volatile bool hal_bit_t;
 typedef volatile rtapi_u32 hal_u32_t;
 typedef volatile rtapi_s32 hal_s32_t;
+typedef volatile rtapi_u64 hal_u64_t;
+typedef volatile rtapi_s64 hal_s64_t;
 typedef volatile int hal_port_t;
 typedef double real_t __attribute__((aligned(8)));
 typedef rtapi_u64 ireal_t __attribute__((aligned(8))); // integral type as wide as real_t / hal_float_t
@@ -312,14 +335,9 @@ typedef union {
     hal_u32_t u;
     hal_float_t f;
     hal_port_t p;
+    hal_s64_t ls;
+    hal_u64_t lu;
 } hal_data_u;
-
-typedef struct {
-    volatile unsigned int read;  //offset into buff that outgoing data gets read from
-    volatile unsigned int write; //offset into buff that incoming data gets written to
-    unsigned int size;           //size of allocated buffer
-    char buff[];
-} hal_port_shm_t;
 
 /***********************************************************************
 *                      "LOCKING" FUNCTIONS                             *
@@ -381,6 +399,10 @@ extern int hal_pin_u32_new(const char *name, hal_pin_dir_t dir,
     hal_u32_t ** data_ptr_addr, int comp_id);
 extern int hal_pin_s32_new(const char *name, hal_pin_dir_t dir,
     hal_s32_t ** data_ptr_addr, int comp_id);
+extern int hal_pin_u64_new(const char *name, hal_pin_dir_t dir,
+    hal_u64_t ** data_ptr_addr, int comp_id);
+extern int hal_pin_s64_new(const char *name, hal_pin_dir_t dir,
+    hal_s64_t ** data_ptr_addr, int comp_id);
 extern int hal_pin_port_new(const char *name, hal_pin_dir_t dir,
     hal_port_t ** data_ptr_addr, int comp_id);
 
@@ -402,6 +424,12 @@ extern int hal_pin_u32_newf(hal_pin_dir_t dir,
 	__attribute__((format(printf,4,5)));
 extern int hal_pin_s32_newf(hal_pin_dir_t dir,
     hal_s32_t ** data_ptr_addr, int comp_id, const char *fmt, ...)
+	__attribute__((format(printf,4,5)));
+extern int hal_pin_u64_newf(hal_pin_dir_t dir,
+    hal_u64_t ** data_ptr_addr, int comp_id, const char *fmt, ...)
+	__attribute__((format(printf,4,5)));
+extern int hal_pin_s64_newf(hal_pin_dir_t dir,
+    hal_s64_t ** data_ptr_addr, int comp_id, const char *fmt, ...)
 	__attribute__((format(printf,4,5)));
 extern int hal_pin_port_newf(hal_pin_dir_t dir,
     hal_port_t** data_ptr_addr, int comp_id, const char *fmt, ...)
@@ -516,7 +544,7 @@ extern int hal_unlink(const char *pin_name);
     stored.  'data_addr' must point to memory allocated by hal_malloc().
     Typically the component allocates space for a data structure with
     hal_malloc(), and 'data_addr' is the address of a member of that
-    structure.  Creating the paremeter does not initialize or modify the
+    structure.  Creating the parameter does not initialize or modify the
     value at *data_addr - the component should load a reasonable default
     value.
     'comp_id' is the ID of the component that will 'own' the parameter.
@@ -535,6 +563,10 @@ extern int hal_param_u32_new(const char *name, hal_param_dir_t dir,
     hal_u32_t * data_addr, int comp_id);
 extern int hal_param_s32_new(const char *name, hal_param_dir_t dir,
     hal_s32_t * data_addr, int comp_id);
+extern int hal_param_u64_new(const char *name, hal_param_dir_t dir,
+    hal_u64_t * data_addr, int comp_id);
+extern int hal_param_s64_new(const char *name, hal_param_dir_t dir,
+    hal_s64_t * data_addr, int comp_id);
 
 /** printf_style-style versions of hal_param_XXX_new */
 extern int hal_param_bit_newf(hal_param_dir_t dir, 
@@ -548,6 +580,12 @@ extern int hal_param_u32_newf(hal_param_dir_t dir,
 	__attribute__((format(printf,4,5)));
 extern int hal_param_s32_newf(hal_param_dir_t dir,
     hal_s32_t * data_addr, int comp_id, const char *fmt, ...)
+	__attribute__((format(printf,4,5)));
+extern int hal_param_u64_newf(hal_param_dir_t dir,
+    hal_u64_t * data_addr, int comp_id, const char *fmt, ...)
+	__attribute__((format(printf,4,5)));
+extern int hal_param_s64_newf(hal_param_dir_t dir,
+    hal_s64_t * data_addr, int comp_id, const char *fmt, ...)
 	__attribute__((format(printf,4,5)));
 
 
@@ -591,6 +629,8 @@ extern int hal_param_bit_set(const char *name, int value);
 extern int hal_param_float_set(const char *name, double value);
 extern int hal_param_u32_set(const char *name, unsigned long value);
 extern int hal_param_s32_set(const char *name, signed long value);
+extern int hal_param_u64_set(const char *name, unsigned long value);
+extern int hal_param_s64_set(const char *name, signed long value);
 
 /** 'hal_param_alias()' assigns an alternate name, aka an alias, to
     a parameter.  Once assigned, the parameter can be referred to by
@@ -674,10 +714,9 @@ extern int hal_get_param_value_by_name(
     C function will be exported several times with different HAL
     names, perhaps to deal with multiple instances of a hardware
     device.
-    'uses_fp' should be non-zero if the function uses floating
-    point.  When in doubt, make it non-zero.  If you are sure
-    that the function doesn't use the FPU, then set 'uses_fp'
-    to zero.
+    'uses_fp' is deprecated and ignored.  All threads now
+    unconditionally save and restore FPU/SSE state.  This
+    parameter will be removed in a future version.
     'reentrant' should be zero unless the function (and any
     hardware it accesses) is completely reentrant.  If reentrant
     is non-zero, the function may be prempted and called again
@@ -692,6 +731,14 @@ extern int hal_get_param_value_by_name(
 extern int hal_export_funct(const char *name, void (*funct) (void *, long),
     void *arg, int uses_fp, int reentrant, int comp_id);
 
+/** hal_export_functf is similar to hal_export_funct except that it also does
+    printf-style formatting to compute the function name.
+    If successful, it returns 0.
+    On failure it returns a negative error code.
+*/
+extern int hal_export_functf(void (*funct) (void *, long),
+    void *arg, int uses_fp, int reentrant, int comp_id, const char *fmt, ...);
+
 /** hal_create_thread() establishes a realtime thread that will
     execute one or more HAL functions periodically.
     'name' is the name of the thread, which must be unique in
@@ -704,10 +751,9 @@ extern int hal_export_funct(const char *name, void (*funct) (void *, long),
     threads that are created later, so creating them from fastest
     to slowest results in rate monotonic priority scheduling,
     usually a good thing.
-    'uses_fp' should be non-zero if the thread will call any
-    functions that use floating point.  In general, it should
-    be non-zero for most threads, with the possible exception
-    of the very fastest, most critical thread in a system.
+    'uses_fp' is deprecated and ignored.  All threads now
+    unconditionally save and restore FPU/SSE state.  This
+    parameter will be removed in a future version.
     On success, hal_create_thread() returns a positive integer
     thread ID.  On failure, returns an error code as defined
     above.  Call only from realtime init code, not from user
@@ -795,7 +841,7 @@ extern int hal_set_constructor(int comp_id, constructor make);
   A HAL port pin is an asynchronous one way byte stream
   
   A hal port should have only one reader and one writer. Both sides can
-  read or write respectivly at any time without interfering with the other
+  read or write respectively at any time without interfering with the other
  
   A component that exports a PORT pin does not own the port buffer.
   The signal linking an input port to an output port owns the port buffer.
@@ -811,7 +857,7 @@ extern int hal_set_constructor(int comp_id, constructor make);
         true: count bytes were read into dest
         false: no bytes were read into dest
  */
-extern bool hal_port_read(hal_port_t port, char* dest, unsigned count);
+extern bool hal_port_read(const hal_port_t *port, char* dest, unsigned count);
 
 
 /** hal_port_peek operates the same as hal_port_read but no bytes are consumed
@@ -821,7 +867,7 @@ extern bool hal_port_read(hal_port_t port, char* dest, unsigned count);
         true: count bytes were read into dest
         false: no bytes were read into dest
 */
-extern bool hal_port_peek(hal_port_t port, char* dest, unsigned count);
+extern bool hal_port_peek(const hal_port_t *port, char* dest, unsigned count);
 
 /** hal_port_peek_commit advances the read position in the port buffer
     by count bytes. A hal_port_peek followed by a hal_port_peek_commit
@@ -832,7 +878,7 @@ extern bool hal_port_peek(hal_port_t port, char* dest, unsigned count);
        true: count readable bytes were skipped and are no longer accessible
        false: no bytes wer skipped
 */ 
-extern bool hal_port_peek_commit(hal_port_t port, unsigned count);
+extern bool hal_port_peek_commit(const hal_port_t *port, unsigned count);
 
 /** hal_port_write writes count bytes from src into the port. 
     This function should only be called by the component that owns
@@ -842,28 +888,28 @@ extern bool hal_port_peek_commit(hal_port_t port, unsigned count);
         false: no bytes were written into dest
     
 */
-extern bool hal_port_write(hal_port_t port, const char* src, unsigned count);
+extern bool hal_port_write(const hal_port_t *port, const char* src, unsigned count);
 
 /** hal_port_readable returns the number of bytes available
     for reading from the port.
 */
-extern unsigned hal_port_readable(hal_port_t port);
+extern unsigned hal_port_readable(const hal_port_t *port);
 
 /** hal_port_writable returns the number of bytes that
     can be written into the port
 */
-extern unsigned hal_port_writable(hal_port_t port);
+extern unsigned hal_port_writable(const hal_port_t *port);
 
 /** hal_port_buffer_size returns the total number of bytes
     that a port can buffer
 */
-extern unsigned hal_port_buffer_size(hal_port_t port);
+extern unsigned hal_port_buffer_size(const hal_port_t *port);
 
 /** hal_port_clear emptys a given port of all data
     without consuming any of it.
     hal_port_clear should only be called by a reader
 */
-extern void hal_port_clear(hal_port_t port);
+extern void hal_port_clear(const hal_port_t *port);
 
 
 #ifdef ULAPI
@@ -879,22 +925,6 @@ extern void hal_port_wait_writable(hal_port_t** port, unsigned count, sig_atomic
 #endif
 
 
-
-
-
-
-union hal_stream_data {
-    real_t f;
-    bool b;
-    int32_t s;
-    uint32_t u;
-};
-
-typedef struct {
-    int comp_id, shmem_id;
-    struct hal_stream_shm *fifo;
-} hal_stream_t;
-
 /**
  * HAL streams are modeled after sampler/stream and will hopefully replace
  * the independent implementations there.
@@ -902,9 +932,28 @@ typedef struct {
  * There may only be one reader and one writer but this is not enforced
  */
 
+typedef union hal_stream_data {
+    real_t f;
+    bool b;
+    rtapi_s32 s;
+    rtapi_u32 u;
+    rtapi_s64 l;
+    rtapi_u64 k;
+} hal_stream_data_u;
+typedef hal_stream_data_u *hal_stream_data_ptr_u;
+
+struct __hal_stream_shm_t;  // Forward declaration. Only relevant in hal_lib.c.
+
+typedef struct __hal_stream_t {
+    int comp_id;
+    int shmem_id;
+    struct __hal_stream_shm_t *fifo;
+} hal_stream_t;
+typedef hal_stream_t *hal_stream_ptr_t;
+
 #define HAL_STREAM_MAX_PINS (21)
 /** create and attach a stream */
-extern int hal_stream_create(hal_stream_t *stream, int comp, int key, int depth, const char *typestring);
+extern int hal_stream_create(hal_stream_t *stream, int comp, int key, unsigned depth, const char *typestring);
 /** detach and destroy an open stream */
 extern void hal_stream_destroy(hal_stream_t *stream);
 
@@ -918,17 +967,17 @@ extern int hal_stream_element_count(hal_stream_t *stream);
 extern hal_type_t hal_stream_element_type(hal_stream_t *stream, int idx);
 
 // only one reader and one writer is allowed.
-extern int hal_stream_read(hal_stream_t *stream, union hal_stream_data *buf, unsigned *sampleno);
+extern int hal_stream_read(hal_stream_t *stream, hal_stream_data_u *buf, unsigned *sampleno);
 extern bool hal_stream_readable(hal_stream_t *stream);
 extern int hal_stream_depth(hal_stream_t *stream);
-extern int hal_stream_maxdepth(hal_stream_t *stream);
+extern unsigned hal_stream_maxdepth(hal_stream_t *stream);
 extern int hal_stream_num_underruns(hal_stream_t *stream);
 extern int hal_stream_num_overruns(hal_stream_t *stream);
 #ifdef ULAPI
 extern void hal_stream_wait_readable(hal_stream_t *stream, sig_atomic_t *stop);
 #endif
 
-extern int hal_stream_write(hal_stream_t *stream, union hal_stream_data *buf);
+extern int hal_stream_write(hal_stream_t *stream, hal_stream_data_u *buf);
 extern bool hal_stream_writable(hal_stream_t *stream);
 #ifdef ULAPI
 extern void hal_stream_wait_writable(hal_stream_t *stream, sig_atomic_t *stop);

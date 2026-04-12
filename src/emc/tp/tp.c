@@ -10,15 +10,16 @@
 *
 * Copyright (c) 2004 All rights reserved.
 ********************************************************************/
-#include "rtapi.h"              /* rtapi_print_msg */
-#include "posemath.h"           /* Geometry types & functions */
-#include "tc.h"
+#include <rtapi.h>              /* rtapi_print_msg */
+#include <rtapi_math.h>
+#include <posemath.h>           /* Geometry types & functions */
+#include <emcpose.h>
+#include <motion_types.h>
+#include "../motion/motion.h"
+#include "../motion/mot_priv.h"
+#include "../motion/axis.h"
 #include "tp.h"
-#include "emcpose.h"
-#include "rtapi_math.h"
-#include "mot_priv.h"
-#include "motion_debug.h"
-#include "motion_types.h"
+#include "tc.h"
 #include "spherical_arc.h"
 #include "blendmath.h"
 //KLUDGE Don't include all of emc.hh here, just hand-copy the TERM COND
@@ -38,16 +39,72 @@
  */
 
 #include "tp_debug.h"
-
+#include "sp_scurve.h"
+#include "ruckig_wrapper.h"
 // FIXME: turn off this feature, which causes blends between rapids to
 // use the feed override instead of the rapid override
 #undef TP_SHOW_BLENDS
 
 #define TP_OPTIMIZATION_LAZY
 
-extern emcmot_status_t *emcmotStatus;
-extern emcmot_debug_t *emcmotDebug;
-extern emcmot_config_t *emcmotConfig;
+#define MAKE_TP_HAL_PINS
+#undef  MAKE_TP_HAL_PINS
+
+// api for tpCreate() inherits a component id  provision to include hal pins:
+// (not used by the this default tp implementation but may
+//  be used in alternate user-built implementations)
+#ifdef  MAKE_TP_HAL_PINS // {
+#include <hal.h>
+#endif // }
+
+emcmot_status_t *emcmotStatus;
+emcmot_config_t *emcmotConfig;
+emcmot_command_t *emcmotCommand;
+emcmot_hal_data_t *emcmot_hal_data;
+
+#ifndef GET_TRAJ_PLANNER_TYPE
+#define GET_TRAJ_PLANNER_TYPE() (emcmotStatus->planner_type)
+
+#define SET_TRAK_PLANNER_TYPE(tp) (emcmotStatus->planner_type = tp)
+
+#endif
+
+#define GET_TRAJ_HOME_USE_TP() (emcmotStatus->home_use_tp)
+
+//==========================================================
+// tp module interface
+// motmod function ptrs for functions called by tp:
+static void(  *_DioWrite)(int,char);
+static void(  *_AioWrite)(int,double);
+static void(  *_SetRotaryUnlock)(int,int);
+static int (  *_GetRotaryIsUnlocked)(int);
+static double(*_axis_get_vel_limit)(int);
+static double(*_axis_get_acc_limit)(int);
+
+void tpMotFunctions(void(  *pDioWrite)(int,char)
+                   ,void(  *pAioWrite)(int,double)
+                   ,void(  *pSetRotaryUnlock)(int,int)
+                   ,int (  *pGetRotaryIsUnlocked)(int)
+                   ,double(*paxis_get_vel_limit)(int)
+                   ,double(*paxis_get_acc_limit)(int)
+                   )
+{
+    _DioWrite            = pDioWrite;
+    _AioWrite            = pAioWrite;
+    _SetRotaryUnlock     = pSetRotaryUnlock;
+    _GetRotaryIsUnlocked = pGetRotaryIsUnlocked;
+    _axis_get_vel_limit  = paxis_get_vel_limit;
+    _axis_get_acc_limit  = paxis_get_acc_limit;
+}
+
+void tpMotData(emcmot_status_t *pstatus
+              ,emcmot_config_t *pconfig
+              )
+{
+    emcmotStatus = pstatus;
+    emcmotConfig = pconfig;
+}
+//=========================================================
 
 /** static function primitives (ugly but less of a pain than moving code around)*/
 STATIC int tpComputeBlendVelocity(
@@ -55,6 +112,15 @@ STATIC int tpComputeBlendVelocity(
         TC_STRUCT const *nexttc,
         double v_target_this,
         double v_target_next,
+        double *v_blend_this,
+        double *v_blend_next,
+        double *v_blend_net);
+ 
+STATIC int tpComputeBlendSCurveVelocity(
+        TC_STRUCT const *tc,
+        TC_STRUCT const *nexttc,
+        double target_vel_this,
+        double target_vel_next,
         double *v_blend_this,
         double *v_blend_next,
         double *v_blend_net);
@@ -67,7 +133,7 @@ STATIC double estimateParabolicBlendPerformance(
 STATIC int tpCheckEndCondition(TP_STRUCT const * const tp, TC_STRUCT * const tc, TC_STRUCT const * const nexttc);
 
 STATIC int tpUpdateCycle(TP_STRUCT * const tp,
-        TC_STRUCT * const tc, TC_STRUCT const * const nexttc);
+        TC_STRUCT * const tc, TC_STRUCT const * const nexttc, int* mode);
 
 STATIC int tpRunOptimization(TP_STRUCT * const tp);
 
@@ -129,15 +195,14 @@ STATIC double tpGetTangentKinkRatio(void) {
     return fmax(fmin(emcmotConfig->arcBlendTangentKinkRatio,max_ratio),min_ratio);
 }
 
-
 STATIC int tpGetMachineAccelBounds(PmCartesian  * const acc_bound) {
     if (!acc_bound) {
         return TP_ERR_FAIL;
     }
 
-    acc_bound->x = emcmotDebug->axes[0].acc_limit; //0==>x
-    acc_bound->y = emcmotDebug->axes[1].acc_limit; //1==>y
-    acc_bound->z = emcmotDebug->axes[2].acc_limit; //2==>z
+    acc_bound->x = _axis_get_acc_limit(0); //0==>x
+    acc_bound->y = _axis_get_acc_limit(1); //1==>y
+    acc_bound->z = _axis_get_acc_limit(2); //2==>z
     return TP_ERR_OK;
 }
 
@@ -147,9 +212,9 @@ STATIC int tpGetMachineVelBounds(PmCartesian  * const vel_bound) {
         return TP_ERR_FAIL;
     }
 
-    vel_bound->x = emcmotDebug->axes[0].vel_limit; //0==>x
-    vel_bound->y = emcmotDebug->axes[1].vel_limit; //1==>y
-    vel_bound->z = emcmotDebug->axes[2].vel_limit; //2==>z
+    vel_bound->x = _axis_get_vel_limit(0); //0==>x
+    vel_bound->y = _axis_get_vel_limit(1); //1==>y
+    vel_bound->z = _axis_get_vel_limit(2); //2==>z
     return TP_ERR_OK;
 }
 
@@ -216,7 +281,6 @@ STATIC inline double tpGetRealTargetVel(TP_STRUCT const * const tp,
     }
     // Start with the scaled target velocity based on the current feed scale
     double v_target = tc->synchronized ? tc->target_vel : tc->reqvel;
-    /*tc_debug_print("Initial v_target = %f\n",v_target);*/
 
     // Get the maximum allowed target velocity, and make sure we're below it
     return fmin(v_target * tpGetFeedScale(tp,tc), tpGetMaxTargetVel(tp, tc));
@@ -245,8 +309,7 @@ STATIC inline double tpGetMaxTargetVel(TP_STRUCT const * const tp, TC_STRUCT con
         //KLUDGE: Don't allow feed override to keep blending from overruning max velocity
         max_scale = fmin(max_scale, 1.0);
     }
-    // Get maximum reachable velocity from max feed override
-    double v_max_target = tc->target_vel * max_scale;
+    double v_max_target = tcGetMaxTargetVel(tc, max_scale);
 
     /* Check if the cartesian velocity limit applies and clip the maximum
      * velocity. The vLimit is from the max velocity slider, and should
@@ -257,11 +320,10 @@ STATIC inline double tpGetMaxTargetVel(TP_STRUCT const * const tp, TC_STRUCT con
      */
     if (!tcPureRotaryCheck(tc) && (tc->synchronized != TC_SYNC_POSITION)){
         /*tc_debug_print("Cartesian velocity limit active\n");*/
-        v_max_target = fmin(v_max_target,tp->vLimit);
+        v_max_target = fmin(v_max_target, tp->vLimit);
     }
 
-    // Apply maximum segment velocity limit (must always be respected)
-    return fmin(v_max_target, tc->maxvel);
+    return v_max_target;
 }
 
 
@@ -275,10 +337,11 @@ STATIC inline double tpGetRealFinalVel(TP_STRUCT const * const tp,
     /* If we're stepping, then it doesn't matter what the optimization says, we want to end at a stop.
      * If the term_cond gets changed out from under us, detect this and force final velocity to zero
      */
-    if (emcmotDebug->stepping || tc->term_cond != TC_TERM_COND_TANGENT || tp->reverse_run) {
+
+    if (emcmotStatus->stepping || tc->term_cond != TC_TERM_COND_TANGENT || tp->reverse_run) {
         return 0.0;
-    } 
-    
+    }
+
     // Get target velocities for this segment and next segment
     double v_target_this = tpGetRealTargetVel(tp, tc);
     double v_target_next = 0.0;
@@ -291,7 +354,6 @@ STATIC inline double tpGetRealFinalVel(TP_STRUCT const * const tp,
     double v_target = fmin(v_target_this, v_target_next);
     return fmin(tc->finalvel, v_target);
 }
-
 
 /**
  * Convert the 2-part spindle position and sign to a signed double.
@@ -311,11 +373,52 @@ STATIC inline double tpGetSignedSpindlePosition(spindle_status_t *status) {
  * @section tpaccess tp class-like API
  */
 
+/* space for trajectory planner queues, plus 10 more for safety */
+/*! \todo FIXME-- default is used; dynamic is not honored */
+	TC_STRUCT queueTcSpace[DEFAULT_TC_QUEUE_SIZE + 10];
+
 /**
  * Create the trajectory planner structure with an empty queue.
  */
-int tpCreate(TP_STRUCT * const tp, int _queueSize, TC_STRUCT * const tcSpace)
+
+#ifdef MAKE_TP_HAL_PINS // {
+static struct  tp_haldata {
+  // Example pin pointers
+  hal_u32_t *in;
+  hal_u32_t *out;
+  // Example parameters
+  hal_float_t param_rw;
+  hal_float_t param_ro;
+} *tp_haldata;
+
+static int makepins(int id) {
+#define HAL_PREFIX "tp"
+    int res=0;
+    if (id < 0) goto error;
+    tp_haldata = hal_malloc(sizeof(struct tp_haldata));
+    if (!tp_haldata) goto error;
+
+    // hal pin examples:
+    res += hal_pin_u32_newf(HAL_IN ,&(tp_haldata->in) ,id,"%s.in" ,HAL_PREFIX);
+    res += hal_pin_u32_newf(HAL_OUT,&(tp_haldata->out),id,"%s.out",HAL_PREFIX);
+
+    // hal parameter examples:
+    res += hal_param_float_newf(HAL_RW, &tp_haldata->param_rw,id,"%s.param-rw",HAL_PREFIX);
+    res += hal_param_float_newf(HAL_RO, &tp_haldata->param_ro,id,"%s.param-ro",HAL_PREFIX);
+
+    if (res) goto error;
+    rtapi_print("@@@ %s:%s: ok\n",__FILE__,__FUNCTION__);
+    return 0;  // caller issues hal_ready()
+error:
+    rtapi_print("\n!!! %s:%s: failed res=%d\n\n",__FILE__,__FUNCTION__,res);
+    return -1;
+#undef HAL_PREFIX
+}
+#endif // }
+
+int tpCreate(TP_STRUCT * const tp, int _queueSize,int id)
 {
+    (void)id;
     if (0 == tp) {
         return TP_ERR_FAIL;
     }
@@ -325,11 +428,18 @@ int tpCreate(TP_STRUCT * const tp, int _queueSize, TC_STRUCT * const tcSpace)
     } else {
         tp->queueSize = _queueSize;
     }
+    TC_STRUCT * const tcSpace = queueTcSpace;
 
     /* create the queue */
     if (-1 == tcqCreate(&tp->queue, tp->queueSize, tcSpace)) {
         return TP_ERR_FAIL;
     }
+
+#ifdef MAKE_TP_HAL_PINS // {
+    if (-1 == makepins(id)) {
+        return TP_ERR_FAIL;
+    }
+#endif // }
 
     /* init the rest of our data */
     return tpInit(tp);
@@ -373,11 +483,9 @@ int tpClear(TP_STRUCT * const tp)
     // Clear out status ID's
     tp->nextId = 0;
     tp->execId = 0;
-    struct state_tag_t tag = {{0}};
+    struct state_tag_t tag = {};
     tp->execTag = tag;
     tp->motionType = 0;
-    tp->termCond = TC_TERM_COND_PARABOLIC;
-    tp->tolerance = 0.0;
     tp->done = 1;
     tp->depth = tp->activeDepth = 0;
     tp->aborting = 0;
@@ -389,7 +497,9 @@ int tpClear(TP_STRUCT * const tp)
     emcmotStatus->requested_vel = 0.0;
     emcmotStatus->distance_to_go = 0.0;
     ZERO_EMC_POSE(emcmotStatus->dtg);
-    SET_MOTION_INPOS_FLAG(1);
+
+    // equivalent to: SET_MOTION_INPOS_FLAG(1):
+    emcmotStatus->motionFlag |= EMCMOT_MOTION_INPOS_BIT;
 
     return tpClearDIOs(tp);
 }
@@ -405,10 +515,15 @@ int tpInit(TP_STRUCT * const tp)
     //Velocity limits
     tp->vLimit = 0.0;
     tp->ini_maxvel = 0.0;
+    tp->ini_maxjerk = 0.0;
     //Accelerations
     tp->aLimit = 0.0;
     PmCartesian acc_bound;
     //FIXME this acceleration bound isn't valid (nor is it used)
+    if (emcmotStatus == 0) {
+       rtapi_print("!!!tpInit: NULL emcmotStatus, bye\n\n");
+       return -1;
+    }
     tpGetMachineAccelBounds(&acc_bound);
     tpGetMachineActiveLimit(&tp->aMax, &acc_bound);
     //Angular limits
@@ -421,6 +536,8 @@ int tpInit(TP_STRUCT * const tp)
     tp->spindle.waiting_for_atspeed = MOTION_INVALID_ID;
 
     tp->reverse_run = TC_DIR_FORWARD;
+    tp->termCond = TC_TERM_COND_PARABOLIC;
+    tp->tolerance = 0.0;
 
     ZERO_EMC_POSE(tp->currentPos);
 
@@ -441,6 +558,13 @@ int tpSetCycleTime(TP_STRUCT * const tp, double secs)
     }
 
     tp->cycleTime = secs;
+
+    /* initialize/update S-curve planner with cycle time */
+    /* This is called in tpmod, where sp_scurve functions are used */
+    if (sp_scurve_init(secs) != 0) {
+        rtapi_print_msg(RTAPI_MSG_ERR, "tpSetCycleTime: sp_scurve_init() failed with cycle_time=%f\n", secs);
+        // Not a fatal error, S-curve functionality may just be unavailable
+    }
 
     return TP_ERR_OK;
 }
@@ -533,7 +657,7 @@ int tpGetExecId(TP_STRUCT * const tp)
 struct state_tag_t tpGetExecTag(TP_STRUCT * const tp)
 {
     if (0 == tp) {
-        struct state_tag_t empty = {{0}};
+        struct state_tag_t empty = {};
         return empty;
     }
 
@@ -690,6 +814,41 @@ STATIC double tpCalculateOptimizationInitialVel(TP_STRUCT const * const tp, TC_S
     return fmin(triangle_vel, max_vel);
 }
 
+/**
+ * Find the "peak" velocity a segment can achieve if its velocity profile is triangular.
+ * This is used to estimate blend velocity, though by itself is not enough
+ * (since requested velocity and max velocity could be lower).
+ */
+STATIC double tpCalculateSCurveVel(TC_STRUCT const *tc) {
+    //Compute peak velocity for blend calculations
+    double acc_scaled = tcGetTangentialMaxAccel(tc);
+    double length = tc->target;
+    if (!tc->finalized) {
+        // blending may remove up to 1/2 of the segment
+        length /= 2.0;
+    }
+    return findSCurveVPeak(acc_scaled, emcmotStatus->jerk, length);
+}
+
+/**
+ * Handles the special case of blending into an unfinalized segment.
+ * The problem here is that the last segment in the queue can always be cut
+ * short by a blend to the next segment. However, we can only ever consume at
+ * most 1/2 of the segment. This function computes the worst-case final
+ * velocity the previous segment can have, if we want to exactly stop at the
+ * halfway point.
+ */
+STATIC double tpCalculateOptimizationSCurveInitialVel(TP_STRUCT const * const tp, TC_STRUCT * const tc)
+{
+    double acc_scaled = tcGetTangentialMaxAccel(tc);
+    double maxjerk = fmin(tc->maxjerk, emcmotStatus->jerk);
+    double scurve_vel = findSCurveVPeak(acc_scaled, maxjerk, tc->target);
+    double max_vel = tpGetMaxTargetVel(tp, tc);
+    tp_debug_json_start(tpCalculateOptimizationSCurveInitialVel);
+    tp_debug_json_double(scurve_vel);
+    tp_debug_json_end();
+    return fmin(scurve_vel, max_vel);
+}
 
 /**
  * Initialize a blend arc from its parent segments.
@@ -702,7 +861,8 @@ STATIC int tpInitBlendArcFromPrev(TP_STRUCT const * const tp,
 				  TC_STRUCT* const blend_tc,
 				  double vel,
 				  double ini_maxvel,
-				  double acc)
+				  double acc,
+                  double ini_maxjerk)
 {
 
 #ifdef TP_SHOW_BLENDS
@@ -720,12 +880,13 @@ STATIC int tpInitBlendArcFromPrev(TP_STRUCT const * const tp,
 
     // Copy over state data from TP
     tcSetupState(blend_tc, tp);
-    
+
     // Set kinematics parameters from blend calculations
     tcSetupMotion(blend_tc,
             vel,
             ini_maxvel,
-            acc);
+            acc,
+            ini_maxjerk);
 
     // Skip syncdio setup since this blend extends the previous line
     blend_tc->syncdio =		// enqueue the list of DIOs
@@ -744,6 +905,9 @@ STATIC int tpInitBlendArcFromPrev(TP_STRUCT const * const tp,
     //NOTE: blend arc radius and everything else is finalized, so set this to 1.
     //In the future, radius may be adjustable.
     tcFinalizeLength(blend_tc);
+
+    // copy state tag from previous segment during blend motion
+    blend_tc->tag = prev_tc->tag;
 
     return TP_ERR_OK;
 }
@@ -852,7 +1016,7 @@ STATIC tp_err_t tpCreateLineArcBlend(TP_STRUCT * const tp, TC_STRUCT * const pre
     tp_debug_print("-- Starting LineArc blend arc --\n");
 
     PmCartesian acc_bound, vel_bound;
-    
+
     //Get machine limits
     tpGetMachineAccelBounds(&acc_bound);
     tpGetMachineVelBounds(&vel_bound);
@@ -888,10 +1052,10 @@ STATIC tp_err_t tpCreateLineArcBlend(TP_STRUCT * const tp, TC_STRUCT * const pre
     int res_param = blendComputeParameters(&param);
 
     int res_points = blendFindPoints3(&points_approx, &geom, &param);
-    
+
     int res_post = blendLineArcPostProcess(&points_exact,
             &points_approx,
-            &param, 
+            &param,
             &geom, &prev_tc->coords.line.xyz,
             &tc->coords.circle.xyz);
 
@@ -904,7 +1068,7 @@ STATIC tp_err_t tpCreateLineArcBlend(TP_STRUCT * const tp, TC_STRUCT * const pre
                 res_post);
         return TP_ERR_FAIL;
     }
-    
+
     /* If blend calculations were successful, then we're ready to create the
      * blend arc.
      */
@@ -965,7 +1129,7 @@ STATIC tp_err_t tpCreateLineArcBlend(TP_STRUCT * const tp, TC_STRUCT * const pre
 
     //set the max velocity to v_plan, since we'll violate constraints otherwise.
     tpInitBlendArcFromPrev(tp, prev_tc, blend_tc, param.v_req,
-            param.v_plan, param.a_max);
+            param.v_plan, param.a_max, fmin(tc->maxjerk, prev_tc->maxjerk));
 
     int res_tangent = checkTangentAngle(&circ2_temp,
             &blend_tc->coords.arc.xyz,
@@ -1010,7 +1174,7 @@ STATIC tp_err_t tpCreateArcLineBlend(TP_STRUCT * const tp, TC_STRUCT * const pre
 
     tp_debug_print("-- Starting ArcLine blend arc --\n");
     PmCartesian acc_bound, vel_bound;
-    
+
     //Get machine limits
     tpGetMachineAccelBounds(&acc_bound);
     tpGetMachineVelBounds(&vel_bound);
@@ -1046,10 +1210,10 @@ STATIC tp_err_t tpCreateArcLineBlend(TP_STRUCT * const tp, TC_STRUCT * const pre
     int res_param = blendComputeParameters(&param);
 
     int res_points = blendFindPoints3(&points_approx, &geom, &param);
-    
+
     int res_post = blendArcLinePostProcess(&points_exact,
             &points_approx,
-            &param, 
+            &param,
             &geom, &prev_tc->coords.circle.xyz,
             &tc->coords.line.xyz);
 
@@ -1062,7 +1226,7 @@ STATIC tp_err_t tpCreateArcLineBlend(TP_STRUCT * const tp, TC_STRUCT * const pre
                 res_post);
         return TP_ERR_FAIL;
     }
-    
+
     blendCheckConsume(&param, &points_exact, prev_tc, emcmotConfig->arcBlendGapCycles);
 
     /* If blend calculations were successful, then we're ready to create the
@@ -1122,7 +1286,7 @@ STATIC tp_err_t tpCreateArcLineBlend(TP_STRUCT * const tp, TC_STRUCT * const pre
 
     //set the max velocity to v_plan, since we'll violate constraints otherwise.
     tpInitBlendArcFromPrev(tp, prev_tc, blend_tc, param.v_req,
-            param.v_plan, param.a_max);
+            param.v_plan, param.a_max, fmin(tc->maxjerk, prev_tc->maxjerk));
 
     int res_tangent = checkTangentAngle(&circ1_temp, &blend_tc->coords.arc.xyz, &geom, &param, tp->cycleTime, false);
     if (res_tangent) {
@@ -1160,7 +1324,7 @@ STATIC tp_err_t tpCreateArcArcBlend(TP_STRUCT * const tp, TC_STRUCT * const prev
     }
 
     PmCartesian acc_bound, vel_bound;
-    
+
     //Get machine limits
     tpGetMachineAccelBounds(&acc_bound);
     tpGetMachineVelBounds(&vel_bound);
@@ -1203,10 +1367,10 @@ STATIC tp_err_t tpCreateArcArcBlend(TP_STRUCT * const tp, TC_STRUCT * const prev
 
     int res_param = blendComputeParameters(&param);
     int res_points = blendFindPoints3(&points_approx, &geom, &param);
-    
+
     int res_post = blendArcArcPostProcess(&points_exact,
             &points_approx,
-            &param, 
+            &param,
             &geom, &prev_tc->coords.circle.xyz,
             &tc->coords.circle.xyz);
 
@@ -1222,7 +1386,7 @@ STATIC tp_err_t tpCreateArcArcBlend(TP_STRUCT * const tp, TC_STRUCT * const prev
     }
 
     blendCheckConsume(&param, &points_exact, prev_tc, emcmotConfig->arcBlendGapCycles);
-    
+
     /* If blend calculations were successful, then we're ready to create the
      * blend arc. Begin work on temp copies of each circle here:
      */
@@ -1289,7 +1453,7 @@ STATIC tp_err_t tpCreateArcArcBlend(TP_STRUCT * const tp, TC_STRUCT * const prev
 
     //set the max velocity to v_plan, since we'll violate constraints otherwise.
     tpInitBlendArcFromPrev(tp, prev_tc, blend_tc, param.v_req,
-            param.v_plan, param.a_max);
+            param.v_plan, param.a_max, fmin(tc->maxjerk, prev_tc->maxjerk));
 
     int res_tangent1 = checkTangentAngle(&circ1_temp, &blend_tc->coords.arc.xyz, &geom, &param, tp->cycleTime, false);
     int res_tangent2 = checkTangentAngle(&circ2_temp, &blend_tc->coords.arc.xyz, &geom, &param, tp->cycleTime, true);
@@ -1321,11 +1485,11 @@ STATIC tp_err_t tpCreateLineLineBlend(TP_STRUCT * const tp, TC_STRUCT * const pr
 
     tp_debug_print("-- Starting LineLine blend arc --\n");
     PmCartesian acc_bound, vel_bound;
-    
+
     //Get machine limits
     tpGetMachineAccelBounds(&acc_bound);
     tpGetMachineVelBounds(&vel_bound);
-    
+
     // Setup blend data structures
     BlendGeom3 geom;
     BlendParameters param;
@@ -1366,7 +1530,7 @@ STATIC tp_err_t tpCreateLineLineBlend(TP_STRUCT * const tp, TC_STRUCT * const pr
 
     //set the max velocity to v_plan, since we'll violate constraints otherwise.
     tpInitBlendArcFromPrev(tp, prev_tc, blend_tc, param.v_req,
-            param.v_plan, param.a_max);
+            param.v_plan, param.a_max, fmin(tc->maxjerk, prev_tc->maxjerk));
 
     tp_debug_print("blend_tc target_vel = %g\n", blend_tc->target_vel);
 
@@ -1427,14 +1591,21 @@ STATIC inline int tpAddSegmentToQueue(TP_STRUCT * const tp, TC_STRUCT * const tc
     return TP_ERR_OK;
 }
 
-STATIC int tpCheckCanonType(TC_STRUCT * prev_tc, TC_STRUCT * tc)
+STATIC int handleModeChange(TC_STRUCT * const prev_tc, TC_STRUCT * const tc)
 {
     if (!tc || !prev_tc) {
         return TP_ERR_FAIL;
     }
     if ((prev_tc->canon_motion_type == EMC_MOTION_TYPE_TRAVERSE) ^
             (tc->canon_motion_type == EMC_MOTION_TYPE_TRAVERSE)) {
-        tp_debug_print("Can't blend between rapid and feed move, aborting arc\n");
+        tp_debug_print("Blending disabled: can't blend between rapid and feed motions\n");
+        tcSetTermCond(prev_tc, tc, TC_TERM_COND_STOP);
+    }
+    if (prev_tc->synchronized != TC_SYNC_POSITION &&
+            tc->synchronized == TC_SYNC_POSITION) {
+        tp_debug_print("Blending disabled: changing spindle sync mode from %d to %d\n",
+                prev_tc->synchronized,
+                tc->synchronized);
         tcSetTermCond(prev_tc, tc, TC_TERM_COND_STOP);
     }
     return TP_ERR_OK;
@@ -1462,6 +1633,7 @@ int tpAddRigidTap(TP_STRUCT * const tp,
         double vel,
         double ini_maxvel,
         double acc,
+        double ini_maxjerk,
         unsigned char enables,
         double scale,
         struct state_tag_t tag) {
@@ -1501,7 +1673,8 @@ int tpAddRigidTap(TP_STRUCT * const tp,
     tcSetupMotion(&tc,
             vel,
             ini_maxvel,
-            acc);
+            acc,
+            ini_maxjerk);
 
     // Setup rigid tap geometry
     pmRigidTapInit(&tc.coords.rigidtap,
@@ -1578,7 +1751,22 @@ STATIC int tpComputeOptimalVelocity(TP_STRUCT const * const tp, TC_STRUCT * cons
     double acc_this = tcGetTangentialMaxAccel(tc);
 
     // Find the reachable velocity of tc, moving backwards in time
-    double vs_back = pmSqrt(pmSq(tc->finalvel) + 2.0 * acc_this * tc->target);
+    // Calculate max start speed that can decelerate to tc->finalvel within tc->target
+    double vs_back;
+    if(GET_TRAJ_PLANNER_TYPE() == 1){
+        // S-curve mode: use findSCurveMaxStartSpeed for reverse velocity optimization
+        // Use minimum of segment's max jerk and system max jerk to ensure limits are not exceeded
+        double maxjerk = fmin(tc->maxjerk, emcmotStatus->jerk);
+        double vs_back2 = pmSqrt(pmSq(tc->finalvel) + 2.0 * acc_this * tc->target);
+        if(findSCurveMaxStartSpeed(tc->target, tc->finalvel, acc_this, maxjerk, &vs_back) != 1){
+            // S-curve calculation failed, use conservative estimate (at least maintain finalvel)
+            vs_back = tc->finalvel;
+        }
+        vs_back = fmin(vs_back, vs_back2);
+    } else {
+        // Trapezoidal mode: v^2 = v0^2 + 2as
+        vs_back = pmSqrt(pmSq(tc->finalvel) + 2.0 * acc_this * tc->target);
+    }
     // Find the reachable velocity of prev1_tc, moving forwards in time
 
     double vf_limit_this = tc->maxvel;
@@ -1595,6 +1783,16 @@ STATIC int tpComputeOptimalVelocity(TP_STRUCT const * const tp, TC_STRUCT * cons
         vs_back = vf_limit;
         prev1_tc->optimization_state = TC_OPTIM_AT_MAX;
         tp_debug_print("found peak due to v_limit %f\n", vf_limit);
+    }
+
+    /* S-curve: prev1_tc's finalvel must not exceed the peak velocity reachable
+     * within prev1_tc's length under jerk constraints, otherwise Ruckig cannot
+     * plan from current velocity to that finalvel within prev1_tc->target */
+    if (GET_TRAJ_PLANNER_TYPE() == 1) {
+        double acc_prev = tcGetTangentialMaxAccel(prev1_tc);
+        double jerk_prev = fmin(prev1_tc->maxjerk, emcmotStatus->jerk);
+        double prev_max_end_vel = findSCurveVPeak(acc_prev, jerk_prev, prev1_tc->target);
+        vs_back = fmin(vs_back, prev_max_end_vel);
     }
 
     //Limit tc's target velocity to avoid creating "humps" in the velocity profile
@@ -1616,13 +1814,13 @@ STATIC int tpComputeOptimalVelocity(TP_STRUCT const * const tp, TC_STRUCT * cons
  * Walk along the queue from the back to the front. Based on the "current"
  * segment's final velocity, calculate the previous segment's maximum allowable
  * final velocity. The depth we walk along the queue is controlled by the
- * TP_LOOKAHEAD_DEPTH constant for now. The process safetly aborts early due to
+ * TP_LOOKAHEAD_DEPTH constant for now. The process safely aborts early due to
  * a short queue or other conflicts.
  */
 STATIC int tpRunOptimization(TP_STRUCT * const tp) {
     // Pointers to the "current", previous, and 2nd previous trajectory
     // components. Current in this context means the segment being optimized,
-    // NOT the currently excecuting segment.
+    // NOT the currently executing segment.
 
     TC_STRUCT *tc;
     TC_STRUCT *prev1_tc;
@@ -1660,7 +1858,7 @@ STATIC int tpRunOptimization(TP_STRUCT * const tp) {
                 tp_debug_print("Found 2nd non-tangent segment, stopping optimization\n");
                 return TP_ERR_OK;
             } else  {
-                tp_debug_print("Found first non-tangent segment, contining\n");
+                tp_debug_print("Found first non-tangent segment, continuing\n");
                 hit_non_tangent = true;
                 continue;
             }
@@ -1699,7 +1897,10 @@ STATIC int tpRunOptimization(TP_STRUCT * const tp) {
             tp_debug_print("Segment %d, type %d not finalized, continuing\n",tc->id,tc->motion_type);
             // use worst-case final velocity that allows for up to 1/2 of a segment to be consumed.
 
-            prev1_tc->finalvel = fmin(prev1_tc->maxvel, tpCalculateOptimizationInitialVel(tp,tc));
+            if(GET_TRAJ_PLANNER_TYPE() == 1)
+                prev1_tc->finalvel = fmin(prev1_tc->maxvel, tpCalculateOptimizationSCurveInitialVel(tp,tc));
+            else
+                prev1_tc->finalvel = fmin(prev1_tc->maxvel, tpCalculateOptimizationInitialVel(tp,tc));
 
             // Fixes acceleration violations when last segment is not finalized, and previous segment is tangent.
             if (prev1_tc->kink_vel >=0  && prev1_tc->term_cond == TC_TERM_COND_TANGENT) {
@@ -1941,7 +2142,7 @@ STATIC tc_blend_type_t tpHandleBlendArc(TP_STRUCT * const tp, TC_STRUCT * const 
  */
 
 int tpAddLine(TP_STRUCT * const tp, EmcPose end, int canon_motion_type,
-            double vel, double ini_maxvel, double acc, unsigned char enables,
+            double vel, double ini_maxvel, double acc, double ini_maxjerk, unsigned char enables,
             char atspeed, int indexer_jnum, struct state_tag_t tag)
 {
     if (tpErrorCheck(tp) < 0) {
@@ -1969,8 +2170,8 @@ int tpAddLine(TP_STRUCT * const tp, EmcPose end, int canon_motion_type,
     tcSetupMotion(&tc,
             vel,
             ini_maxvel,
-            acc);
-
+            acc,
+            ini_maxjerk);
     // Setup line geometry
     pmLine9Init(&tc.coords.line,
             &tp->goalPos,
@@ -1989,7 +2190,7 @@ int tpAddLine(TP_STRUCT * const tp, EmcPose end, int canon_motion_type,
     //TODO refactor this into its own function
     TC_STRUCT *prev_tc;
     prev_tc = tcqLast(&tp->queue);
-    tpCheckCanonType(prev_tc, &tc);
+    handleModeChange(prev_tc, &tc);
     if (emcmotConfig->arcBlendEnable){
         tpHandleBlendArc(tp, &tc);
     }
@@ -2023,6 +2224,7 @@ int tpAddCircle(TP_STRUCT * const tp,
         double vel,
         double ini_maxvel,
         double acc,
+        double ini_maxjerk,
         unsigned char enables,
         char atspeed,
         struct state_tag_t tag)
@@ -2071,15 +2273,19 @@ int tpAddCircle(TP_STRUCT * const tp,
     tcSetupMotion(&tc,
             vel,
             ini_maxvel,
-            acc);
+            acc,
+            ini_maxjerk);
 
     //Reduce max velocity to match sample rate
     tcClampVelocityByLength(&tc);
 
+    // Apply acceleration and jerk limits for circular motion
+    tcUpdateArcLimits(&tc);
+
     TC_STRUCT *prev_tc;
     prev_tc = tcqLast(&tp->queue);
 
-    tpCheckCanonType(prev_tc, &tc);
+    handleModeChange(prev_tc, &tc);
     if (emcmotConfig->arcBlendEnable){
         tpHandleBlendArc(tp, &tc);
         findSpiralArcLengthFit(&tc.coords.circle.xyz, &tc.coords.circle.fit);
@@ -2191,6 +2397,123 @@ STATIC int tpComputeBlendVelocity(
     return TP_ERR_OK;
 }
 
+/**
+ * Adjusts blend velocity and acceleration to safe limits.
+ * If we are blending between tc and nexttc, then we need to figure out what a
+ * safe blend velocity is based on the known trajectory parameters. This
+ * function updates the TC_STRUCT data with a safe blend velocity.
+ *
+ * @note This function will compute the parabolic blend start / end velocities
+ * regardless of the current terminal condition (useful for planning).
+ */
+STATIC int tpComputeBlendSCurveVelocity(
+        TC_STRUCT const *tc,
+        TC_STRUCT const *nexttc,
+        double target_vel_this,
+        double target_vel_next,
+        double *v_blend_this,
+        double *v_blend_next,
+        double *v_blend_net)
+{
+    /* Pre-checks for valid pointers */
+    if (!nexttc || !tc || !v_blend_this || !v_blend_next ) {
+        return TP_ERR_FAIL;
+    }
+
+    double acc_this = tcGetTangentialMaxAccel(tc);
+    double acc_next = tcGetTangentialMaxAccel(nexttc);
+
+    double v_reachable_this = fmin(tpCalculateSCurveVel(tc), target_vel_this);
+    double v_reachable_next = fmin(tpCalculateSCurveVel(nexttc), target_vel_next);
+
+    //double maxjerk = tc->maxjerk;
+    double maxjerk = fmin(tc->maxjerk, emcmotStatus->jerk);
+    /* Compute the maximum allowed blend time for each segment.
+     * This corresponds to the minimum acceleration that will just barely reach
+     * max velocity as we are 1/2 done the segment.
+     */
+
+    double t_max_this = tc->target / v_reachable_this;
+    double t_max_next = nexttc->target / v_reachable_next;
+    double t_max_reachable = fmin(t_max_this, t_max_next);
+
+    // How long the blend phase would be at maximum acceleration
+    double t_min_blend_this;
+    double t_min_blend_next;
+    double t1_this, t2_this;
+    double t1_next, t2_next;
+    t_min_blend_this = calcDecelerateTimes(v_reachable_this, acc_this, emcmotStatus->jerk, &t1_this, &t2_this);
+    t_min_blend_next = calcDecelerateTimes(v_reachable_next, acc_next, emcmotStatus->jerk, &t1_next, &t2_next);
+
+
+    double t_max_blend = fmax(t_min_blend_this, t_min_blend_next);
+    // The longest blend time we can get that's still within the 1/2 segment restriction
+    double t_blend = fmin(t_max_reachable, t_max_blend);
+
+    // Now, use this blend time to find the best acceleration / velocity for each segment
+    // For S-curve, we need to use calcSCurveSpeedWithT instead of simple t * acc
+    // calcSCurveSpeedWithT calculates the speed achievable in time T using S-curve acceleration
+    double v_blend_from_time_this = calcSCurveSpeedWithT(acc_this, maxjerk, t_blend);
+    double v_blend_from_time_next = calcSCurveSpeedWithT(acc_next, maxjerk, t_blend);
+    *v_blend_this = fmin(v_reachable_this, v_blend_from_time_this);
+    *v_blend_next = fmin(v_reachable_next, v_blend_from_time_next);
+
+    double theta;
+
+    PmCartesian v1, v2;
+
+    tcGetEndAccelUnitVector(tc, &v1);
+    tcGetStartAccelUnitVector(nexttc, &v2);
+    findIntersectionAngle(&v1, &v2, &theta);
+
+    double cos_theta = cos(theta);
+
+    if (tc->tolerance > 0) {
+        /* see diagram blend.fig.  T (blend tolerance) is given, theta
+         * is calculated from dot(s1, s2)
+         *
+         * blend criteria: we are decelerating at the end of segment s1
+         * and we pass distance d from the end.
+         * find the corresponding velocity v when passing d.
+         *
+         * in the drawing note d = 2T/cos(theta)
+         *
+         * when v1 is decelerating at a to stop, v = at, t = v/a
+         * so required d = .5 a (v/a)^2
+         *
+         * equate the two expressions for d and solve for v
+         */
+        double tblend_vel;
+        /* Minimum value of cos(theta) to prevent numerical instability */
+        const double min_cos_theta = cos(PM_PI / 2.0 - TP_MIN_ARC_ANGLE);
+        if (cos_theta > min_cos_theta && maxjerk > 0.0) {
+            /* For S-curve, the distance d = 2T/cos(theta) where T is tolerance.
+             * For S-curve deceleration from velocity v to 0:
+             * - Distance s = (1/6) * J * T1^3 (for triangle case, no S2 segment)
+             *   where T1 = sqrt(v/J), so s = (1/6) * v^(3/2) / sqrt(J)
+             * - Solving for v: v = (6 * s * sqrt(J))^(2/3)
+             *
+             * Using the triangle case formula as an approximation (lower bound).
+             */
+            double d = 2.0 * tc->tolerance / cos_theta;
+            tblend_vel = pow(6.0 * d * pmSqrt(maxjerk), 2.0 / 3.0);
+            *v_blend_this = fmin(*v_blend_this, tblend_vel);
+            *v_blend_next = fmin(*v_blend_next, tblend_vel);
+        }
+    }
+    if (v_blend_net) {
+        /*
+         * Find net velocity in the direction tangent to the blend.
+         * When theta ~ 0, net velocity in tangent direction is very small.
+         * When the segments are nearly tangent (theta ~ pi/2), the blend
+         * velocity is almost entirely in the tangent direction.
+         */
+        *v_blend_net = sin(theta) * (*v_blend_this + *v_blend_next) / 2.0;
+    }
+
+    return TP_ERR_OK;
+}
+
 STATIC double estimateParabolicBlendPerformance(
         TP_STRUCT const *tp,
         TC_STRUCT const *tc,
@@ -2203,7 +2526,10 @@ STATIC double estimateParabolicBlendPerformance(
     double target_vel_next = tpGetMaxTargetVel(tp, nexttc);
 
     double v_net = 0.0;
-    tpComputeBlendVelocity(tc, nexttc, target_vel_this, target_vel_next, &v_this, &v_next, &v_net);
+    if(GET_TRAJ_PLANNER_TYPE() == 1)
+        tpComputeBlendSCurveVelocity(tc, nexttc, target_vel_this, target_vel_next, &v_this, &v_next, &v_net);
+    else
+        tpComputeBlendVelocity(tc, nexttc, target_vel_this, target_vel_next, &v_this, &v_next, &v_net);
 
     return v_net;
 }
@@ -2217,10 +2543,16 @@ STATIC int tcUpdateDistFromAccel(TC_STRUCT * const tc, double acc, double vel_de
 {
     // If the resulting velocity is less than zero, than we're done. This
     // causes a small overshoot, but in practice it is very small.
-    double v_next = tc->currentvel + acc * tc->cycle_time;
+    //double v_next = tc->currentvel + acc * tc->cycle_time;
+    double v_next;
+    int planner_type = GET_TRAJ_PLANNER_TYPE();
+    if(planner_type == 1) planner_type = 0; // if is 1, and inside here. it's means the jerk less than 1
+
+    v_next = tc->currentvel + acc * tc->cycle_time;
     // update position in this tc using trapezoidal integration
     // Note that progress can be greater than the target after this step.
-    if (v_next < 0.0) {
+    //if (v_next < 0.0) {
+    if (planner_type == 0 && v_next < 0.0) {
         v_next = 0.0;
         //KLUDGE: the trapezoidal planner undershoots by half a cycle time, so
         //forcing the endpoint here is necessary. However, velocity undershoot
@@ -2234,16 +2566,32 @@ STATIC int tcUpdateDistFromAccel(TC_STRUCT * const tc, double acc, double vel_de
         double displacement = (v_next + tc->currentvel) * 0.5 * tc->cycle_time;
         // Account for reverse run (flip sign if need be)
         double disp_sign = reverse_run ? -1 : 1;
-        tc->progress += (disp_sign * displacement);
+        if(planner_type == 0)
+            tc->progress += (disp_sign * displacement);
 
         //Progress has to be within the allowable range
         tc->progress = bisaturate(tc->progress, tcGetTarget(tc, TC_DIR_FORWARD), tcGetTarget(tc, TC_DIR_REVERSE));
     }
+    // Calculate jerk as rate of change of acceleration (for trapezoidal, this is high)
+    double jerk = 0.0;
+    if (tc->cycle_time > TP_TIME_EPSILON) {
+        jerk = (acc - tc->currentacc) / tc->cycle_time;
+    }
+
+    if(planner_type == 0){
     tc->currentvel = v_next;
+    tc->currentacc = acc;
+    tc->currentjerk = jerk;
 
     // Check if we can make the desired velocity
     tc->on_final_decel = (fabs(vel_desired - tc->currentvel) < TP_VEL_EPSILON) && (acc < 0.0);
-
+    }else{
+        // Check if we can make the desired velocity
+        tc->on_final_decel = (fabs(vel_desired - tc->currentvel) < TP_VEL_EPSILON) && (acc <= 0.0);
+        tc->currentvel = v_next;
+        tc->currentacc = acc;
+        tc->currentjerk = jerk;
+    }
     return TP_ERR_OK;
 }
 
@@ -2267,6 +2615,11 @@ STATIC void tpDebugCycleInfo(TP_STRUCT const * const tp, TC_STRUCT const * const
     if (tc->on_final_decel) {
         rtapi_print(" on final decel\n");
     }
+#else
+    (void)tp;
+    (void)tc;
+    (void)nexttc;
+    (void)acc;
 #endif
 }
 
@@ -2307,8 +2660,8 @@ void tpCalculateTrapezoidalAccel(TP_STRUCT const * const tp, TC_STRUCT * const t
 
     double discr = discr_term1 + discr_term2 + discr_term3;
 
-    // Descriminant is a little more complicated with final velocity term. If
-    // descriminant < 0, we've overshot (or are about to). Do the best we can
+    // Discriminant is a little more complicated with final velocity term. If
+    // discriminant < 0, we've overshot (or are about to). Do the best we can
     // in this situation
 #ifdef TP_PEDANTIC
     if (discr < 0.0) {
@@ -2385,18 +2738,346 @@ STATIC int tpCalculateRampAccel(TP_STRUCT const * const tp,
     return TP_ERR_OK;
 }
 
+/**
+ * Calculate distance update from velocity and acceleration.
+ */
+STATIC int tcUpdateDistFromSCurveAccel(TC_STRUCT *const tc, double acc, double jerk, double vel_desired, double perror __attribute__((unused)), int reverse_run, int dec, double req_pos_value)
+{
+    double v_next = vel_desired;
+
+    // Handle negative velocity: only force to 0 when near endpoint (numerical error)
+    // If there is remaining distance, motion is still in progress
+    if (v_next < 0.0) {
+        double dx = tcGetDistanceToGo(tc, reverse_run);
+        if (dx < TP_POS_EPSILON) {
+            if (dx < (tc->currentvel * tc->cycle_time)) {
+                tc->progress = tcGetTarget(tc, reverse_run);
+            }
+        }
+    } else {
+        double disp_sign = reverse_run ? -1 : 1;
+
+        // If req_pos provided, use Ruckig's exact position directly
+        // Otherwise use trapezoidal integration (fallback method)
+        if (req_pos_value >= 0.0) {
+            // Use Ruckig-computed exact position
+            tc->progress = req_pos_value;
+            double displacement = req_pos_value - (tc->progress - (tc->currentvel + v_next) * tc->cycle_time / 2.0 * disp_sign);
+            tc->last_move_length = fabs(displacement);
+        } else {
+            // Use trapezoidal integration for displacement
+            double displacement = (tc->currentvel + v_next) * tc->cycle_time / 2.0;
+
+            tc->last_move_length = displacement;
+            tc->progress += (disp_sign * displacement);
+        }
+
+        // Progress has to be within the allowable range
+        tc->progress = bisaturate(tc->progress, tcGetTarget(tc, TC_DIR_FORWARD), tcGetTarget(tc, TC_DIR_REVERSE));
+    }
+
+    tc->currentvel = v_next;
+    tc->currentacc = acc;
+    tc->currentjerk = jerk;
+    tc->on_final_decel = dec;
+
+    return TP_ERR_OK;
+}
+
+
+/**
+ * Compute updated position and velocity for a timestep based on a s-curve
+ * motion profile.
+ * @param tc trajectory segment being processed.
+ *
+ * Creates the s-curve velocity profile based on the segment's velocity and
+ * acceleration limits. The formula has been tweaked slightly to allow a
+ * non-zero velocity at the instant the target is reached.
+ */
+int tpCalculateSCurveAccel(TP_STRUCT const * const tp, TC_STRUCT * const tc, TC_STRUCT const * const nexttc,
+        double * const acc, double * const jerk, double * const vel_desired, double * const pos_error, int blend, double * const req_pos)
+{
+    tc_debug_print("using s-curve acceleration with Ruckig\n");
+
+    double maxjerk = fmin(tc->maxjerk, emcmotStatus->jerk);
+    if(maxjerk <= 1){
+        maxjerk = 1;
+        rtapi_print_msg(RTAPI_MSG_ERR, "ERROR!!! maxjerk Is less than 1\n");
+        return TP_SCURVE_ACCEL_ERROR;
+    }
+
+    // Find maximum allowed velocity from feed and machine limits
+    double tc_target_vel = tpGetRealTargetVel(tp, tc);
+    // Store a copy of final velocity
+    double tc_finalvel = tpGetRealFinalVel(tp, tc, nexttc);
+
+    double dx = tcGetDistanceToGo(tc, tp->reverse_run);
+    double maxaccel = tcGetTangentialMaxAccel(tc);
+
+    *pos_error = 0;
+    if(!blend && tc->cycle_time < TP_TIME_EPSILON){
+        *acc = tc->currentacc;
+        *vel_desired = tc->currentvel;
+        *jerk = tc->currentjerk;
+        return TP_SCURVE_ACCEL_ACCEL;
+    }
+
+    // Check pause/abort state
+    bool is_pausing = tp->pausing && (tc->synchronized == TC_SYNC_NONE || tc->synchronized == TC_SYNC_VELOCITY);
+    bool is_aborting = tp->aborting;
+
+    // Check if feed_override = 0 (not pause/abort, but velocity limited to 0)
+    bool use_velocity_control = (is_pausing || is_aborting ||
+                                   emcmotStatus->net_feed_scale <= TP_VEL_EPSILON);
+    // Normal operation parameters
+    double effective_max_vel = tc_target_vel;
+    double effective_target_vel = tc_finalvel;
+
+    // ========== Ruckig trajectory planning ==========
+
+    // Check if planner needs to be created or replanned
+    if (!tc->ruckig_planner) {
+        // Create Ruckig planner
+        tc->ruckig_planner = ruckig_create(tc->cycle_time);
+        if (!tc->ruckig_planner) {
+            rtapi_print_msg(RTAPI_MSG_ERR, "tpCalculateSCurveAccel: failed to create Ruckig planner\n");
+            return TP_SCURVE_ACCEL_ERROR;
+        }
+        tc->ruckig_planned = 0;
+        tc->ruckig_trajectory_time = 0.0;
+        tc->ruckig_last_maxaccel = 0.0;
+        tc->ruckig_last_maxjerk = 0.0;
+        tc->ruckig_last_target_vel = 0.0;
+        tc->ruckig_last_final_vel = 0.0;
+        tc->ruckig_last_target_pos = 0.0;
+        tc->ruckig_last_use_velocity_control = 0;
+        tc->ruckig_last_req_pos = 0.0;
+        tc->ruckig_last_feed_override = 0.0;
+    }
+
+    // Check if parameters have changed (use small tolerance for float comparison)
+    const double PARAM_EPSILON = 1e-8;
+    int need_replan = 0;
+
+    if (use_velocity_control) {
+        // Check if control mode changed (priority check: mode switch requires replanning)
+        if (tc->ruckig_planned && tc->ruckig_last_use_velocity_control != 1) {
+            // Switching from position to velocity control mode, must replan
+            need_replan = 1;
+            tc_debug_print("tpCalculateSCurveAccel: control mode changed from position to velocity, replanning\n");
+            rtapi_print_msg(RTAPI_MSG_DBG, "tpCalculateSCurveAccel: mode switch detected: last_mode=%d, current_mode=velocity\n",
+                            tc->ruckig_last_use_velocity_control);
+            ruckig_reset(tc->ruckig_planner);
+            tc->ruckig_planned = 0;
+        } else if (!tc->ruckig_planned) {
+            need_replan = 1;
+        } else {
+            // Check key parameters (velocity control mode: only check velocity/accel params)
+            int param_changed = (fabs(tc->ruckig_last_maxaccel - maxaccel) > PARAM_EPSILON ||
+                                fabs(tc->ruckig_last_maxjerk - maxjerk) > PARAM_EPSILON ||
+                                fabs(tc->ruckig_last_final_vel - 0.0) > PARAM_EPSILON);
+
+            if (param_changed) {
+                need_replan = 1;
+            }
+        }
+
+        // Replan using velocity control mode
+        if (need_replan) {
+            double replan_vel = tc->currentvel;
+            double replan_acc = tc->currentacc;
+
+            int plan_result = ruckig_plan_velocity(tc->ruckig_planner,
+                                                  replan_vel,    // current velocity
+                                                  replan_acc,    // current acceleration
+                                                  0.0,           // target velocity (stop)
+                                                  0.0,           // target acceleration (stop)
+                                                  0.0,           // min velocity (unidirectional)
+                                                  maxaccel,      // max acceleration
+                                                  maxjerk);      // max jerk
+
+            if (plan_result != 0) {
+                if (tc->ruckig_planned) {
+                    rtapi_print_msg(RTAPI_MSG_WARN, "tpCalculateSCurveAccel: Ruckig velocity control replanning failed, using previous trajectory\n");
+                } else {
+                    rtapi_print_msg(RTAPI_MSG_WARN, "tpCalculateSCurveAccel: Ruckig velocity control planning failed, falling back to tp 0\n");
+                    return TP_SCURVE_ACCEL_ERROR;
+                }
+            } else {
+                tc->ruckig_planned = 1;
+                tc->ruckig_trajectory_time = 0.0;
+                tc->ruckig_last_maxaccel = maxaccel;
+                tc->ruckig_last_maxjerk = maxjerk;
+                tc->ruckig_last_target_vel = 0.0;
+                tc->ruckig_last_final_vel = 0.0;
+                tc->ruckig_last_target_pos = 0.0;
+                tc->ruckig_last_use_velocity_control = 1;
+                tc->ruckig_last_req_pos = 0.0;
+                tc->ruckig_last_feed_override = emcmotStatus->net_feed_scale;
+            }
+        }
+    } else {
+        // Position control mode: needs target position
+        double current_pos = tc->progress;
+        double target_pos = current_pos + dx;
+
+        // Check if control mode changed
+        if (tc->ruckig_planned && tc->ruckig_last_use_velocity_control != 0) {
+            // Switching from velocity to position control mode, must replan
+            need_replan = 1;
+            rtapi_print_msg(RTAPI_MSG_DBG, "tpCalculateSCurveAccel: mode switch detected: last_mode=%d, current_mode=position\n",
+                            tc->ruckig_last_use_velocity_control);
+            ruckig_reset(tc->ruckig_planner);
+            tc->ruckig_planned = 0;
+        } else if (!tc->ruckig_planned) {
+            need_replan = 1;
+        } else {
+            // Check key parameters (position control mode)
+            int param_changed = (fabs(tc->ruckig_last_maxaccel - maxaccel) > PARAM_EPSILON ||
+                                fabs(tc->ruckig_last_maxjerk - maxjerk) > PARAM_EPSILON ||
+                                fabs(tc->ruckig_last_target_vel - effective_max_vel) > PARAM_EPSILON ||
+                                fabs(tc->ruckig_last_final_vel - effective_target_vel) > PARAM_EPSILON ||
+                                fabs(tc->ruckig_last_target_pos - target_pos) > PARAM_EPSILON);
+
+            if (param_changed) {
+                need_replan = 1;
+            }
+        }
+
+        // Replan if needed
+        if (need_replan) {
+            double replan_pos = current_pos;
+            double replan_vel = tc->currentvel;
+            double replan_acc = tc->currentacc;
+
+            int plan_result = ruckig_plan_position(tc->ruckig_planner,
+                                          replan_pos,            // current position
+                                          replan_vel,            // current velocity
+                                          replan_acc,            // current acceleration
+                                          target_pos,            // target position
+                                          effective_target_vel,  // target velocity (finalvel)
+                                          0.0,                   // target acceleration (usually 0)
+                                          0.0,                   // min velocity (unidirectional)
+                                          effective_max_vel,     // max velocity
+                                          maxaccel,              // max acceleration
+                                          maxjerk);              // max jerk
+
+            if (plan_result != 0) {
+                rtapi_print_msg(RTAPI_MSG_INFO, "tpCalculateSCurveAccel: ruckig_plan_position failed with result %d\n", plan_result);
+                if (tc->ruckig_planned) {
+                    // Keep using previous trajectory
+                } else {
+                    // First planning attempt failed, fall back
+                    rtapi_print_msg(RTAPI_MSG_ERR,
+                        "Ruckig planning failed (first attempt), Back to tp 0\n"
+                        "  feed_override: %.6f \n"
+                        "  max_vel: %.6f\n"
+                        "  cpos: %.6f, tpos: %.6f, dx: %.6f\n"
+                        "  cvel: %.6f, tvel: %.6f\n"
+                        "  cacc: %.6f\n"
+                        "  maxa: %.6f, maxj: %.6f\n",
+                        emcmotStatus->net_feed_scale,
+                        effective_max_vel,
+                        replan_pos, target_pos, dx,
+                        replan_vel, effective_target_vel,
+                        replan_acc,
+                        maxaccel, maxjerk);
+                    return TP_SCURVE_ACCEL_ERROR;
+                }
+            } else {
+                // Planning succeeded
+                rtapi_print_msg(RTAPI_MSG_DBG, "tpCalculateSCurveAccel: ruckig_plan_position succeeded\n");
+                tc->ruckig_planned = 1;
+                tc->ruckig_trajectory_time = 0.0;
+                tc->ruckig_last_maxaccel = maxaccel;
+                tc->ruckig_last_maxjerk = maxjerk;
+                tc->ruckig_last_target_vel = effective_max_vel;
+                tc->ruckig_last_final_vel = effective_target_vel;
+                tc->ruckig_last_target_pos = target_pos;
+                tc->ruckig_last_use_velocity_control = 0;
+                tc->ruckig_last_req_pos = 0.0;
+                tc->ruckig_last_feed_override = emcmotStatus->net_feed_scale;
+            }
+        } else {
+            rtapi_print_msg(RTAPI_MSG_DBG, "tpCalculateSCurveAccel: no replan needed, using existing trajectory\n");
+        }
+    }
+
+    // Get next cycle state from Ruckig planning result
+    if (!tc->ruckig_planned) {
+        return TP_SCURVE_ACCEL_ERROR;
+    }
+
+    double duration = ruckig_get_duration(tc->ruckig_planner);
+    double req_v = 0.0, req_a = 0.0, req_j = 0.0;
+    double req_pos_value = -1;
+
+    int ruckig_result = ruckig_next_cycle(tc->ruckig_planner,
+                                          tc->ruckig_trajectory_time,
+                                          tc->cycle_time,
+                                          &req_pos_value,
+                                          &req_v,
+                                          &req_a,
+                                          &req_j);
+
+    if (ruckig_result != 0) {
+        rtapi_print_msg(RTAPI_MSG_ERR, "tpCalculateSCurveAccel: Ruckig query failed, falling back\n");
+        return TP_SCURVE_ACCEL_ERROR;
+    }
+
+    // Update trajectory time
+    tc->ruckig_trajectory_time += tc->cycle_time;
+
+    // Clamp trajectory time to duration to prevent unbounded growth on replan failure
+    if (duration > 0.0 && tc->ruckig_trajectory_time > duration) {
+        tc->ruckig_trajectory_time = duration;
+    }
+
+    // Position coordinate system:
+    // - Velocity control mode: ruckig_plan_velocity sets initial position to 0, so Ruckig
+    //   returns cumulative displacement from 0. Compute per-cycle delta and add to tc->progress.
+    // - Position control mode: ruckig_plan_position uses tc->progress as initial position,
+    //   so Ruckig returns position directly in tc->progress coordinates.
+    if (use_velocity_control) {
+        // Velocity control: compute displacement delta from cumulative Ruckig position
+        double ruckig_original_pos = req_pos_value;
+        double displacement_delta = req_pos_value - tc->ruckig_last_req_pos;
+        double disp_sign = (tcGetTarget(tc, TC_DIR_FORWARD) > tcGetTarget(tc, TC_DIR_REVERSE)) ? 1 : -1;
+        req_pos_value = tc->progress + disp_sign * displacement_delta;
+        tc->ruckig_last_req_pos = ruckig_original_pos;
+    } else {
+        // Position control: Ruckig position is already in tc->progress coordinates
+        tc->ruckig_last_req_pos = 0.0;
+    }
+
+    // Output results — trust Ruckig's S-curve planning
+    *acc = req_a;
+    *vel_desired = req_v;
+    *jerk = req_j;
+    if (req_pos) {
+        *req_pos = req_pos_value;
+    }
+    *pos_error = dx - (req_pos_value - tc->progress);
+
+    // Determine acceleration vs deceleration phase
+    int res = (req_a < 0.0 || (req_a == 0.0 && req_v < tc->currentvel)) ?
+              TP_SCURVE_ACCEL_DECEL : TP_SCURVE_ACCEL_ACCEL;
+
+    return res;
+}
+
 void tpToggleDIOs(TC_STRUCT * const tc) {
 
     int i=0;
     if (tc->syncdio.anychanged != 0) { // we have DIO's to turn on or off
         for (i=0; i < emcmotConfig->numDIO; i++) {
             if (!(tc->syncdio.dio_mask & (1 << i))) continue;
-            if (tc->syncdio.dios[i] > 0) emcmotDioWrite(i, 1); // turn DIO[i] on
-            if (tc->syncdio.dios[i] < 0) emcmotDioWrite(i, 0); // turn DIO[i] off
+            if (tc->syncdio.dios[i] > 0) _DioWrite(i, 1); // turn DIO[i] on
+            if (tc->syncdio.dios[i] < 0) _DioWrite(i, 0); // turn DIO[i] off
         }
         for (i=0; i < emcmotConfig->numAIO; i++) {
             if (!(tc->syncdio.aio_mask & (1 << i))) continue;
-            emcmotAioWrite(i, tc->syncdio.aios[i]); // set AIO[i]
+            _AioWrite(i, tc->syncdio.aios[i]); // set AIO[i]
         }
         tc->syncdio.anychanged = 0; //we have turned them all on/off, nothing else to do for this TC the next time
     }
@@ -2418,6 +3099,10 @@ STATIC void tpUpdateRigidTapState(TP_STRUCT const * const tp,
     	new_spindlepos = -new_spindlepos;
 
     switch (tc->coords.rigidtap.state) {
+        case RIGIDTAP_START:
+            old_spindlepos = new_spindlepos;
+            tc->coords.rigidtap.state = TAPPING;
+            /* Fallthrough */
         case TAPPING:
             tc_debug_print("TAPPING\n");
             if (tc->progress >= tc->coords.rigidtap.reversal_target) {
@@ -2500,7 +3185,14 @@ STATIC int tpUpdateMovementStatus(TP_STRUCT * const tp, TC_STRUCT const * const 
         emcmotStatus->requested_vel = 0;
         emcmotStatus->current_vel = 0;
         emcmotStatus->spindleSync = 0;
-        
+
+        // Clear S-curve motion state
+        emcmotStatus->current_acc = 0;
+        emcmotStatus->current_jerk = 0;
+        emcmotStatus->current_dir.x = 0;
+        emcmotStatus->current_dir.y = 0;
+        emcmotStatus->current_dir.z = 0;
+
         emcPoseZero(&emcmotStatus->dtg);
 
         tp->motionType = 0;
@@ -2511,7 +3203,7 @@ STATIC int tpUpdateMovementStatus(TP_STRUCT * const tp, TC_STRUCT const * const 
     EmcPose tc_pos;
     tcGetEndpoint(tc, &tc_pos);
 
-    tc_debug_print("tc id = %u canon_type = %u mot type = %u\n",
+    tc_debug_print("tc id = %u canon_type = %u motion_type = %u\n",
             tc->id, tc->canon_motion_type, tc->motion_type);
     tp->motionType = tc->canon_motion_type;
     tp->activeDepth = tc->active_depth;
@@ -2521,6 +3213,21 @@ STATIC int tpUpdateMovementStatus(TP_STRUCT * const tp, TC_STRUCT const * const 
     tp->execId = tc->id;
     emcmotStatus->requested_vel = tc->reqvel;
     emcmotStatus->current_vel = tc->currentvel;
+
+    // Output accurate S-curve motion state (for accurate jerk calculation)
+    emcmotStatus->current_acc = tc->currentacc;
+    emcmotStatus->current_jerk = tc->currentjerk;
+
+    // Get current motion direction unit vector (precise tangent at current progress)
+    PmCartesian dir;
+    if (tcGetCurrentTangentUnitVector(tc, &dir) == 0) {
+        emcmotStatus->current_dir = dir;
+    } else {
+        // If direction unavailable, use zero vector
+        emcmotStatus->current_dir.x = 0;
+        emcmotStatus->current_dir.y = 0;
+        emcmotStatus->current_dir.z = 0;
+    }
 
     emcPoseSub(&tc_pos, &tp->currentPos, &emcmotStatus->dtg);
     return TP_ERR_OK;
@@ -2539,6 +3246,7 @@ STATIC void tpUpdateBlend(TP_STRUCT * const tp, TC_STRUCT * const tc,
         return;
     }
     double save_vel = nexttc->target_vel;
+    bool is_abort = false;
 
     if (tpGetFeedScale(tp, nexttc) > TP_VEL_EPSILON) {
         double dv = tc->vel_at_blend_start - tc->currentvel;
@@ -2549,12 +3257,20 @@ STATIC void tpUpdateBlend(TP_STRUCT * const tp, TC_STRUCT * const tc,
         nexttc->target_vel = blend_progress * nexttc->blend_vel * blend_scale;
         // Mark the segment as blending so we handle the new target velocity properly
         nexttc->is_blending = true;
+        // Don't copy cycle_time - if tc has a partial split time, nexttc gets acc spikes
+        // nexttc->cycle_time = tc->cycle_time;
     } else {
         // Drive the target velocity to zero since we're stopping
         nexttc->target_vel = 0.0;
+        save_vel = 0.0;
+        is_abort = true;
     }
 
-    tpUpdateCycle(tp, nexttc, NULL);
+    int mode = 0;
+    if(is_abort) mode = 0;
+    else mode = 1;
+    
+    tpUpdateCycle(tp, nexttc, NULL, &mode);
     //Restore the original target velocity
     nexttc->target_vel = save_vel;
 }
@@ -2583,12 +3299,12 @@ STATIC void tpHandleEmptyQueue(TP_STRUCT * const tp)
 
 /** Wrapper function to unlock rotary axes */
 STATIC void tpSetRotaryUnlock(int axis, int unlock) {
-    emcmotSetRotaryUnlock(axis, unlock);
+    _SetRotaryUnlock(axis, unlock);
 }
 
 /** Wrapper function to check rotary axis lock */
 STATIC int tpGetRotaryIsUnlocked(int axis) {
-    return emcmotGetRotaryIsUnlocked(axis);
+    return _GetRotaryIsUnlocked(axis);
 }
 
 
@@ -2620,9 +3336,8 @@ STATIC int tpCompleteSegment(TP_STRUCT * const tp,
         tpSetRotaryUnlock(tc->indexer_jnum, 0);
         // if it is now locked, fall through and remove the finished move.
         // otherwise, just come back later and check again
-        if(tpGetRotaryIsUnlocked(tc->indexer_jnum)) {
+        if(tpGetRotaryIsUnlocked(tc->indexer_jnum))
             return TP_ERR_FAIL;
-        }
     }
 
     //Clear status flags associated since segment is done
@@ -2635,6 +3350,10 @@ STATIC int tpCompleteSegment(TP_STRUCT * const tp,
     //Velocities are by definition zero for a non-active segment
     tc->currentvel = 0.0;
     tc->term_vel = 0.0;
+
+    // Clean up Ruckig planner resources
+    tcCleanupRuckig(tc);
+
     //TODO make progress to match target?
     // done with this move
     if (tp->reverse_run) {
@@ -2800,8 +3519,9 @@ STATIC tp_err_t tpActivateSegment(TP_STRUCT * const tp, TC_STRUCT * const tc) {
         tpSetRotaryUnlock(tc->indexer_jnum, 1);
         // if it is unlocked, fall through and start the move.
         // otherwise, just come back later and check again
-        if (!tpGetRotaryIsUnlocked(tc->indexer_jnum))
+        if (!tpGetRotaryIsUnlocked(tc->indexer_jnum)) {
             return TP_ERR_WAITING;
+        }
     }
 
     // Temporary debug message
@@ -2965,7 +3685,7 @@ STATIC int tpDoParabolicBlending(TP_STRUCT * const tp, TC_STRUCT * const tc,
  * Handles the majority of updates on a single segment for the current cycle.
  */
 STATIC int tpUpdateCycle(TP_STRUCT * const tp,
-        TC_STRUCT * const tc, TC_STRUCT const * const nexttc) {
+        TC_STRUCT * const tc, TC_STRUCT const * const nexttc, int* mode) {
 
     //placeholders for position for this update
     EmcPose before;
@@ -2981,20 +3701,73 @@ STATIC int tpUpdateCycle(TP_STRUCT * const tp,
     // Run cycle update with stored cycle time
     int res_accel = 1;
     double acc=0, vel_desired=0;
-    
-    // If the slowdown is not too great, use velocity ramping instead of trapezoidal velocity
-    // Also, don't ramp up for parabolic blends
-    if (tc->accel_mode && tc->term_cond == TC_TERM_COND_TANGENT) {
-        res_accel = tpCalculateRampAccel(tp, tc, nexttc, &acc, &vel_desired);
-    }
+    int planner_type = GET_TRAJ_PLANNER_TYPE();
 
-    // Check the return in case the ramp calculation failed, fall back to trapezoidal
-    if (res_accel != TP_ERR_OK) {
-        tpCalculateTrapezoidalAccel(tp, tc, nexttc, &acc, &vel_desired);
-    }
+    if(mode == NULL) planner_type = 0;
 
-    tcUpdateDistFromAccel(tc, acc, vel_desired, tp->reverse_run);
-    tpDebugCycleInfo(tp, tc, nexttc, acc);
+    if(planner_type != 1){
+        // If the slowdown is not too great, use velocity ramping instead of trapezoidal velocity
+        // Also, don't ramp up for parabolic blends
+        if (tc->accel_mode && tc->term_cond == TC_TERM_COND_TANGENT) {
+            if(planner_type == 0)
+                res_accel = tpCalculateRampAccel(tp, tc, nexttc, &acc, &vel_desired);
+        }
+
+        // Check the return in case the ramp calculation failed, fall back to trapezoidal
+        if (res_accel != TP_ERR_OK) {
+            if(planner_type == 0)
+                tpCalculateTrapezoidalAccel(tp, tc, nexttc, &acc, &vel_desired);
+        }
+
+        tcUpdateDistFromAccel(tc, acc, vel_desired, tp->reverse_run);
+        tpDebugCycleInfo(tp, tc, nexttc, acc);
+    }else{
+        if(*mode == 1){
+            double jerk;
+            double perror;
+            double req_pos = -1.0;  // -1.0 means not provided
+            tc->cycle_time = tp->cycleTime;
+
+            int is_dec = tpCalculateSCurveAccel(tp, tc, nexttc, &acc, &jerk, &vel_desired, &perror, 1, &req_pos);
+            if(is_dec == TP_SCURVE_ACCEL_ERROR){ //If the calculation fails, revert to T-shaped acceleration/deceleration.
+                *mode = TP_SCURVE_ACCEL_ERROR;
+                res_accel = 1;
+                acc=0, vel_desired=0;
+                if (tc->accel_mode && tc->term_cond == TC_TERM_COND_TANGENT) {
+                    res_accel = tpCalculateRampAccel(tp, tc, nexttc, &acc, &vel_desired);
+                }
+                // Check the return in case the ramp calculation failed, fall back to trapezoidal
+                if (res_accel != TP_ERR_OK) {
+                    tpCalculateTrapezoidalAccel(tp, tc, nexttc, &acc, &vel_desired);
+                }
+                tcUpdateDistFromAccel(tc, acc, vel_desired, tp->reverse_run);
+            }else{
+                tcUpdateDistFromSCurveAccel(tc, acc, jerk, vel_desired, perror, tp->reverse_run, 0, req_pos);
+            }
+        }else{
+            double jerk;
+            double perror;
+            double req_pos = -1.0;  // -1.0 means not provided
+            int is_dec = tpCalculateSCurveAccel(tp, tc, nexttc, &acc, &jerk, &vel_desired, &perror, 0, &req_pos);
+            if(is_dec == TP_SCURVE_ACCEL_ERROR){ //If the calculation fails, revert to T-shaped acceleration/deceleration.
+                *mode = TP_SCURVE_ACCEL_ERROR;
+                res_accel = 1;
+                acc=0, vel_desired=0;
+                if (tc->accel_mode && tc->term_cond == TC_TERM_COND_TANGENT) {
+                    res_accel = tpCalculateRampAccel(tp, tc, nexttc, &acc, &vel_desired);
+                }
+                // Check the return in case the ramp calculation failed, fall back to trapezoidal
+                if (res_accel != TP_ERR_OK) {
+                    tpCalculateTrapezoidalAccel(tp, tc, nexttc, &acc, &vel_desired);
+                }
+                tcUpdateDistFromAccel(tc, acc, vel_desired, tp->reverse_run);
+            }else{
+                tcUpdateDistFromSCurveAccel(tc, acc, jerk, vel_desired, perror, tp->reverse_run, is_dec, req_pos);
+            }
+        }
+        tpDebugCycleInfo(tp, tc, nexttc, acc);
+
+    }
 
     //Check if we're near the end of the cycle and set appropriate changes
     tpCheckEndCondition(tp, tc, nexttc);
@@ -3209,8 +3982,22 @@ STATIC int tpHandleSplitCycle(TP_STRUCT * const tp, TC_STRUCT * const tc,
     switch (tc->term_cond) {
         case TC_TERM_COND_TANGENT:
             nexttc->cycle_time = tp->cycleTime - tc->cycle_time;
-            nexttc->currentvel = tc->term_vel;
-            tp_debug_print("Doing tangent split\n");
+            // In S-curve mode, use actual current velocity instead of expected term_vel
+            // S-curve can't change velocity instantly, term_vel is just desired value
+            if (GET_TRAJ_PLANNER_TYPE() == 1) {
+                nexttc->currentvel = tc->currentvel;
+                // Inherit acceleration, but limit to nexttc's allowed range
+                // Important for line-to-arc transitions where arc has lower tangential accel
+                double maxacc_next = tcGetTangentialMaxAccel(nexttc);
+                nexttc->currentacc = saturate(tc->currentacc, maxacc_next);
+                nexttc->currentjerk = tc->currentjerk;
+                tp_debug_print("Doing tangent split (S-curve): vel=%f, acc=%f (limited by %f), jerk=%f\n",
+                              nexttc->currentvel, nexttc->currentacc, maxacc_next, nexttc->currentjerk);
+            } else {
+                // Trapezoidal: can use term_vel (assumes instant velocity change)
+                nexttc->currentvel = tc->term_vel;
+                tp_debug_print("Doing tangent split (trapezoidal): vel=%f\n", nexttc->currentvel);
+            }
             break;
         case TC_TERM_COND_PARABOLIC:
             break;
@@ -3228,8 +4015,9 @@ STATIC int tpHandleSplitCycle(TP_STRUCT * const tp, TC_STRUCT * const tc,
     // KLUDGE: use next cycle after nextc to prevent velocity dip (functions fail gracefully w/ NULL)
     int queue_dir_step = tp->reverse_run ? -1 : 1;
     TC_STRUCT *next2tc = tcqItem(&tp->queue, queue_dir_step*2);
-
-    tpUpdateCycle(tp, nexttc, next2tc);
+    
+    int mode = 0;
+    tpUpdateCycle(tp, nexttc, next2tc, &mode);
 
     // Update status for the split portion
     // FIXME redundant tangent check, refactor to switch
@@ -3239,8 +4027,8 @@ STATIC int tpHandleSplitCycle(TP_STRUCT * const tp, TC_STRUCT * const tc,
         tpUpdateMovementStatus(tp, tc);
     } else {
         tpToggleDIOs(nexttc);
-        tpUpdateMovementStatus(tp, nexttc);
     }
+        tpUpdateMovementStatus(tp, nexttc);
 
     return TP_ERR_OK;
 }
@@ -3256,7 +4044,9 @@ STATIC int tpHandleRegularCycle(TP_STRUCT * const tp,
     //Run with full cycle time
     tc_debug_print("Normal cycle\n");
     tc->cycle_time = tp->cycleTime;
-    tpUpdateCycle(tp, tc, nexttc);
+    
+    int mode = 0;
+    tpUpdateCycle(tp, tc, nexttc, &mode);
 
     /* Parabolic blending */
 
@@ -3266,7 +4056,10 @@ STATIC int tpHandleRegularCycle(TP_STRUCT * const tp,
     double target_vel_this = tpGetRealTargetVel(tp, tc);
     double target_vel_next = tpGetRealTargetVel(tp, nexttc);
 
-    tpComputeBlendVelocity(tc, nexttc, target_vel_this, target_vel_next, &v_this, &v_next, NULL);
+    if(mode != TP_SCURVE_ACCEL_ERROR && GET_TRAJ_PLANNER_TYPE() == 1)
+        tpComputeBlendSCurveVelocity(tc, nexttc, target_vel_this, target_vel_next, &v_this, &v_next, NULL);
+    else
+        tpComputeBlendVelocity(tc, nexttc, target_vel_this, target_vel_next, &v_this, &v_next, NULL);
     tc->blend_vel = v_this;
     if (nexttc) {
         nexttc->blend_vel = v_next;
@@ -3293,6 +4086,7 @@ STATIC int tpHandleRegularCycle(TP_STRUCT * const tp,
  */
 int tpRunCycle(TP_STRUCT * const tp, long period)
 {
+    (void)period;
     //Pointers to current and next trajectory component
     TC_STRUCT *tc;
     TC_STRUCT *nexttc;
@@ -3499,6 +4293,7 @@ int tpActiveDepth(TP_STRUCT * const tp)
 }
 
 int tpSetAout(TP_STRUCT * const tp, unsigned char index, double start, double end) {
+    (void)end;
     if (0 == tp) {
         return TP_ERR_FAIL;
     }
@@ -3509,6 +4304,7 @@ int tpSetAout(TP_STRUCT * const tp, unsigned char index, double start, double en
 }
 
 int tpSetDout(TP_STRUCT * const tp, int index, unsigned char start, unsigned char end) {
+    (void)end;
     if (0 == tp) {
         return TP_ERR_FAIL;
     }
@@ -3553,5 +4349,38 @@ int tpIsMoving(TP_STRUCT const * const tp)
     return false;
 }
 
+// api: functions called by motion:
+EXPORT_SYMBOL(tpMotFunctions);
+EXPORT_SYMBOL(tpMotData);
 
-// vim:sw=4:sts=4:et:
+EXPORT_SYMBOL(tpAbort);
+EXPORT_SYMBOL(tpActiveDepth);
+EXPORT_SYMBOL(tpAddCircle);
+EXPORT_SYMBOL(tpAddLine);
+EXPORT_SYMBOL(tpAddRigidTap);
+EXPORT_SYMBOL(tpClear);
+EXPORT_SYMBOL(tpCreate);
+EXPORT_SYMBOL(tpGetExecId);
+EXPORT_SYMBOL(tpGetExecTag);
+EXPORT_SYMBOL(tpGetMotionType);
+EXPORT_SYMBOL(tpGetPos);
+EXPORT_SYMBOL(tpIsDone);
+EXPORT_SYMBOL(tpPause);
+EXPORT_SYMBOL(tpQueueDepth);
+EXPORT_SYMBOL(tpResume);
+EXPORT_SYMBOL(tpRunCycle);
+EXPORT_SYMBOL(tpSetAmax);
+EXPORT_SYMBOL(tpSetAout);
+EXPORT_SYMBOL(tpSetCycleTime);
+EXPORT_SYMBOL(tpSetDout);
+EXPORT_SYMBOL(tpSetId);
+EXPORT_SYMBOL(tpSetPos);
+EXPORT_SYMBOL(tpSetRunDir);
+EXPORT_SYMBOL(tpSetSpindleSync);
+EXPORT_SYMBOL(tpSetTermCond);
+EXPORT_SYMBOL(tpSetVlimit);
+EXPORT_SYMBOL(tpSetVmax);
+
+EXPORT_SYMBOL(tcqFull);
+
+#undef MAKE_TP_HAL_PINS

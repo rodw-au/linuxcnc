@@ -1,4 +1,4 @@
-#!/usr/bin/env linuxcnc-python
+#!/usr/bin/env python3
 
 #
 # Here's the kind of output we're looking for:
@@ -33,10 +33,13 @@ if hal.is_kernelspace:
 else:
     dmesg = open("halrun-stderr")
 
+output = ""
+
 state = LOOKING_FOR_LOAD
 result = 1
 while 1:
     line = dmesg.readline()
+    output += line
     if line == "": break  # eof
 
     if state == LOOKING_FOR_LOAD:
@@ -55,8 +58,12 @@ while 1:
             state = LOOKING_FOR_LOAD
 
 
-if (result == 0): print(sought_error)
-else: print("test pattern %s didnt produce error '%s'" % (os.getenv("TEST_PATTERN"), sought_error))
+if (result == 0):
+    print(sought_error)
+else:
+    print("test pattern %s did not produce error '%s'" % (os.getenv("TEST_PATTERN"), sought_error))
+    print("actual output:")
+    print(output)
 
 sys.exit(result)
 

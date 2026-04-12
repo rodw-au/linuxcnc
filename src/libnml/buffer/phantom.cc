@@ -12,7 +12,7 @@
 * Last change: 
 ********************************************************************/
 
-#include "cms.hh"		/* enum CMS_STATUS */
+#include "libnml/cms/cms.hh"		/* enum CMS_STATUS */
 #include "phantom.hh"		/* class PHANTOMMEM */
 
 PHANTOMMEM::PHANTOMMEM(const char *bufline, const char *procline):CMS(bufline, procline)
@@ -23,7 +23,7 @@ PHANTOMMEM::~PHANTOMMEM()
 {
 }
 
-CMS_STATUS PHANTOMMEM::main_access(void *_local, int *serial_number)
+CMS_STATUS PHANTOMMEM::main_access(void * /*_local*/, int * /*serial_number*/)
 {
     switch (internal_access_type) {
     case CMS_READ_ACCESS:

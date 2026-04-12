@@ -1,4 +1,5 @@
-from PyQt5 import QtCore, QtWidgets
+#!/usr/bin/env python3
+from qtpy import QtCore, QtWidgets
 
 from qtvcp.widgets.widget_baseclass import _HalWidgetBase
 from qtvcp.core import Status, Action
@@ -12,7 +13,7 @@ STATUS = Status()
 ACTION = Action()
 LOG = logger.getLogger(__name__)
 
-# Set the log level for this module
+# Force the log level for this module
 #LOG.setLevel(logger.DEBUG) # One of DEBUG, INFO, WARNING, ERROR, CRITICAL
 
 
@@ -32,7 +33,7 @@ class RadioAxisSelector(QtWidgets.QRadioButton, _HalWidgetBase):
                 ACTION.SET_SELECTED_JOINT(self.joint)
             else:
                 ACTION.SET_SELECTED_AXIS(self.axis)
-                # set this whithout causing a STATUS message output
+                # set this without causing a STATUS message output
                 # in case we are selecting an axis to un/home
                 STATUS.selected_joint = self.joint
 
@@ -55,13 +56,13 @@ class RadioAxisSelector(QtWidgets.QRadioButton, _HalWidgetBase):
     def resetJoint(self):
         self.joint = -1
 
-    axis_selection = QtCore.pyqtProperty(str, getAxis, setAxis, resetAxis)
-    joint_selection = QtCore.pyqtProperty(int, getJoint, setJoint, resetJoint)
+    axis_selection = QtCore.Property(str, getAxis, setAxis, resetAxis)
+    joint_selection = QtCore.Property(int, getJoint, setJoint, resetJoint)
 
 # for testing without editor:
 def main():
     import sys
-    from PyQt5.QtWidgets import QApplication
+    from qtpy.QtWidgets import QApplication
     app = QApplication(sys.argv)
     widget = QtWidgets.QWidget()
     layout = QtWidgets.QHBoxLayout()

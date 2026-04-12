@@ -1,86 +1,30 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 # vim: sts=4 sw=4 et
 
 import linuxcnc
-import gobject
+from gi.repository import GObject
 
-import _hal, hal
-from PyQt5.QtCore import QObject, QTimer, pyqtSignal
-from hal_glib import GStat
-from qtvcp.qt_istat import _IStat as IStatParent
+import inspect
+import _hal
+import hal
+import traceback
+from qtpy.QtCore import QObject, QTimer, Signal
+
+from common.hal_glib import GStat
+from common.iniinfo import _IStat as IStatParent
+
+from qtvcp.qt_halobjects import Qhal as QHAL
+from qtvcp.qt_halobjects import QPin as QPIN
 
 # Set up logging
-import logger
+from common import logger
 log = logger.getLogger(__name__)
-# log.setLevel(logger.INFO) # One of DEBUG, INFO, WARNING, ERROR, CRITICAL
 
-class QPin(hal.Pin, QObject):
-    value_changed = pyqtSignal([int], [float], [bool] )
+# Force the log level for this module
+# log.setLevel(logger.INFO) # One of DEBUG, INFO, WARNING, ERROR, CRITICAL, VERBOSE
 
-    REGISTRY = []
-    UPDATE = False
-
-    def __init__(self, *a, **kw):
-        super(QPin, self).__init__(*a, **kw)
-        QObject.__init__(self, None)
-        self._item_wrap(self._item)
-        self._prev = None
-        self.REGISTRY.append(self)
-        self.update_start()
-
-    def update(self):
-        tmp = self.get()
-        if tmp != self._prev:
-            self.value_changed.emit(tmp)
-        self._prev = tmp
-
-    def text(self):
-        return self.get_name()
-
-    @classmethod
-    def update_all(self):
-        if not self.UPDATE:
-            return
-        kill = []
-        for p in self.REGISTRY:
-            try:
-                p.update()
-            except Exception as e:
-                kill.append(p)
-                log.error("Error updating pin {}; Removing".format(p))
-                log.exception(e)
-        for p in kill:
-            self.REGISTRY.remove(p)
-        return self.UPDATE
-
-    @classmethod
-    def update_start(self, timeout=100):
-        if QPin.UPDATE:
-            return
-        QPin.UPDATE = True
-        self.timer = QTimer()
-        self.timer.timeout.connect(self.update_all)
-        self.timer.start(100)
-
-    @classmethod
-    def update_stop(self, timeout=100):
-        QPin.UPDATE = False
-
-class QComponent:
-    def __init__(self, comp):
-        if isinstance(comp, QComponent):
-            comp = comp.comp
-        self.comp = comp
-
-    def newpin(self, *a, **kw):
-        return QPin(_hal.component.newpin(self.comp, *a, **kw))
-
-    def getpin(self, *a, **kw): return QPin(_hal.component.getpin(self.comp, *a, **kw))
-
-    def exit(self, *a, **kw): return self.comp.exit(*a, **kw)
-
-    def __getitem__(self, k): return self.comp[k]
-    def __setitem__(self, k, v): self.comp[k] = v
+# The order of these classes is importanr, otherwise - circular imports.
+# the some of the later classes reference the earlier classes
 
 ################################################################
 # IStat class
@@ -88,14 +32,39 @@ class QComponent:
 class Info(IStatParent):
     _instance = None
     _instanceNum = 0
+
     def __new__(cls, *args, **kwargs):
         if not cls._instance:
             cls._instance = IStatParent.__new__(cls, *args, **kwargs)
         return cls._instance
 
-# Now that the class is defined create a reference to it for the other classes
-INI = Info()
+    # get filter extensions in QT format
+    def get_qt_filter_extensions(self):
+        all_extensions = []
+        try:
+            for k, v in self.PROGRAM_FILTERS:
+                k = k.replace('.', ' *.')
+                k = k.replace(',', ' ')
+                all_extensions.append((';;%s (%s)' % (v, k)))
+            all_extensions.append((';;All (*)'))
+            temp = ''
+            for i in all_extensions:
+                temp = '%s %s' % (temp, i)
+            return temp
+        except Exception as e:
+            log.warning('Qt filter Extension Parsing Error: {}\n Using Default: ALL (*)'.format(e))
+            return ('All (*)')
 
+###############################################################
+# HAL Object clases
+###############################################################
+class QPin(QPIN):
+    def __init__(self, *a, **kw):
+        super(QPin, self).__init__(*a, **kw)
+
+class Qhal(QHAL):
+    def __init__(self, comp=None, hal=None):
+        super(Qhal, self).__init__(comp, hal)
 ################################################################
 # GStat class
 ################################################################
@@ -105,7 +74,7 @@ class Status(GStat):
     _instance = None
     _instanceNum = 0
     __gsignals__ = {
-        'toolfile-stale': (gobject.SIGNAL_RUN_FIRST, gobject.TYPE_NONE, (gobject.TYPE_PYOBJECT,)),
+        'toolfile-stale': (GObject.SignalFlags.RUN_FIRST, GObject.TYPE_NONE, (GObject.TYPE_PYOBJECT,)),
     }
 
     # only make one instance of the class - pass it to all other
@@ -117,56 +86,87 @@ class Status(GStat):
 
     def __init__(self):
         # only initialize once for all instances
-        if self.__class__._instanceNum >=1:
+        if self.__class__._instanceNum >= 1:
             return
-        gobject.GObject.__init__(self)
+        GObject.Object.__init__(self)
         self.__class__._instanceNum += 1
         super(GStat, self).__init__()
-        self.current_jog_rate = INI.DEFAULT_LINEAR_JOG_VEL
-        self.angular_jog_velocity = INI.DEFAULT_ANGULAR_JOG_VEL
+
+        # can only have ONE error channel instance in qtvcp
+        self.ERROR = linuxcnc.error_channel()
+        self._block_polling = False
 
     # we override this function from hal_glib
-    #TODO why do we need to do this with qt5 and not qt4?
-    # seg fault without it
-    def set_timer(self):
-        gobject.threads_init()
-        gobject.timeout_add(100, self.update)
+    # add replace it with setTimer()
+    def set_timer(self, cycleTime=None):
+        pass
 
+    def setTimer(self, cycleTime=None):
+        GObject.threads_init()
+        GObject.timeout_add(int(cycleTime), self.update)
 
-################################################################
-# Lcnc_Action class
-################################################################
-from qtvcp.qt_action import _Lcnc_Action as _ActionParent
-class Action(_ActionParent):
-    _instance = None
-    _instanceNum = 0
-    def __new__(cls, *args, **kwargs):
-        if not cls._instance:
-            cls._instance = _ActionParent.__new__(cls, *args, **kwargs)
-        return cls._instance
+    # error polling is usually set up by screen_option widget
+    # to call this function
+    # but when using MDI subprograms, the subprogram must be the only
+    # polling instance.
+    # this is done by blocking the main screen polling until the
+    # subprogram is done.
+    def poll_error(self):
+        if self._block_polling: return None
+        return self.ERROR.poll()
 
-################################################################
-# TStat class
-################################################################
-from qtvcp.qt_tstat import _TStat as _TStatParent
+    def block_error_polling(self, name=''):
+        if name: print(name,'block')
+        self._block_polling = True
 
-class Tool(_TStatParent):
-    _instance = None
-    _instanceNum = 0
-    def __new__(cls, *args, **kwargs):
-        if not cls._instance:
-            cls._instance = _TStatParent.__new__(cls, *args, **kwargs)
-        return cls._instance
+    def unblock_error_polling(self,name=''):
+        if name: print(name,'unblock')
+        self._block_polling = False
 
 ################################################################
 # PStat class
 ################################################################
 from qtvcp.qt_pstat import _PStat as _PStatParent
 
+
 class Path(_PStatParent):
     _instance = None
     _instanceNum = 0
+
     def __new__(cls, *args, **kwargs):
         if not cls._instance:
             cls._instance = _PStatParent.__new__(cls, *args, **kwargs)
         return cls._instance
+################################################################
+# Lcnc_Action class
+################################################################
+from qtvcp.qt_action import _Lcnc_Action as _ActionParent
+
+
+class Action(_ActionParent):
+    _instance = None
+    _instanceNum = 0
+    
+    def __new__(cls, *args, **kwargs):
+        if not cls._instance:
+            cls._instance = _ActionParent.__new__(cls, *args, **kwargs)
+        return cls._instance
+
+
+################################################################
+# TStat class
+################################################################
+from qtvcp.qt_tstat import _TStat as _TStatParent
+
+
+class Tool(_TStatParent):
+    _instance = None
+    _instanceNum = 0
+
+    def __new__(cls, *args, **kwargs):
+        if not cls._instance:
+            cls._instance = _TStatParent.__new__(cls, *args, **kwargs)
+        return cls._instance
+
+
+

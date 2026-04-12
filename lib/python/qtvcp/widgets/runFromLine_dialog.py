@@ -1,5 +1,5 @@
-#!/usr/bin/env python
-# Qtvcp versa probe
+#!/usr/bin/env python3
+#
 #
 # Copyright (c) 2018  Chris Morley <chrisinnanaimo@hotmail.com>
 #
@@ -17,10 +17,8 @@
 
 import sys
 import os
-import hal
 
-from PyQt5 import QtGui, QtCore, QtWidgets, uic
-from PyQt5.QtCore import QProcess, QByteArray
+from qtpy import QtWidgets, uic
 
 from qtvcp.widgets.widget_baseclass import _HalWidgetBase
 from qtvcp.core import Status, Action, Info
@@ -33,15 +31,11 @@ ACTION = Action()
 INFO = Info()
 LOG = logger.getLogger(__name__)
 
-current_dir =  os.path.dirname(__file__)
-SUBPROGRAM = os.path.abspath(os.path.join(current_dir, 'versa_probe_subprog.py'))
-HELP = os.path.join(INFO.LIB_PATH,'widgets_ui', 'versa_usage.html')
-
 class RunFromLineDialog(QtWidgets.QDialog, _HalWidgetBase):
     def __init__(self, parent=None):
         super(RunFromLineDialog, self).__init__(parent)
         # Load the widgets UI file:
-        self.filename = os.path.join(INFO.LIB_PATH,'widgets_ui', 'runFromLine_dialog.ui')
+        self.filename = os.path.join(PATH.SHAREDIR,'widgets_ui', 'runFromLine_dialog.ui')
         try:
             self.instance = uic.loadUi(self.filename, self)
         except AttributeError as e:
@@ -49,7 +43,7 @@ class RunFromLineDialog(QtWidgets.QDialog, _HalWidgetBase):
 
     def _hal_init(self):
         def homed_on_test():
-            return (self.probe_enable and STATUS.machine_is_on() 
+            return (self.probe_enable and STATUS.machine_is_on()
                     and (STATUS.is_all_homed() or INFO.NO_HOME_REQUIRED))
 
         STATUS.connect('state-off', lambda w: self.setEnabled(False))
@@ -79,9 +73,9 @@ class RunFromLineDialog(QtWidgets.QDialog, _HalWidgetBase):
 # Testing
 ####################################
 if __name__ == "__main__":
-    from PyQt5.QtWidgets import *
-    from PyQt5.QtCore import *
-    from PyQt5.QtGui import *
+    from qtpy.QtWidgets import *
+    from qtpy.QtCore import *
+    from qtpy.QtGui import *
 
     app = QtWidgets.QApplication(sys.argv)
     w = RunFromLineDialog()

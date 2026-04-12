@@ -1,7 +1,7 @@
 #include <linux/pci.h>
-#include "rtapi.h"			// RTAPI realtime OS API.
-#include "rtapi_app.h"			// RTAPI realtime module decls.
-#include "hal.h"			// HAL public API decls.
+#include <rtapi.h>			// RTAPI realtime OS API.
+#include <rtapi_app.h>			// RTAPI realtime module decls.
+#include <hal.h>			// HAL public API decls.
 #include "opto_ac5.h"			// Hardware dependent defines.
 
 #ifndef MODULE
@@ -237,7 +237,6 @@ static int Device_ExportPinsParametersFunctions(board_data_t *this, int componen
 static int Device_ExportDigitalInPinsParametersFunctions(board_data_t *this, int comp_id, int boardId)
 {
     int					halError=0, channel,mask,portnum=0;
-    char				name[HAL_NAME_LEN + 1];
 
     // Export pins and parameters.
 	while (portnum<2)
@@ -268,8 +267,7 @@ static int Device_ExportDigitalInPinsParametersFunctions(board_data_t *this, int
 
     // Export functions.
     if(!halError){
-	rtapi_snprintf(name, sizeof(name), "opto-ac5.%d.digital-read", boardId);
-	halError = hal_export_funct(name, Device_DigitalInRead, this, 0, 0, comp_id);
+	halError = hal_export_functf(Device_DigitalInRead, this, 0, 0, comp_id, "opto-ac5.%d.digital-read", boardId);
     }
 
     if(halError){
@@ -290,7 +288,6 @@ static int Device_ExportDigitalInPinsParametersFunctions(board_data_t *this, int
 static int Device_ExportDigitalOutPinsParametersFunctions(board_data_t *this, int comp_id, int boardId)
 {
     int					halError=0, channel,mask,portnum=0;
-    char				name[HAL_NAME_LEN + 1];
 
     // Export pins and parameters.
     
@@ -334,8 +331,7 @@ static int Device_ExportDigitalOutPinsParametersFunctions(board_data_t *this, in
 		}
     // Export functions.
     if(!halError){
-	rtapi_snprintf(name, sizeof(name), "opto-ac5.%d.digital-write", boardId);
-	halError = hal_export_funct(name, Device_DigitalOutWrite, this, 0, 0, comp_id);
+	halError = hal_export_functf(Device_DigitalOutWrite, this, 0, 0, comp_id, "opto-ac5.%d.digital-write", boardId);
     }
 
     if(halError){
@@ -350,7 +346,7 @@ static int Device_ExportDigitalOutPinsParametersFunctions(board_data_t *this, in
 // we read the current data (variable 'pins') of the first port. Then for each of the 24 points
 // we compare to the mask of the first port to see which of the 24 io points are inputs (the bits that are false)
 // if it is an input then check 'pins' against the mask to see if input bit is true
-// update the HAL pin and not-pin accoringly. shift the mask then do the next point (of 24 io points)
+// update the HAL pin and not-pin accordingly. shift the mask then do the next point (of 24 io points)
 // after all pins done-increase 'portnum' to 1 set offset to the offset for port1
 // then do it all again on the second port
 
@@ -401,7 +397,8 @@ Device_DigitalOutWrite(void *arg, long period)
 {
     board_data_t			*pboard = (board_data_t *)arg;
     DigitalPinsParams			*pDigital;
-    int					i, j, portnum=0;
+    int					portnum=0;
+    unsigned int			i,j;
     unsigned long			pins, offset=DATA_WRITE_OFFSET_0,mask;
 
     // For each port.
@@ -421,22 +418,22 @@ Device_DigitalOutWrite(void *arg, long period)
 				       ( *(pDigital->pValue) &&  (pDigital->invert) ))
 					 {	pins |= mask;	    }
 				}
-	   			 mask <<=1; // shift mask
+	   			mask <<=1; // shift mask
 				
 			}
 
 			// CHECK LED PINS
 			pDigital = &pboard->port[portnum].io[23];//one before what we want to check
-			for (i = 0;i < 2;i++)
-				{
-			 		mask=1<<(31-i);
-					pDigital++;
+			for (i = 0; i < 2; i++)
+			{
+				mask = (unsigned int) 1 << (31-i);
+				pDigital++;
 				
-					if ( *(pDigital->pValue) ==0 ) {	pins |= mask;	    }	
-				}
+				if ( *(pDigital->pValue) == 0 ) {	pins |= mask;	    }	
+			}
 			// Write digital I/O register.
 			writel(pins,pboard->base + (offset));
-			portnum ++;
+			portnum++;
 			offset=DATA_WRITE_OFFSET_1; // set to port1 offset
    		 }
 }

@@ -16,8 +16,8 @@
 	* find the new functions, add them to posemath, convert the rest
 */
 
-#ifndef GO_MATH_H
-#define GO_MATH_H
+#ifndef __LINUXCNC_GO_MATH_H
+#define __LINUXCNC_GO_MATH_H
 
 #include <stddef.h>		/* sizeof */
 #include "rtapi_math.h"		/* M_PI */
@@ -293,7 +293,7 @@ extern go_flag go_plane_plane_compare(const go_plane * plane1, const go_plane * 
 extern int go_point_plane_distance(const go_cart * point, const go_plane * plane, go_real * distance);
 
 /*! Fills in \a point with the point located distances \a u and \a v along
-  some othogonal planar coordinate system in \a plane */
+  some orthogonal planar coordinate system in \a plane */
 extern int go_plane_evaluate(const go_plane * plane, go_real u, go_real v, go_cart * point);
 
 /*! Fills in \a point with the intersection point of
@@ -687,7 +687,7 @@ extern int go_mat6_vec6_mult(const go_real a[6][6],
 /* Denavit-Hartenberg to pose conversions */
 
 /*
-  The link frams is assumed to be
+  The link frame is assumed to be
 
   | i-1
   |    T

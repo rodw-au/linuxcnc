@@ -1,4 +1,4 @@
-#!/usr/bin/env linuxcnc-python
+#!/usr/bin/env python3
 
 import linuxcnc
 import hal
@@ -23,7 +23,6 @@ def wait_for_linuxcnc_startup(status, timeout=10.0):
     while time.time() - start_time < timeout:
         status.poll()
         if (status.angular_units == 0.0) \
-            or (status.axes == 0) \
             or (status.axis_mask == 0) \
             or (status.cycle_time == 0.0) \
             or (status.exec_state != linuxcnc.EXEC_DONE) \
@@ -34,7 +33,7 @@ def wait_for_linuxcnc_startup(status, timeout=10.0):
             or (status.max_velocity == 0.0) \
             or (status.program_units == 0.0) \
             or (status.rapidrate == 0.0) \
-            or (status.state != linuxcnc.STATE_ESTOP) \
+            or (status.state != linuxcnc.RCS_DONE) \
             or (status.task_state != linuxcnc.STATE_ESTOP):
             time.sleep(0.1)
         else:
@@ -166,7 +165,7 @@ c.mode(linuxcnc.MODE_MDI)
 
 verify_status_buffer(state='init', tool_in_spindle=0)
 verify_io_pins(state='init', tool_number=0, tool_prep_number=0, tool_prep_pocket=0)
-verify_interp_vars(state='init', current_tool=0, current_pocket=0, selected_tool=0, selected_pocket=-1)
+verify_interp_vars(state='init', current_tool=0, current_pocket=-1, selected_tool=0, selected_pocket=-1)
 
 
 #
@@ -181,7 +180,7 @@ h['tool-prepared'] = False
 
 verify_status_buffer(state='after T1', tool_in_spindle=0)
 verify_io_pins(state='after T1', tool_number=0, tool_prep_number=1, tool_prep_pocket=1)
-verify_interp_vars(state='after T1', current_tool=0, current_pocket=0, selected_tool=1, selected_pocket=1)
+verify_interp_vars(state='after T1', current_tool=0, current_pocket=-1, selected_tool=1, selected_pocket=1)
 
 
 #

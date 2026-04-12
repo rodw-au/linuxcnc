@@ -6,24 +6,16 @@
 * Author:
 * License: LGPL Version 2
 * System: Linux
-*    
+*
 * Copyright (c) 2004 All rights reserved.
 *
-* Last change: 
+* Last change:
 ********************************************************************/
 
 #ifndef NMLMSG_HH
 #define NMLMSG_HH
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 #include <stddef.h>		/* size_t */
-
-#ifdef __cplusplus
-};
-#endif
 
 /* Definitions from other Header files. */
 
@@ -44,7 +36,7 @@ class NMLmsg {
       NMLmsg(NMLTYPE t, size_t s);
 
     /* This second constructor never clears the message regardless of what is
-       in nmlmsg. The value of noclear is irrelevent but adding it changes
+       in nmlmsg. The value of noclear is irrelevant but adding it changes
        which constructor is called. */
       NMLmsg(NMLTYPE t, long s, int noclear);
 
@@ -53,11 +45,9 @@ class NMLmsg {
 
     static int automatically_clear;	/* controls whether NMLmsgs are set
 					   to zero in the constructor. */
-    NMLTYPE type;		/* Each derived type should have a unique id */
+    NMLTYPE _type;		/* Each derived type should have a unique id */
     long size;			/* The size is used so that the entire buffer 
-				   is not copied unneccesarily. */
-
-    void update(CMS *);
+				   is not copied unnecessarily. */
 };
 
 // This is just a symbol passed to the RCS Java Tools (CodeGen, RCS-Design, RCS-Diagnostis)

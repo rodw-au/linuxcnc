@@ -3,30 +3,30 @@
 
 #include <rtapi_bool.h>
 
-// SEQUENCE states
-typedef enum {
-  HOME_SEQUENCE_IDLE = 0,        // valid start state
-  HOME_SEQUENCE_START,           // valid start state
-  HOME_SEQUENCE_DO_ONE_JOINT,    // valid start state
-  HOME_SEQUENCE_DO_ONE_SEQUENCE, // valid start state
-  HOME_SEQUENCE_START_JOINTS,    // homing.c internal usage
-  HOME_SEQUENCE_WAIT_JOINTS,     // homing.c internal usage
-} home_sequence_state_t;
+/* HOME_* flags (typ set in emc/task/taskintf.cc) */
+#define HOME_IGNORE_LIMITS            1
+#define HOME_USE_INDEX                2
+#define HOME_IS_SHARED                4
+#define HOME_UNLOCK_FIRST             8
+#define HOME_ABSOLUTE_ENCODER        16
+#define HOME_NO_REHOME               32
+#define HOME_NO_FINAL_MOVE           64
+#define HOME_INDEX_NO_ENCODER_RESET 128
 
 //---------------------------------------------------------------------
 // INTERFACE routines
 
 // per-joint interface parameters (one-time setup)
-extern void set_joint_homing_params(int    jno,
-                                    double offset,
-                                    double home,
-                                    double home_final_vel,
-                                    double home_search_vel,
-                                    double home_latch_vel,
-                                    int    home_flags,
-                                    int    home_sequence,
-                                    bool   volatile_home
-                                    );
+void set_joint_homing_params(int    jno,
+                             double offset,
+                             double home,
+                             double home_final_vel,
+                             double home_search_vel,
+                             double home_latch_vel,
+                             int    home_flags,
+                             int    home_sequence,
+                             bool   volatile_home
+                             );
 
 // updateable interface params (for inihal pin changes typically):
 void update_joint_homing_params (int    jno,
@@ -38,46 +38,47 @@ void update_joint_homing_params (int    jno,
 //---------------------------------------------------------------------
 // CONTROL routines
 
-// one-time initialization:
-extern void homing_init(void);
-extern int  export_joint_home_pins(int njoints,int id);
+// one-time initialization (return 0 if ok):
+int  homing_init(int id,
+                 double servo_period,
+                 int n_joints,            // total no of joints
+                 int n_extrajoints,       // extra joints (non-kins)
+                 emcmot_joint_t* pjoints
+                 );
 
 // once-per-servo-period functions:
-extern void read_homing_in_pins(int njoints);
-extern void do_homing_sequence(void);
-extern void do_homing(void);
-extern void write_homing_out_pins(int njoints);
+void read_homing_in_pins(int njoints);
+bool do_homing(void);  //return 1 if allhomed
+void write_homing_out_pins(int njoints);
 
-// overall sequence control:
-extern void set_home_sequence_state(home_sequence_state_t);
-
-// per-joint control of internal state machine:
-extern void set_home_start(int jno);
-extern void set_home_abort(int jno);
-extern void set_home_idle( int jno);
-
-// per-joint set status items:
-extern void set_joint_homing( int jno, bool value);
-extern void set_joint_homed(  int jno, bool value);
-extern void set_joint_at_home(int jno, bool value);
+// responses to EMCMOT_JOINT_HOME message:
+void do_home_joint(int jno);
+// per-joint controls
+void do_cancel_homing(int jno);
+void set_unhomed(int jno,motion_state_t motstate);
 
 //---------------------------------------------------------------------
 // QUERIES
 
 // overall status:
-extern home_sequence_state_t get_home_sequence_state(void);
-extern bool get_homing_is_active(void);
+bool get_allhomed(void);
+bool get_homing_is_active(void);
 
 // per-joint information:
-extern int  get_home_sequence(int jno);
-extern bool get_homing(int jno);
-extern bool get_homed(int jno);
-extern bool get_index_enable(int jno);
-extern bool get_home_is_volatile(int jno);
-extern bool get_home_needs_unlock_first(int jno);
-extern bool get_home_is_idle(int jno);
-extern bool get_homing_at_index_search_wait(int jno);
-extern bool get_home_is_synchronized(int jno);
+int  get_home_sequence(int jno); //return s
+bool get_homing(int jno);
+bool get_homed(int jno);
+bool get_index_enable(int jno);
+bool get_home_needs_unlock_first(int jno);
+bool get_home_is_idle(int jno);
+bool get_home_is_synchronized(int jno);
+bool get_homing_at_index_search_wait(int jno);
+
 //---------------------------------------------------------------------
+// Module interface
+// motmod provided ptrs for functions called by homing:
+void homeMotFunctions(void(*pSetRotaryUnlock)(int,int)
+                     ,int( *pGetRotaryUnlock)(int)
+                     );
 
 #endif /* HOMING_H */

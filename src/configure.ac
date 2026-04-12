@@ -1,6 +1,6 @@
 #                                               -*- Autoconf -*-
 # Process this file with autoconf to produce a configure script.
-# 
+#
 # Description: configure.ac
 #   Autonconf produce a ./configure from this file
 #   that's used to discover various programs/dependencies
@@ -9,7 +9,7 @@
 # Authors: paul_c alex_joni jepler
 # License: GPL Version 2
 # System: Linux
-#    
+#
 # Copyright (c) 2004 All rights reserved.
 #
 # Last change:
@@ -23,99 +23,29 @@
 # Autoconf initialisation                                                    #
 ##############################################################################
 
-AC_PREREQ(2.53)
-AC_INIT(LinuxCNC, m4_normalize(esyscmd([cat ../VERSION])), emc-developers@lists.sourceforge.net)
+AC_PREREQ(2.69)
+AC_INIT([LinuxCNC],[m4_normalize(esyscmd(cat ../VERSION))],[emc-developers@lists.sourceforge.net])
 AC_CONFIG_SRCDIR(emc/motion/motion.c)
 if test "$srcdir" != "."; then
     AC_MSG_ERROR([Building outside of srcdir is not supported])
 fi
 
-AC_PROG_CXX
+AC_PROG_CXX([$RTSCC c++ clang++])
+AC_PROG_INSTALL
 
-AC_LANG_PUSH([C++])
-AC_CHECK_HEADER([boost/lockfree/queue.hpp],
-    [], [RTAPI_APP_CFLAGS="$RTAPI_APP_CFLAGS -I external"])
-AC_LANG_POP([C++])
-AC_SUBST([RTAPI_APP_CFLAGS])
-
-m4_include([m4/ax_cxx_compile_stdcxx_11.m4])
-# make this optional - it will likely only result in warnings
-AX_CXX_COMPILE_STDCXX_11(noext,optional)
-
-## _PYTHON_SYSCONFIG(expression, [action-if-succeeded], [action-if-failed])
-##
-m4_define([_PYTHON_SYSCONFIG],
-[dnl
-py_val=`$PYTHON -c "dnl
-[import sys; from distutils import sysconfig; sys.stdout.write]dnl
-([sysconfig.]$1 or '')" 2>&AS_MESSAGE_LOG_FD`
-AS_IF([test "[$]?" -eq 0 && test "x$py_val" != x], [$2], [$3])[]dnl
-])
-
-# adapted from AX_BOOST_PYTHON_MURRAYC
-# http://ftp.gnome.org/pub/GNOME/sources/glom/1.19/
-m4_define([AX_BOOST_PYTHON_EMC],
-[
-AC_LANG_PUSH([C++])
-saved_CPPFLAGS=$CPPFLAGS
-saved_LIBS=$LIBS
-# Note that this requires PYTHON_CPPFLAGS 
-# Note that this expects boost/ to be at some top-level such as /usr/include/
-# We couldn't check for anything else anyway because there's no pkg-config file to tell us where it is
-CPPFLAGS="$PYTHON_CPPFLAGS $saved_CPPFLAGS"
-AC_CACHE_CHECK([whether the Boost::Python headers are available],
-               [ac_cv_boost_python],
-               [AC_COMPILE_IFELSE([AC_LANG_PROGRAM([[
-#include <boost/python/object_fwd.hpp>
-using namespace boost::python;
-]], [])],
-    [ac_cv_boost_python=yes], [ac_cv_boost_python=no])])
-
-AS_IF([test "x$ac_cv_boost_python" = xyes],
-[
-  PYTHON_MAJOR=`$PYTHON -c 'import sys; print(sys.version_info.major)'`
-  PYTHON_MINOR=`$PYTHON -c 'import sys; print(sys.version_info.minor)'`
-  BOOST_PYTHON_LIBS=
-  ax_python_lib=boost_python
-  AC_ARG_WITH([boost-python],
-    AS_HELP_STRING(
-        [--with-boost-python],
-        [Specify the boost python shared library to use. For
-        instance, --with-boost-python=boost_python-py25. Defaults to
-        boost-python. If you use this then you should probably set PYTHON
-        too, to avoid using multiple python versions.]
-    ),
-  [if test "x$with_boost_python" != xno; then
-    ax_python_lib=$with_boost_python
-    ax_boost_python_lib=boost_python-$with_boost_python
-  fi])
-  AC_MSG_CHECKING([for boost::python shared library])
-  for ax_lib in "$ax_python_lib" "$ax_boost_python_lib" boost_python${PYTHON_MAJOR}${PYTHON_MINOR} boost_python${PYTHON_MAJOR} boost_python
-  do
-    # Note that this requires LIBPYTHON from configure.ac
-    LIBS="$saved_LIBS -l$LIBPYTHON -l$ax_lib"
-    AC_LINK_IFELSE(
-      [AC_LANG_PROGRAM([[#include <boost/python/object_fwd.hpp>]], [[boost::python::object *test_object;]])],
-      [BOOST_PYTHON_LIBS="-l$ax_lib"; break])
-  done
-  AS_IF([test "x$BOOST_PYTHON_LIBS" != x], [ax_result=$BOOST_PYTHON_LIBS], [ax_result=])
-  AC_MSG_RESULT([$ax_result])
-])
-CPPFLAGS=$saved_CPPFLAGS
-LIBS=$saved_LIBS
-AC_LANG_POP([C++])
-AS_IF([test "x$ac_cv_boost_python" = xyes && test "x$BOOST_PYTHON_LIBS" != x],
-      [AC_DEFINE([HAVE_BOOST_PYTHON], [1],
-                 [define if the Boost::Python headers and library are available])],
-      [AC_MSG_ERROR([[boost::python is required to build $PACKAGE_NAME]])])
-AC_SUBST([BOOST_PYTHON_LIBS])
-])
+m4_include([m4/ax_require_defined.m4])
+m4_include([m4/ax_cxx_compile_stdcxx.m4])
+m4_include([m4/ax_python.m4])
+m4_include([m4/ax_python_devel.m4])
+m4_include([m4/ax_boost_base.m4])
+m4_include([m4/ax_boost_python.m4])
+AX_CXX_COMPILE_STDCXX(20, , mandatory)
 
 AC_MSG_CHECKING(build toplevel)
 BUILD_TOPLEVEL="$(cd ..; pwd -P)"
 AC_MSG_RESULT($BUILD_TOPLEVEL)
 
-AC_CONFIG_HEADER(config.h)
+AC_CONFIG_HEADERS([config.h])
 
 # Support some of the standard configure options for directories
 AC_PREFIX_DEFAULT(run-in-place)
@@ -143,12 +73,11 @@ fi
 AC_SUBST([EMC2VERSION])
 
 AC_PATH_PROG(GREP, grep)
-AC_PATH_PROG(EGREP, egrep)
 
 #
 # check for pkg-config
 #
-AC_PATH_PROG([PKG_CONFIG], [pkg-config])
+PKG_PROG_PKG_CONFIG
 if test -z "$PKG_CONFIG"; then
   AC_MSG_ERROR([pkg-config is required to build LinuxCNC])
 fi
@@ -165,7 +94,7 @@ AC_CHECK_HEADER([rpc/rpc.h],[], [
     LIBTIRPC_LIBS=`pkg-config libtirpc --libs`
     AC_SUBST([LIBTIRPC_LIBS])
 
-    CFLAGS+=" `pkg-config libtirpc --cflags` "
+    CFLAGS="${CFLAGS:+$CFLAGS }$(pkg-config libtirpc --cflags)"
   fi
 
   # Update path
@@ -180,6 +109,7 @@ AC_CHECK_HEADER([rpc/rpc.h],[], [
   ])
 ])
 
+DEPFOUND=true
 
 ##############################################################################
 # Section 2                                                                  #
@@ -195,17 +125,6 @@ RTAI=""
 RTPREFIX=""
 KERNELDIR=""
 RTFLAGS=""
-
-NONDISTRIBUTABLE=false
-AC_ARG_ENABLE(non-distributable,
-    AS_HELP_STRING(
-        [--enable-non-distributable],
-        [To build LinuxCNC even if a license problem would render the resulting binaries non-distributable under the terms of the LinuxCNC license]),
-    [
-        case "$enableval" in
-        (yes) NONDISTRIBUTABLE=true ;;
-        esac
-    ])
 
 ##############################################################################
 # Subsection 2.1                                                             #
@@ -242,13 +161,27 @@ AC_ARG_WITH(realtime,
         ])
 AC_SUBST([RTS])
 
+TOOL_NML=no
+AC_ARG_ENABLE(toolnml,
+    AS_HELP_STRING(
+        [--enable-toolnml],
+        [Use nml for tooldata, default is mmap]
+    ),
+    [
+        case "$enableval" in
+        N*|n*)
+            TOOL_NML=no ;;
+        Y*|y*)
+            TOOL_NML=yes ;;
+        esac
+    ])
 ##############################################################################
 # Subsection 2.2                                                             #
 # 1. If a RT has been specified by the user it needs to be checked for       #
 # validity. That is done by checking default locations for a certain script  #
 # (similar to 2)                                                             #
 #                                                                            #
-# 2. If no RT has been specified explicitely by the user, one has to be      #
+# 2. If no RT has been specified explicitly by the user, one has to be       #
 # found by search. In order to do that the following code will search for a  #
 # RT-specific script:                                                        #
 # rtai-config for RTAI 3.x                                                   #
@@ -256,14 +189,14 @@ AC_SUBST([RTS])
 
 #at this point if RTS is empty, we need to find RT ourselves
 AC_MSG_CHECKING([for rtai-config])
-if test -z "$RTDIR"; then
+if test -z "$RTS" || test "$RTS" = uspace; then
   DIRS="/usr/realtime-`uname -r` /usr/realtime /usr/realtime* /usr /usr/src/rtai*"
 else
   DIRS="$RTS"
 fi
-  RTAI_CONFIG=none
-  for location in $DIRS; do
-    for subdir in . scripts bin; do
+RTAI_CONFIG=none
+for location in $DIRS; do
+  for subdir in . scripts bin; do
     for signature in rtai; do
       candidate=$location/$subdir/$signature-config
       if test "$RTAI_CONFIG" = "none" -a -x $candidate; then
@@ -278,6 +211,12 @@ AC_SUBST([RTAI_CONFIG])
 
 AC_PATH_PROG([XENOMAI_CONFIG], [xeno-config], [none])
 AC_SUBST([XENOMAI_CONFIG])
+
+#Xenomai evl
+HAS_EVL=n
+AC_CHECK_HEADER([evl/evl.h],[
+  HAS_EVL=y
+])
 
 AC_MSG_CHECKING([for realtime API(s) to use])
 if test "$RTS" = uspace || test -z "$RTS" -a "$RTAI_CONFIG" = "none" ; then
@@ -310,11 +249,29 @@ if test "$RTS" = uspace || test -z "$RTS" -a "$RTAI_CONFIG" = "none" ; then
     XENOMAI_LDFLAGS=`$XENOMAI_CONFIG --skin posix --ldflags`
     AC_DEFINE([USPACE_XENOMAI], [], [Define if uspace realtime should optionally support Xenomai])
   fi
+
   AC_SUBST([CONFIG_USPACE_XENOMAI])
   AC_SUBST([XENOMAI_CFLAGS])
   AC_SUBST([XENOMAI_LDFLAGS])
 
-  AC_MSG_RESULT([$RTS$USPACE_RTAI$USPACE_XENOMAI])
+  if test "$HAS_EVL" = "n" ; then
+    USPACE_XENOMAI_EVL=
+    CONFIG_USPACE_XENOMAI_EVL=n
+    XENOMAI_EVL_CFLAGS=
+    XENOMAI_EVL_LDFLAGS=
+  else
+    USPACE_XENOMAI_EVL=+xenomai4
+    CONFIG_USPACE_XENOMAI_EVL=y
+    XENOMAI_EVL_CFLAGS=
+    XENOMAI_EVL_LDFLAGS=-levl
+    AC_DEFINE([USPACE_XENOMAI_EVL], [], [Define if uspace realtime should optionally support Xenomai-evl])
+  fi
+
+  AC_SUBST([CONFIG_USPACE_XENOMAI_EVL])
+  AC_SUBST([XENOMAI_EVL_CFLAGS])
+  AC_SUBST([XENOMAI_EVL_LDFLAGS])
+
+  AC_MSG_RESULT([$RTS$USPACE_RTAI$USPACE_XENOMAI$USPACE_XENOMAI_EVL])
 
   AC_MSG_CHECKING([whether to enable userspace PCI access])
   AC_ARG_ENABLE(userspace-pci,
@@ -432,7 +389,7 @@ AC_DEFINE_UNQUOTED([RTDIR], "$RTDIR", [Directory of the installed realtime syste
 
 ##############################################################################
 # Section 3                                                                  #
-# aditional checking                                                         #
+# additional checking                                                        #
 # Subsection 3.1 - checking for a CC (we must use the same one used for RT)  #
 # Subsection 3.2 - check for the kernel version, with RT patches             #
 # Subsection 3.3 - check the moduledir where modules can get installed       #
@@ -463,18 +420,14 @@ elif ! test `$CC -dumpversion | cut -d '.' -f 1` -gt 2 ; then
 fi
 
 AC_MSG_CHECKING([for usability of linux/hidraw.h])
-AC_TRY_LINK(
-    [
+AC_LINK_IFELSE([AC_LANG_PROGRAM([[
 #include <sys/ioctl.h>
 #include <linux/hidraw.h>
 long hidiocgrawinfo = HIDIOCGRAWINFO;
-    ],
-    [],
-    [
+    ]], [[]])],[
 	HIDRAW_H_USABLE=yes
         AC_DEFINE([HIDRAW_H_USABLE], [], [Define to 1 if linux/hidraw.h is usable and defines HIDIOCGRAWINFO])
-],
-    [HIDRAW_H_USABLE=no])
+],[HIDRAW_H_USABLE=no])
 AC_MSG_RESULT($HIDRAW_H_USABLE)
 AC_SUBST([HIDRAW_H_USABLE])
 
@@ -483,22 +436,18 @@ AC_SUBST([HIDRAW_H_USABLE])
 #
 
 AC_MSG_CHECKING([for usability of rpc/rpc.h])
-AC_TRY_LINK(
-    [
+AC_LINK_IFELSE([AC_LANG_PROGRAM([[
 #include <rpc/rpc.h>
-    ],
-    [
+    ]], [[
 struct sockaddr_in *foo;
 get_myaddress(foo);
-    ],
-    [
+    ]])],[
         AC_MSG_RESULT(yes)
-    ],
-    [
+    ],[
         AC_MSG_RESULT(no)
         AC_MSG_ERROR([Unable to use rpc.h])
-    ]
-)
+    
+])
 
 #
 # check for libmodbus3
@@ -583,6 +532,19 @@ install with "sudo apt-get install libusb-1.0-0-dev" or disable with
 )
 
 
+
+#
+# check for libgpiod
+#
+PKG_CHECK_MODULES([LIBGPIOD], [libgpiod < 3.0.0],
+            [AC_DEFINE_UNQUOTED([LIBGPIOD_VER], `pkg-config libgpiod --modversion | awk -F. '{print ($1 * 100)+($2) }'`,
+            [libgpiod version, undefined if not present])
+            LDFLAGS="$LDFLAGS $LIBGPIOD_LIBS"
+            LIBGPIOD_VERSION=`pkg-config libgpiod --modversion`
+            AC_MSG_NOTICE([libgpiod version $LIBGPIOD_VERSION found])
+            AC_SUBST([LIBGPIOD_VER], `pkg-config libgpiod --modversion | awk -F. '{print ($1 * 100)+($2) }'`)],
+            [AC_MSG_WARN([Could not find libgpiod, not building hal_gpio])])
+
 ##############################################################################
 # Subsection 3.2 - check for the kernel version, with RT patches             #
 #----------------------------------------------------------------------------#
@@ -605,7 +567,7 @@ else
 fi
 KERNEL_VERS=`$CC -E -dM ${VERSION_FILE} | grep UTS | cut -s -d '"' -f 2`
 
-if test -z "$KERNEL_VERS"; then 
+if test -z "$KERNEL_VERS"; then
     AC_MSG_ERROR(Kernel version string not found)
 fi
 
@@ -691,18 +653,26 @@ if test "x" = "x$MODULE_DIR" ; then
     AC_MSG_ERROR([$RTS --module-dir did not specify an existing directory.  You must use specify it using --with-module-dir=...])
   fi
 fi
-    
+
 if test "$RUN_IN_PLACE" = "yes"; then
     RIP_MODULE_DIR="${BUILD_TOPLEVEL}/rtlib"
     AC_MSG_RESULT([configuring for run-in-place])
     prefix=${BUILD_TOPLEVEL}
-    DEFAULT_NMLFILE=${prefix}/configs/common/linuxcnc.nml
+    if test "$TOOL_NML" = "yes"; then
+       DEFAULT_NMLFILE=${prefix}/configs/common/linuxcnc_big.nml
+    else
+       DEFAULT_NMLFILE=${prefix}/configs/common/linuxcnc.nml
+    fi
     DEFAULT_TOOLTABLE=${prefix}/configs/sim/sim.tbl
     AC_MSG_RESULT([$RIP_MODULE_DIR])
 else
     RUN_IN_PLACE=no
     EMC2_HOME=$prefix
-    DEFAULT_NMLFILE=${prefix}/share/linuxcnc/linuxcnc.nml
+    if test "$TOOL_NML" = "yes"; then
+       DEFAULT_NMLFILE=${prefix}/share/linuxcnc/linuxcnc_big.nml
+    else
+       DEFAULT_NMLFILE=${prefix}/share/linuxcnc/linuxcnc.nml
+    fi
     DEFAULT_TOOLTABLE=${prefix}/share/doc/linuxcnc/examples/sample-configs/common/tool.tbl
     AC_MSG_RESULT([$MODULE_DIR])
 fi
@@ -711,6 +681,7 @@ AC_SUBST([MODULE_DIR])
 AC_SUBST([RIP_MODULE_DIR])
 AC_SUBST([RUN_IN_PLACE])
 AC_SUBST([DEFAULT_NMLFILE])
+AC_SUBST([TOOL_NML])
 AC_DEFINE_UNQUOTED([EMC2_DEFAULT_NMLFILE], "$DEFAULT_NMLFILE", [Default nml file])
 AC_DEFINE_UNQUOTED([EMC2_DEFAULT_TOOLTABLE], "$DEFAULT_TOOLTABLE", [Default nml file])
 
@@ -723,13 +694,14 @@ fe () {
     # Fully expand argument.  Example:
     # ${datadir} -> ${datarootdir} -> ${prefix}/share -> /usr/local
     case "$1" in
-    *\$*) eval fe \""$1"\" ;;
+    *\$*) eval fe "\"$1\"" ;;
     *) echo "$1" ;;
     esac
 }
 
 if test "xyes" = "x$RUN_IN_PLACE"; then
     EMC2_LATENCY_SCRIPT=$EMC2_HOME/scripts/latency-test
+    EMC2_LATENCY_HISTOGRAM_SCRIPT=$EMC2_HOME/scripts/latency-histogram
     EMC2_SCRIPT=$EMC2_HOME/scripts/linuxcnc
     EMC2_SUFFIX=" (run-in-place)"
     EMC2_ICON=$EMC2_HOME/linuxcncicon.png
@@ -741,6 +713,7 @@ if test "xyes" = "x$RUN_IN_PLACE"; then
     EMC2_HELP_DIR=$EMC2_HOME/docs/help
     EMC2_RTLIB_DIR=$EMC2_HOME/rtlib
     LINUXCNC_CONFIG_PATH="~/linuxcnc/configs:$EMC2_HOME/configs"
+    LINUXCNC_CONFIG_PATH_TCL="$::env(HOME)/linuxcnc/configs:$EMC2_HOME/configs"
     EMC2_NCFILES_DIR=$EMC2_HOME/nc_files
     REALTIME=$EMC2_HOME/scripts/realtime
     EMC2_IMAGE_DIR=$EMC2_HOME
@@ -749,6 +722,7 @@ else
     EMC2_HOME=${prefix}
     EMC2_BIN_DIR=${prefix}/bin
     EMC2_LATENCY_SCRIPT=$EMC2_BIN_DIR/latency-test
+    EMC2_LATENCY_HISTOGRAM_SCRIPT=$EMC2_BIN_DIR/latency-histogram
     EMC2_SCRIPT=$EMC2_BIN_DIR/linuxcnc
     EMC2_SUFFIX=""
     EMC2_ICON=linuxcncicon
@@ -762,8 +736,9 @@ else
 	*) EMC2_RTLIB_DIR=$MODULE_DIR/linuxcnc
     esac
     LINUXCNC_CONFIG_PATH="~/linuxcnc/configs:/usr/local/etc/linuxcnc/configs:"$(eval echo $EMC2_HELP_DIR)"/examples/sample-configs"
+    LINUXCNC_CONFIG_PATH_TCL="$::env(HOME)/linuxcnc/configs:/usr/local/etc/linuxcnc/configs:"$(eval echo $EMC2_HELP_DIR)"/examples/sample-configs"
     EMC2_NCFILES_DIR=${prefix}/share/linuxcnc/ncfiles
-    REALTIME=/etc/init.d/realtime
+    REALTIME=${prefix}/lib/linuxcnc/realtime
     EMC2_IMAGE_DIR=$(fe "$datadir")/linuxcnc
     HALLIB_DIR=${prefix}/share/linuxcnc/hallib
 fi
@@ -775,10 +750,10 @@ AC_DEFINE_UNQUOTED([EMC2_HELP_DIR], "$EMC2_HELP_DIR", [Directory for help files]
 AC_DEFINE_UNQUOTED([EMC2_RTLIB_DIR], "$EMC2_RTLIB_DIR", [Directory of realtime system])
 AC_DEFINE_UNQUOTED([EMC2_LANG_DIR], "$EMC2_LANG_DIR", [Directory for tcl translation files])
 AC_DEFINE_UNQUOTED([EMC2_PO_DIR], "$EMC2_PO_DIR", [Directory for po/mo translation files])
-AC_DEFINE_UNQUOTED([EMC2_CONFIG_DIR], "$EMC2_CONFIG_DIR", [Directory for configuration files])
 AC_DEFINE_UNQUOTED([EMC2_NCFILES_DIR], "$EMC2_NCFILES_DIR", [Directory for nc files])
 AC_DEFINE_UNQUOTED([EMC2_IMAGE_DIR], "$EMC2_IMAGE_DIR", [Directory for images])
 
+AC_SUBST([EMC2_TMP_DIR])
 AC_SUBST([EMC2_BIN_DIR])
 AC_SUBST([EMC2_TCL_DIR])
 AC_SUBST([EMC2_TCL_LIB_DIR])
@@ -786,11 +761,13 @@ AC_SUBST([EMC2_HELP_DIR])
 AC_SUBST([EMC2_RTLIB_DIR])
 AC_SUBST([EMC2_LANG_DIR])
 AC_SUBST([LINUXCNC_CONFIG_PATH])
+AC_SUBST([LINUXCNC_CONFIG_PATH_TCL])
 AC_SUBST([EMC2_NCFILES_DIR])
 AC_SUBST([REALTIME])
 AC_SUBST([EMC2_IMAGE_DIR])
 AC_SUBST([EMC2_SCRIPT])
 AC_SUBST([EMC2_LATENCY_SCRIPT])
+AC_SUBST([EMC2_LATENCY_HISTOGRAM_SCRIPT])
 AC_SUBST([EMC2_SUFFIX])
 AC_SUBST([EMC2_ICON])
 AC_SUBST([HALLIB_DIR])
@@ -800,6 +777,14 @@ LINUXCNC_AUX_GLADEVCP=/usr/share/linuxcnc/aux_gladevcp
 LINUXCNC_AUX_EXAMPLES=/usr/share/linuxcnc/aux_examples
 AC_SUBST([LINUXCNC_AUX_GLADEVCP])
 AC_SUBST([LINUXCNC_AUX_EXAMPLES])
+
+# define temporary directory
+AC_ARG_WITH(tmpdir,
+   [  --with-tmpdir=PATH      Specify path for temporary files],
+   tmpdir="$withval",
+   tmpdir="/tmp")
+AC_DEFINE_UNQUOTED(EMC2_TMP_DIR, "$tmpdir/linuxcnc", [Temporary files directory])
+AC_SUBST(EMC2_TMP_DIR, [$tmpdir])
 
 ##############################################################################
 # Subsection 3.5 - check for GTK                                             #
@@ -833,29 +818,18 @@ AC_ARG_ENABLE(gtk,
     [BUILD_GTK=yes])
 
 if test "$BUILD_GTK" = "yes"; then
-  AC_MSG_CHECKING([for GTK 2.4.0 or above])
-  if pkg-config gtk+-2.0 --atleast-version 2.4.0 >/dev/null 2>&1; then
-    GTK_VER=`pkg-config gtk+-2.0 --modversion`
+  AC_MSG_CHECKING([for GTK 3.22.4 or above])
+  if pkg-config gtk+-3.0 --atleast-version 3.22.4 >/dev/null 2>&1; then
+    GTK_VER=`pkg-config gtk+-3.0 --modversion`
     AC_MSG_RESULT(yes - $GTK_VER)
-    GTK_CFLAGS=`pkg-config gtk+-2.0 --cflags`
-    GTK_LIBS=`pkg-config gtk+-2.0 --libs`
-    AC_MSG_CHECKING(for libgnomeprintui-2.2)
-    if pkg-config --exists libgnomeprintui-2.2; then
-      AC_MSG_RESULT(yes)
-      GTK_CFLAGS="$GTK_CFLAGS `pkg-config --cflags libgnomeprintui-2.2`"
-      GTK_LIBS="$GTK_LIBS `pkg-config --libs libgnomeprintui-2.2`"
-      HAVE_GNOMEPRINT=yes
-    else
-      AC_MSG_RESULT(no -- printing from classicladder will not be possible)
-      HAVE_GNOMEPRINT= 
-    fi
+    GTK_CFLAGS=`pkg-config gtk+-3.0 --cflags`
+    GTK_LIBS=`pkg-config gtk+-3.0 --libs`
   else
     AC_MSG_RESULT(no)
-    AC_MSG_ERROR([GTK2 missing.  Install it or specify --disable-gtk to skip the parts of LinuxCNC that depend on GTK])
+    AC_MSG_ERROR([GTK3 missing.  Install with "sudo apt install libgtk-3-dev" or specify --disable-gtk to skip the parts of LinuxCNC that depend on GTK])
   fi
 fi
 
-AC_SUBST(HAVE_GNOMEPRINT)
 AC_SUBST(GTK_VER)
 AC_SUBST(GTK_LIBS)
 AC_SUBST(GTK_CFLAGS)
@@ -1012,31 +986,49 @@ AC_SUBST(YAPPS)
 ##############################################################################
 # Subsection 3.7 - check for programs needed to build documentation          #
 #                                                                            #
-# Check for LyX and other programs we need to build and install docs.        #
+# Check for programs we need to build and install docs.                      #
 # (Optional, if not present, just don't build the docs.)                     #
 ##############################################################################
 
-AC_ARG_WITH(python,
-    AS_HELP_STRING(
-        [--with-python=PATH],
-        [Specify the Python interpreter.]
-    ),
-    [
-        PYTHON=$withval
-    ],[
-        PYTHON=python2
-    ])
-AC_PATH_PROG(PYTHON,$PYTHON,"none")
-if test $PYTHON = "none"
-then
-    AC_MSG_ERROR([python not found])
+AX_BOOST_BASE(,,AC_MSG_ERROR([libboost not found]))
+AX_PYTHON
+AC_PATH_PROG(PYTHON,[$PYTHON_BIN])
+AX_PYTHON_DEVEL(,,AC_MSG_ERROR([python-dev not found]))
+AX_BOOST_PYTHON()
+if test "x" = "x$BOOST_PYTHON_LIB"; then
+    AC_MSG_NOTICE([error: libboost-python not found])
+    DEPFOUND=false
 fi
+
+# Test for a "maybe uninitialized" in the python::boost library in
+# extract<std::string> when compiled with g++ 15.2.[01] and maybe others.
+# The test needs to have -O2 and -Wall enabled to expose the probem.
+AC_LANG_PUSH([C++])
+CPPFLAGS_SAVED="$CPPFLAGS"
+CPPFLAGS="$PYTHON_CPPFLAGS $BOOST_CPPFLAGS $CPPFLAGS -O2 -Wall -Werror"
+AC_CACHE_CHECK(whether $CXX has a "maybe uninitialized" false positive, ax_cv_cxx_boost_maybe_uninit,
+    [AC_COMPILE_IFELSE([AC_LANG_SOURCE([[
+#include <boost/python/extract.hpp>
+std::string func(boost::python::object& o) {
+	return boost::python::extract<std::string>(o);
+}
+int main() { return 0; }
+]])],
+        [ax_cv_cxx_boost_maybe_uninit=no],
+        [ax_cv_cxx_boost_maybe_uninit=yes])
+    ]
+)
+CPPFLAGS="$CPPFLAGS_SAVED"
+if test x$ax_cv_cxx_boost_maybe_uninit = xyes; then
+    CPPFLAGS="$CPPFLAGS -Wno-maybe-uninitialized"
+fi
+AC_LANG_POP([C++])
 
 AC_MSG_CHECKING([whether to build documentation])
 AC_ARG_ENABLE(build-documentation,
     AS_HELP_STRING(
         [--enable-build-documentation[=FORMAT]],
-        [Build documentation.  FORMAT may be "pdf" or "html" if only one format is desired.]
+        [Build documentation.  FORMAT may be "Y" for both or "pdf" or "html" if only one format is desired.]
     ),
     [
         case "$enableval" in
@@ -1071,18 +1063,16 @@ AC_ARG_ENABLE(build-documentation,
 
 # Programs required for building all documentation
 if ( test "$BUILD_DOCS" = "yes" ) ; then
-    if ( test "none" = "$PYTHON" ) ; then
-        AC_MSG_ERROR([no python, documentation cannot be built])
-    fi
-
     AC_PATH_PROG(ASCIIDOC,asciidoc,"none")
     if ( test "none" = "$ASCIIDOC" ) ; then
-	AC_MSG_ERROR([no AsciiDoc, documentation cannot be built])
+	AC_MSG_WARN([no AsciiDoc, documentation cannot be built])
+        BUILD_DOCS=no
     fi
 
     AC_PATH_PROG(A2X,a2x,"none")
     if ( test "none" = "$A2X" ) ; then
-	AC_MSG_ERROR([no a2x, documentation cannot be built])
+	AC_MSG_WARN([no a2x, documentation cannot be built])
+        BUILD_DOCS=no
     fi
 
     AC_MSG_CHECKING([whether to specify latex.encoding])
@@ -1092,7 +1082,7 @@ if ( test "$BUILD_DOCS" = "yes" ) ; then
 :ascii-ids:
 
 ....
-umläut nuß
+Matúš hat Geläut am Fuß
 ....
 EOF
     if $A2X --dblatex-opts "-P latex.encoding=utf8" $temp_asciidoc > /dev/null 2>&1;
@@ -1108,35 +1098,47 @@ EOF
 
     AC_PATH_PROG(DBLATEX,dblatex,"none")
     if ( test "none" = "$DBLATEX" ) ; then
-	AC_MSG_ERROR([no dblatex, documentation cannot be built])
+	AC_MSG_WARN([no dblatex, documentation cannot be built])
+        BUILD_DOCS=no
     fi
 
-    AC_MSG_CHECKING([dblatex version])
-    set -- `dblatex --version`; DBLATEX_VER=$3
-    set -- `echo $DBLATEX_VER | sed 's/[[.-]]/ /g'`
-    micro=`echo $3 | sed 's/\([[0-9]]*\).*/\1/g'`
+    if ( test "$BUILD_DOCS" = "yes" ) ; then
+        AC_MSG_CHECKING([dblatex version])
+        set -- `dblatex --version`; DBLATEX_VER=$3
+        set -- `echo $DBLATEX_VER | sed 's/[[.-]]/ /g'`
+        micro=`echo $3 | sed 's/\([[0-9]]*\).*/\1/g'`
 
-    if test $1 -eq 0 -a \( $2 -lt 2 -o \( $2 -eq 2 -a ${micro:-0} -lt 12 \) \); then
-        AC_MSG_ERROR([dblatex version $DBLATEX_VER less than 0.2.12.
+        if test $1 -eq 0 -a \( $2 -lt 2 -o \( $2 -eq 2 -a ${micro:-0} -lt 12 \) \); then
+            AC_MSG_WARN([dblatex version $DBLATEX_VER less than 0.2.12.
 Documentation cannot be built.])
-    fi
-    AC_MSG_RESULT([$DBLATEX_VER])
-
-
-    AC_PATH_PROG(SOURCE_HIGHLIGHT,source-highlight,"none")
-    if ( test "none" = "$SOURCE_HIGHLIGHT" ) ; then
-	AC_MSG_ERROR([no source-highlight, documentation cannot be built])
+            BUILD_DOCS=no
+        else
+            AC_MSG_RESULT([$DBLATEX_VER])
+        fi
     fi
 
-
-    AC_PATH_PROG(CONVERT,convert,"none")
-    if ( test "none" = "$CONVERT" ) ; then
-	AC_MSG_ERROR([no convert, documentation cannot be built])
+    if ( test "$BUILD_DOCS" = "yes" ) ; then
+        AC_PATH_PROG(SOURCE_HIGHLIGHT,source-highlight,"none")
+        if ( test "none" = "$SOURCE_HIGHLIGHT" ) ; then
+            AC_MSG_WARN([no source-highlight, documentation cannot be built])
+            BUILD_DOCS=no
+        fi
     fi
 
-    AC_PATH_PROG(GS,gs,"none")
-    if ( test "none" = "$GS" ) ; then
-	AC_MSG_ERROR([no gs, documentation cannot be built])
+    if ( test "$BUILD_DOCS" = "yes" ) ; then
+        AC_PATH_PROG(CONVERT,convert,"none")
+        if ( test "none" = "$CONVERT" ) ; then
+            AC_MSG_WARN([no convert, documentation cannot be built])
+            BUILD_DOCS=no
+        fi
+    fi
+
+    if ( test "$BUILD_DOCS" = "yes" ) ; then
+        AC_PATH_PROG(GS,gs,"none")
+        if ( test "none" = "$GS" ) ; then
+            AC_MSG_WARN([no gs, documentation cannot be built])
+            BUILD_DOCS=no
+        fi
     fi
 fi
 
@@ -1144,7 +1146,8 @@ fi
 if ( test "$BUILD_DOCS_PDF" = "yes" ) ; then
     AC_PATH_PROG(PDFLATEX,pdflatex,"none")
     if ( test "none" = "$PDFLATEX" ) ; then
-	AC_MSG_ERROR([no pdflatex, PDF documentation cannot be built])
+	AC_MSG_WARN([no pdflatex, PDF documentation cannot be built])
+        BUILD_DOCS=no
     fi
 fi
 
@@ -1152,30 +1155,86 @@ fi
 if ( test "$BUILD_DOCS_HTML" = "yes" ) ; then
     AC_PATH_PROG(XSLTPROC,xsltproc,"none")
     if ( test "none" = "$XSLTPROC" ) ; then
-	AC_MSG_ERROR([no xsltproc, HTML documentation cannot be built])
+	AC_MSG_WARN([no xsltproc, HTML documentation cannot be built])
+        BUILD_DOCS=no
     fi
 
     AC_PATH_PROG(DVIPNG,dvipng,"none")
     if ( test "none" = "$DVIPNG" ) ; then
-	AC_MSG_ERROR([no dvipng, HTML documentation cannot be built])
+	AC_MSG_WARN([no dvipng, HTML documentation cannot be built])
+        BUILD_DOCS=no
     fi
 
     AC_MSG_CHECKING([for HTML support in groff])
     if ! groff -Thtml < /dev/null > /dev/null 2>&1 ; then
-        AC_MSG_ERROR([no groff -Thtml, HTML documentation cannot be built])
+        AC_MSG_WARN([no groff -Thtml, HTML documentation cannot be built])
+        BUILD_DOCS=no
     else
         AC_MSG_RESULT(yes)
     fi
 
     AC_PATH_PROG(CHECKLINK,checklink,"none")
     if ( test "none" = "$CHECKLINK" ) ; then
-	AC_MSG_ERROR([no checklink, HTML documentation cannot be built
+	AC_MSG_WARN([no checklink, HTML documentation cannot be built
 install with "sudo apt-get install w3c-linkchecker"])
+        BUILD_DOCS=no
+    fi
+fi
+
+AC_ARG_ENABLE(build-documentation-translation,
+    AS_HELP_STRING(
+        [--disable-build-documentation-translation],
+        [Disable building documentation in languages other than English.]
+    ),
+    [
+    case "$enableval" in
+	Y*|y*)
+	    BUILD_DOCS_TRANSLATED_EXPLICIT=yes ;;
+	no)
+	    BUILD_DOCS_TRANSLATED_EXPLICIT=no ;;
+	*)
+	    BUILD_DOCS_TRANSLATED_EXPLICIT=$enableval ;;
+	esac
+    ],
+    [
+        BUILD_DOCS_TRANSLATED_EXPLICIT=not_set
+    ])
+
+if ( test "$BUILD_DOCS" = "yes" && test "$BUILD_DOCS_TRANSLATED_EXPLICIT" != "no") ; then
+    AC_PATH_PROG(PO4A, po4a, "none")
+    BUILD_DOCS_TRANSLATED=yes
+    if test $PO4A = "none"
+    then
+        if test "$BUILD_DOCS_TRANSLATED_EXPLICIT" = "not_set"
+        then
+            AC_MSG_WARN([po4a not found, not building translated docs])
+        else
+            AC_MSG_ERROR([po4a not found, not building translated docs])
+        fi
+        BUILD_DOCS_TRANSLATED=no
+    else
+        # Version 0.35 support asciidoc without tables
+        # Version 0.56 support the tablecells asciidoc option
+        # Version 0.62 correctly write UTF-8 into translated adocs
+        # Version 0.65 support grouping several doc files into different POTs
+        # Version 0.66 handle empty table cells in asciidoc
+        # Version 0.67 handle enforced linbreaks
+        V=$(po4a --version| awk '/po4a version/ {print $3}')
+        if dpkg --compare-versions 0.67 gt "$V"; then
+            if test "$BUILD_DOCS_TRANSLATED_EXPLICIT" = "not_set"
+            then
+                AC_MSG_WARN([po4a version too old, need version 0.67 or newer, not building translated docs])
+            else
+                AC_MSG_ERROR([po4a version too old, need version 0.67 or newer, not building translated docs])
+            fi
+	    BUILD_DOCS_TRANSLATED=no
+        fi
     fi
 fi
 AC_SUBST(BUILD_DOCS)
 AC_SUBST(BUILD_DOCS_PDF)
 AC_SUBST(BUILD_DOCS_HTML)
+AC_SUBST(BUILD_DOCS_TRANSLATED)
 
 if test "$RTS" '!=' uspace
 then
@@ -1220,20 +1279,11 @@ AH_TOP([/********************************************************************
 * Author: Autogenerated by autoheader
 * License: LGPL Version 2
 * System: Linux
-*    
+*
 * Copyright (c) 2004 All rights reserved.
 ********************************************************************/
 #ifndef EMC2_CONFIG_H
 #define EMC2_CONFIG_H
-
-/* LINELEN is used throughout for buffer sizes, length of file name strings,
-   etc. Let's just have one instead of a multitude of defines all the same. */
-#define LINELEN 255
-/* Used in a number of places for sprintf() buffers. */
-#define BUFFERLEN 80
-
-#define MM_PER_INCH 25.4
-#define INCH_PER_MM (1.0/25.4)
 ])
 
 AC_CHECK_HEADERS([sys/io.h])
@@ -1245,22 +1295,17 @@ AH_VERBATIM([_GNU_SOURCE],
 #endif
 ])
 
-AC_HEADER_STDC
 AC_HEADER_SYS_WAIT
 AC_CHECK_FUNCS(semtimedop)
 
 AC_MSG_CHECKING([for optreset])
-AC_TRY_LINK(
-    [
+AC_LINK_IFELSE([AC_LANG_PROGRAM([[
 #include <unistd.h>
 extern int optreset;
-    ],
-    [ optreset = 1; ],
-    [
+    ]], [[ optreset = 1; ]])],[
 	HAVE_OPTRESET=yes
         AC_DEFINE([HAVE_OPTRESET], [], [Define to 1 if getopt has the BSD 'optreset' extension])
-],
-    [HAVE_OPTRESET=no])
+],[HAVE_OPTRESET=no])
 AC_MSG_RESULT($HAVE_OPTRESET)
 AC_SUBST([HAVE_OPTRESET])
 
@@ -1319,7 +1364,7 @@ if (test "x$TCLCONFIG" = "x"); then
    AC_MSG_RESULT([tclConfig.sh not found, trying tcl.h and libs.
 		  If it doesn't work try running ./configure --with-tclConfig=<path to tclConfig.sh>])
    AC_CHECK_HEADERS([tcl.h])
-   AC_SEARCH_LIBS(Tcl_Init,[tcl tcl8.1 tcl8.2 tcl8.3 tcl8.4 tcl8.5],[],[AC_MSG_ERROR([tcl lib not found])])
+   AC_SEARCH_LIBS(Tcl_Init,[tcl tcl8.7 tcl8.6],[],[AC_MSG_ERROR([tcl lib not found])])
 else
 # tclConfig.sh found,
 # extracting vars
@@ -1349,9 +1394,9 @@ if test -z "$TKCONFIG"; then
 fi
 if (test "x$TKCONFIG" = "x"); then
     # search for tkConfig.sh
-    TKCONFIG=$(find /usr/lib -maxdepth 2 -name tkConfig.sh | sort -r | head -n1)
+    TKCONFIG=$(find /usr/lib* -maxdepth 2 -name tkConfig.sh | sort -r | head -n1)
     if (test "x$TKCONFIG" = "x"); then
-	TKCONFIG=$(find /usr/local/lib -maxdepth 2 -name tkConfig.sh | head -n1)
+	TKCONFIG=$(find /usr/local/lib* -maxdepth 2 -name tkConfig.sh | head -n1)
     fi
 fi
 
@@ -1359,13 +1404,13 @@ if (test "x$TKCONFIG" = "x"); then
    AC_MSG_RESULT([tkConfig.sh not found, trying tk.h and libs.
 		  If it doesn't work try running ./configure --with-tkConfig=<path to tkConfig.sh>])
    AC_CHECK_HEADERS([tk.h])
-   AC_SEARCH_LIBS(Tk_Init,[tk tk80 tk8.0 tk8.1 tk8.2 tk8.3 tk8.4 tk8.5],[],[AC_MSG_ERROR([tk lib not found])])
+   AC_SEARCH_LIBS(Tk_Init,[tk tcl8.7 tcl8.6],[],[AC_MSG_ERROR([tk lib not found])])
 else
 # tkConfig.sh found,
 # extracting vars
    AC_MSG_RESULT([$TKCONFIG found])
    . "$TKCONFIG"
-   TK_CFLAGS="$TK_INCLUDE_SPEC $TK_XINCLUDES" 
+   TK_CFLAGS="$TK_INCLUDE_SPEC $TK_XINCLUDES"
    TK_LIBS="$TK_LIBS $TK_LIB_SPEC"
 fi
 
@@ -1373,6 +1418,14 @@ if ! test -z "$TCL_VERSION" && ! test -z "$TK_VERSION" && ! test "$TCL_VERSION" 
     AC_MSG_ERROR([Tcl and Tk versions must be the same, but configure found
 Tcl $TCL_VERSION and Tk $TK_VERSION.  You can use --with-tkConfig= and --with-tclConfig=
 to override the autodetected versions.])
+fi
+
+if test -z "$TCL_MAJOR_VERSION" || test -z "$TCL_MINOR_VERSION" ; then
+    AC_MSG_ERROR([tclConfig was not found or did not export TCL_MAJOR_VERSION/TCL_MINOR_VERSION. Cannot determine exact Tcl version.])
+fi
+
+if test "(" "$TCL_MAJOR_VERSION" -lt 8 ")" -o "(" "(" "$TCL_MAJOR_VERSION" -eq 8 ")" -a "(" "$TCL_MINOR_VERSION" -lt 4 ")" ")" ; then
+    AC_MSG_ERROR([Tcl version must be 8.4 or better. Your Tcl version ${TCL_MAJOR_VERSION}.${TCL_MINOR_VERSION} is too old.])
 fi
 
 if test -f $TCL_EXEC_PREFIX/bin/wish$TCL_VERSION; then
@@ -1403,61 +1456,43 @@ AC_MSG_CHECKING([whether to check for runtime dependencies])
 AC_MSG_RESULT($RUNTIME_CHECK)
 
 if test "$RUNTIME_CHECK" = "yes"; then
-AC_MSG_CHECKING([for BWidget using $TCLSH])
-if (unset DISPLAY; echo ["catch { package require bwidget }; exit [expr [lsearch [package names] BWidget] == -1]"] | $TCLSH); then
-    AC_MSG_RESULT([found])
-else
-    AC_MSG_RESULT(no)
-    AC_MSG_ERROR([BWidget not found!
-install with "sudo apt-get install bwidget"])
-fi
+    AC_MSG_CHECKING([for BWidget using $TCLSH])
+    if (unset DISPLAY; echo ["catch { package require bwidget }; exit [expr [lsearch [package names] BWidget] == -1]"] | $TCLSH); then
+        AC_MSG_RESULT([found])
+    else
+        AC_MSG_RESULT(no)
+        AC_MSG_ERROR([BWidget not found!
+    install with "sudo apt-get install bwidget"])
+    fi
 
-AC_MSG_CHECKING([for BLT using tclsh8.5])
-if (test -f $TCL_EXEC_PREFIX/bin/tclsh8.5) && (echo ['if [catch {package require BLT}] { exit 1; } else { exit 0; }'] | tclsh8.5); then
-    AC_MSG_RESULT([found])
-else
-    AC_MSG_RESULT([not found])
-fi
+    AC_MSG_CHECKING([for BLT using $TCLSH])
+    if (unset DISPLAY; echo ['if [catch {package require BLT}] { exit 1; } else { exit 0; }'] | $TCLSH); then
+        AC_MSG_RESULT([found])
+    else
+        AC_MSG_RESULT([not found])
+    fi
 
-AC_MSG_CHECKING([for img::png using $TCLSH])
-if (unset DISPLAY; echo ["catch { package require img::png }; exit [expr [lsearch [package names] img::png] == -1]"] | $TCLSH); then
-    AC_MSG_RESULT([found])
-    HAVE_WORKING_BLT=yes
-else
-    AC_MSG_RESULT(no)
-    AC_MSG_ERROR([Tk img::png not found!
-install with "sudo apt-get install libtk-img"])
-fi
+    # Don't need tclX anymore in Tcl9
+    if test "$TCL_MAJOR_VERSION" -lt 9; then
+        AC_MSG_CHECKING([for tclX using $TCLSH])
+        if (unset DISPLAY; echo ["catch { package require Tclx }; exit [expr [lsearch [package names] Tclx] == -1]"] | $TCLSH); then
+            AC_MSG_RESULT([found])
+        else
+            AC_MSG_RESULT(no)
+            AC_MSG_ERROR([Tclx not found!
+        install with "sudo apt-get install tclx"])
+        fi
+    fi
 
-AC_MSG_CHECKING([for tclX using $TCLSH])
-if (unset DISPLAY; echo ["catch { package require Tclx }; exit [expr [lsearch [package names] Tclx] == -1]"] | $TCLSH); then
-    AC_MSG_RESULT([found])
-else
-    AC_MSG_RESULT(no)
-    AC_MSG_ERROR([Tclx not found!
-install with "sudo apt-get install tclx"])
-fi
-
-AC_MSG_CHECKING([for python pango and cairo modules])
-if $PYTHON -c 'import sys;raise SystemExit(sys.hexversion<0x3040000)'
-then
-
-	if $PYTHON -c "import gi;gi.require_version('Pango', '1.0');from gi.repository import Pango"; then
-	    AC_MSG_RESULT([found])
-	else
-	    AC_MSG_RESULT(no)
-	    AC_MSG_ERROR([Python pango and cairo modules not found!\ninstall with "sudo apt-get install python3-gi"])
-	fi
-
-else
-
-	if $PYTHON -c 'import pango,cairo'; then
-	    AC_MSG_RESULT([found])
-	else
-	    AC_MSG_RESULT(no)
-	    AC_MSG_ERROR([Python pango and cairo modules not found!\ninstall with "sudo apt-get install python-gtk2"])
-	fi
-	fi
+    AC_MSG_CHECKING([for python pango module])
+    if $PYTHON -c "import gi;gi.require_version('Pango', '1.0');from gi.repository import Pango"; then
+        AC_MSG_RESULT([found])
+    else
+        AC_MSG_RESULT(no)
+        AC_MSG_ERROR(
+[Python pango module not found!
+install with "sudo apt-get install python3-gi"])
+    fi
 fi
 
 AC_SUBST([TCL_DBGX])
@@ -1470,7 +1505,7 @@ AC_SUBST([WISH])
 AC_SUBST([TCLSH])
 
 ##############################################################################
-# Section 6 - Miscelaneous support                                           #
+# Section 6 - Miscellaneous support                                          #
 #                                                                            #
 # Subsection 6.1. - provides DATE to output it to the generated files        #
 # Subsection 6.2. - user option to convince make to be quiet during make     #
@@ -1502,58 +1537,21 @@ fi
 temp_LIBS=$LIBS
 LIBS=
 
-# check for readline.h and friends, optional for halcmd
-AC_CHECK_HEADERS(readline/readline.h, [HAVE_READLINE=yes], [HAVE_READLINE=no])
-AC_CHECK_HEADERS(readline/history.h, [], [HAVE_READLINE=no])
-
-echo "Trying readline without -ltermcap"
-AC_CHECK_LIB(readline, readline, [HAVE_READLINE_NOTERMCAP=yes], [])
-unset ac_cv_lib_readline_readline
-echo "Trying readline with -ltermcap"
-AC_CHECK_LIB(readline, readline, [HAVE_READLINE_TERMCAP=yes], [], -ltermcap)
-unset ac_cv_lib_readline_readline
-
-if test "x$HAVE_READLINE_NOTERMCAP" = "xyes"; then
-    echo "Readline does not require -ltermcap"
-    READLINE_LIBS="-lreadline"
-elif test "x$HAVE_READLINE_TERMCAP" = "xyes"; then
-    echo "Readline requires -ltermcap"
-    READLINE_LIBS="-lreadline -ltermcap"
-else
-    HAVE_READLINE=no
+AC_LANG_PUSH([C++])
+AC_CHECK_HEADERS([fmt/format.h],[HAVE_LIBFMT=yes],[HAVE_LIBFMT=no])
+AC_LANG_POP([C++])
+if test "x$HAVE_LIBFMT" = "xno"; then
+    AC_MSG_ERROR([libfmt header not found. Install with 'sudo apt-get install libfmt-dev'])
 fi
 
-AC_MSG_CHECKING([whether readline license is compatible with GPL-2])
-AC_TRY_COMPILE([
-        #include <stdio.h>
-        #include <readline/readline.h>
-    ],[
-        #if RL_VERSION_MAJOR > 5
-        #error Readline version 6 and up are not compatible with GPL-2
-        #endif
-    ],[AC_MSG_RESULT(yes)],[
-        AC_MSG_RESULT(no)
-        AC_MSG_WARN(
-[The LinuxCNC binary you are building may not be
-distributable due to a license incompatibility with LinuxCNC (some portions
-GPL-2 only) and Readline version 6 and greater (GPL-3 or later).])
-        if $NONDISTRIBUTABLE; then
-            AC_MSG_WARN(
-[User requested to enable non-distributable builds.  Continuing.])
-        else
-            AC_MSG_ERROR(
-[To configure LinuxCNC in this way, you must
-invoke configure with "--enable-non-distributable=yes".  Note that on
-Debian-based systems, you may be able to use libreadline-gplv2-dev instead.])
-        fi
+AC_CHECK_HEADERS([editline/readline.h histedit.h], [], [
+    AC_MSG_ERROR([libedit headers not found. Please install libedit-dev or libedit-devel.])
 ])
-
-if test "x$HAVE_READLINE" = "xyes"; then
-    AC_DEFINE([HAVE_READLINE], [], [Define to 1 if you have the 'readline' library (-lreadline) and required headers])
-else
-    AC_MSG_ERROR([Required library 'readline' missing.])
-fi
-AC_SUBST([HAVE_READLINE])
+AC_CHECK_LIB([edit], [readline], [
+    READLINE_LIBS="-ledit"
+], [
+    AC_MSG_ERROR([libedit library (-ledit) not found.])
+])
 AC_SUBST([READLINE_LIBS])
 
 ##############################################################################
@@ -1566,22 +1564,22 @@ AC_SUBST([READLINE_LIBS])
 # if you don't have nls tools, allow a way out!
 
 AC_ARG_ENABLE(nls,
-    AS_HELP_STRING([--disable-nls], [Don't use NLS.]),
+    AS_HELP_STRING([--disable-nls], [Do not use NLS.]),
               USE_NLS=no, USE_NLS=yes)
 AC_SUBST(USE_NLS)
 
 if test "$USE_NLS" = "yes"; then
   AC_CHECK_HEADERS(locale.h)
   AC_CHECK_FUNCS(setlocale)
-  AC_SUBST(HAVE_LOCALE_H)  
+  AC_SUBST(HAVE_LOCALE_H)
 
 # Add languages here when they are translated.
 # Grep the LINGUAS file.
   LANGUAGES=""
-  AC_SUBST(LANGUAGES)  
+  AC_SUBST(LANGUAGES)
   AC_CHECK_HEADERS(libintl.h)
   AC_CHECK_LIB(intl,gettext)
-  AC_SUBST(HAVE_LIBINTL_H)  
+  AC_SUBST(HAVE_LIBINTL_H)
   AC_SUBST(HAVE_LIBINTL)
 
 # The default locale directory is /usr/share/locale - This is generally fixed
@@ -1633,10 +1631,6 @@ then
 fi
 AC_MSG_RESULT(OK)
 
-AC_MSG_CHECKING([version of python libraries])
-LIBPYTHON=`$PYTHON -c 'import distutils.sysconfig; print("python" + (distutils.sysconfig.get_config_vars().get("LDVERSION") or distutils.sysconfig.get_config_vars().get("VERSION")))'`
-AC_MSG_RESULT($LIBPYTHON)
-
 AC_MSG_CHECKING([match between tk and Tkinter versions])
 if $PYTHON -c 'import sys;raise SystemExit(sys.hexversion<0x3040000)'
 then
@@ -1662,63 +1656,55 @@ if test "$PYTHON_TK_VERSION" != "$TK_VERSION"; then
 fi
 AC_MSG_RESULT([$PYTHON_TK_VERSION])
 
-############################
-
-AC_MSG_CHECKING(location of Python header files)
-INCLUDEPY=`$PYTHON -c 'import distutils.sysconfig; print(distutils.sysconfig.get_config_vars().get("INCLUDEPY"))'`
-AC_MSG_RESULT($INCLUDEPY)
-
-AC_MSG_CHECKING([for Python headers])
-AS_IF([test "x$PYTHON_CPPFLAGS" = x],
-[
-    _PYTHON_SYSCONFIG([[get_python_inc()]], [PYTHON_CPPFLAGS="-I$py_val"])
-    _PYTHON_SYSCONFIG([[get_python_inc(True)]],
-    [test "x$PYTHON_CPPFLAGS" = "x-I$py_val" || PYTHON_CPPFLAGS="$PYTHON_CPPFLAGS -I$py_val"])
-])
-AC_MSG_RESULT([$PYTHON_CPPFLAGS])
-AC_SUBST(PYTHON_CPPFLAGS)
-
-AC_MSG_CHECKING([for Python libraries])
-AS_IF([test "x$PYTHON_LIBS" = x],
-[
-    _PYTHON_SYSCONFIG([[get_config_var('LIBS')]], [PYTHON_LIBS=$py_val])
-])
-AC_MSG_RESULT([$PYTHON_LIBS])
-AC_SUBST(PYTHON_LIBS)
-
-# Get the CFLAGS and LIBS for boost::python.
-# This does an AC_SUBST() of BOOST_PYTHON_LIBS
-# For the CFLAGS we must assume that boost is at the top-level, for instance in /usr/include/:
-AX_BOOST_PYTHON_EMC
-
-AC_CHECK_HEADER($INCLUDEPY/Python.h,[],
-    [AC_MSG_ERROR([Required header Python.h missing.  Install it, or specify --disable-python to skip the parts of LinuxCNC that depend on Python])])
-
 AC_MSG_CHECKING(for site-package location)
-SITEPY=`$PYTHON -c 'import distutils.sysconfig; print(distutils.sysconfig.get_python_lib())'`
+SITEPY="$($PYTHON -c 'import sysconfig; s = sysconfig.get_scheme_names(); m=list(set(("deb_system", "rpm_prefix")) & set(s)); print(sysconfig.get_path("platlib", m.__getitem__(0))) if m else print("/usr/lib/python3/dist-packages");')"
 AC_MSG_RESULT($SITEPY)
 
-AC_CHECK_HEADERS(GL/gl.h GL/glu.h,[],[AC_MSG_ERROR([Required OpenGL header missing.  Install it, or specify --disable-python to skip the parts of LinuxCNC that depend on Python])])
-
-AC_CHECK_LIB(GL, glBegin, [], [AC_MSG_ERROR([Required GL library missing.  Install it, or specify --disable-python to skip the parts of LinuxCNC that depend on Python])])
-
 AC_MSG_CHECKING(for working GLU quadrics)
-AC_TRY_COMPILE([
+AC_COMPILE_IFELSE([AC_LANG_PROGRAM([[
 #include <GL/gl.h>
 #include <GL/glu.h>
-],
-    [GLUquadric *q;],
-    [AC_MSG_RESULT(yes)],[
-            AC_MSG_ERROR([Required GLU library missing.  Install it or specify --disable-python to skip the parts of LinuxCNC that depend on Python])]
-    
-)
+]], [[GLUquadric *q;]])],[AC_MSG_RESULT(yes)],[
+            AC_MSG_ERROR([Required GLU library missing.  Install it or specify --disable-python to skip the parts of LinuxCNC that depend on Python])
+
+])
 
 AC_MSG_CHECKING(for Xmu headers)
 AC_CHECK_HEADERS(X11/Xmu/Xmu.h,[],[AC_MSG_ERROR([Required Xmu header missing.  Install it, or specify --disable-python to skip the parts of LinuxCNC that depend on Python])])
 
 AC_SUBST([LIBPYTHON])
-AC_SUBST([INCLUDEPY])
 AC_SUBST([SITEPY])
+
+#
+# Add extra options to CFLAGS and CXXFLAGS
+#
+add_to_cflags() {
+    # Add $1 to CFLAGS and CXXFLAGS if not already there
+    if test -z "$1"; then return; fi
+    if echo "$CFLAGS" | grep -q -w -v -- "$1"; then
+        CFLAGS="${CFLAGS:+$CFLAGS }$1"
+    fi
+    if echo "$CXXFLAGS" | grep -q -w -v -- "$1"; then
+        CXXFLAGS="${CXXFLAGS:+$CXXFLAGS }$1"
+    fi
+}
+
+# Always add -Wextra
+add_to_cflags "-Wextra"
+
+# The last thing before subst-exporting CFLAGS and CXXFLAGS is to add -Werror
+# if requested. Doing it earlier causes conf-tests to fail that are supposed to
+# succeed when they generate warnings.
+AC_ARG_ENABLE(werror,
+    AS_HELP_STRING(
+      [--enable-werror],
+      [Treat all compiler warnings as errors (-Werror).],
+    ),
+    [
+      case "$enableval" in
+        (yes) add_to_cflags "-Werror" ;;
+      esac
+    ])
 
 AC_SUBST([CFLAGS])
 AC_SUBST([CPPFLAGS])
@@ -1731,7 +1717,6 @@ AC_SUBST([LDFLAGS])
 #AC_CONFIG_FILES([../configs/rtapi.conf ../configs/emc.conf ../configs/hal.conf config.h])
 AC_CONFIG_FILES([../scripts/rtapi.conf])
 AC_CONFIG_FILES([../scripts/linuxcnc], [chmod +x ../scripts/linuxcnc])
-AC_CONFIG_FILES([../scripts/linuxcnc-python], [chmod +x ../scripts/linuxcnc-python])
 AC_CONFIG_FILES([../scripts/linuxcnc_info], [chmod +x ../scripts/linuxcnc_info])
 AC_CONFIG_FILES([../scripts/halrun], [chmod +x ../scripts/halrun])
 AC_CONFIG_FILES([../scripts/rip-environment], [chmod +x ../scripts/rip-environment])
@@ -1747,13 +1732,18 @@ AC_CONFIG_FILES(../tcl/linuxcnc.tcl)
 AC_CONFIG_FILES(../lib/python/nf.py)
 AC_CONFIG_FILES([../scripts/linuxcncmkdesktop], [chmod +x ../scripts/linuxcncmkdesktop])
 AC_CONFIG_FILES(../share/applications/linuxcnc-latency.desktop)
+AC_CONFIG_FILES(../share/applications/linuxcnc-latency-histogram.desktop)
+AC_CONFIG_FILES(../share/applications/linuxcnc-pncconf.desktop)
+AC_CONFIG_FILES(../share/applications/linuxcnc-stepconf.desktop)
 AC_CONFIG_FILES(../share/applications/linuxcnc.desktop)
-AC_CONFIG_FILES(../share/desktop-directories/cnc.directory)
+AC_CONFIG_FILES(../share/desktop-directories/linuxcnc-cnc.directory)
+AC_CONFIG_FILES(../share/desktop-directories/linuxcnc-ref.directory)
+AC_CONFIG_FILES(../share/desktop-directories/linuxcnc-doc.directory)
 AC_CONFIG_FILES(../share/menus/CNC.menu)
-AC_OUTPUT()
+AC_OUTPUT
 
 ##############################################################################
-# message to the user what to do next, after a succesfull ./configure        #
+# message to the user what to do next, after a successful ./configure        #
 ##############################################################################
 bold () {
     if tty > /dev/null 2>&1 && type -path tput > /dev/null 2>&1;
@@ -1780,8 +1770,12 @@ echo "#   tools such as milling machines. LinuxCNC is released under the   #"
 echo "#   GPL.  Check out http://www.linuxcnc.org/ for more details.       #"
 echo "#                                                                    #"
 echo "#                                                                    #"
-echo "#   It seems that ./configure completed successfully.                #"
-echo "#   This means that RT is properly installed                         #"
+if $DEPFOUND ; then
+  echo "#   It seems that ./configure completed successfully.                #"
+  echo "#   This means that RT is properly installed                         #"
+else
+  echo "#   It seems that ./configure detected a problem.                    #"
+fi
 echo "#   If things don't work check config.log for errors & warnings      #"
 echo "#                                                                    #"
 
@@ -1816,3 +1810,5 @@ echo "#                                                                    #"
 echo "######################################################################"
 echo ""
 echo ""
+
+$DEPFOUND

@@ -23,7 +23,7 @@
     The module exports two functions.  'sim-encoder.make-pulses', is
     responsible for actually generating the A, B, and Z signals.  It
     must be executed in a fast thread to reduce pulse jitter.  The 
-    other function, 'sim-encoder.update-speed', is is normally called
+    other function, 'sim-encoder.update-speed', is normally called
     from a much slower thread, and sets internal variables used by
     'make-pulses', based on the 'speed' input pin, and the 'ppr'
     parameter.
@@ -58,10 +58,10 @@
     information, go to www.linuxcnc.org.
 */
 
-#include "rtapi.h"		/* RTAPI realtime OS API */
-#include "rtapi_app.h"		/* RTAPI realtime module decls */
-#include "rtapi_string.h"
-#include "hal.h"		/* HAL public API decls */
+#include <rtapi.h>		/* RTAPI realtime OS API */
+#include <rtapi_app.h>		/* RTAPI realtime module decls */
+#include <rtapi_string.h>
+#include <hal.h>		/* HAL public API decls */
 
 #define MAX_CHAN 8
 
@@ -317,6 +317,7 @@ static void make_pulses(void *arg, long period)
 
 static void update_speed(void *arg, long period)
 {
+    (void)period;
     sim_enc_t *sim_enc;
     int n;
     double rev_sec, freq;

@@ -1,10 +1,12 @@
-#!/usr/bin/python3
+#!/usr/bin/env python3
 
-from PyQt5.QtGui import QIcon, QPixmap
-from PyQt5.QtDesigner import QPyDesignerCustomWidgetPlugin
+from qtpy.QtGui import QIcon, QPixmap
+from qtpy.QtDesigner import QPyDesignerCustomWidgetPlugin
 from qtvcp.widgets.overlay_widget import FocusOverlay
 from qtvcp.widgets.qtvcp_icons import Icon
+
 ICON = Icon()
+
 
 class FocusOverlayPlugin(QPyDesignerCustomWidgetPlugin):
 

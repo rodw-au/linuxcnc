@@ -358,8 +358,11 @@ proc sim_spindle {} {
   loadrt limit2  names=limit_speed
   loadrt lowpass names=spindle_mass
   loadrt near    names=near_speed
+  loadrt scale names=rpm_rps
 
-  # this limit doesnt make any sense to me:
+  setp rpm_rps.gain .0167
+
+  # this limit doesn't make any sense to me:
   do_setp limit_speed.maxv 5000.0 ;# rpm/second
 
   # encoder reset control
@@ -385,7 +388,8 @@ proc sim_spindle {} {
 
   # for spindle velocity estimate
   net spindle-rpm-filtered <= spindle_mass.out
-  net spindle-rpm-filtered => spindle.0.speed-in
+  net spindle-rpm-filtered     rpm_rps.in
+  net spindle-rps-filtered     rpm_rps.out    spindle.0.speed-in 
   net spindle-rpm-filtered => near_speed.in2
 
   # at-speed detection
@@ -400,6 +404,7 @@ proc sim_spindle {} {
 
   addf limit_speed  servo-thread
   addf spindle_mass servo-thread
+  addf rpm_rps servo-thread
   addf near_speed   servo-thread
   addf sim_spindle  servo-thread
 } ;# sim_spindle
@@ -463,6 +468,15 @@ proc save_hal_cmds {savefilename {options ""} } {
       scan $line "%s %s %s" cmd arg1 remainder
       switch $cmd {
         setp    {puts $fd [format $setp_fmt $cmd $arg1 $remainder]}
+        loadrt  {
+                 if {   [string first tpmod   [list $line]] >= 0
+                     || [string first homemod [list $line]] >= 0
+                    } {
+                    puts $fd "#preloaded module: $line"
+                 } else {
+                    puts $fd $line
+                 }
+                }
         default {puts $fd $line}
       }
     }

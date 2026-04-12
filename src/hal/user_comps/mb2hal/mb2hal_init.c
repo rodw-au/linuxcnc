@@ -79,6 +79,7 @@ retCode parse_common_section()
     char *fnct_name = "parse_common_section";
     char *section = "MB2HAL_INIT", *tag;
     const char *tmpstr;
+    char tmpbuf[INI_MAX_LINELEN];
 
     if (gbl.ini_file_ptr == NULL) {
         ERR(gbl.init_dbg, "gbl.ini_file_ptr NULL pointer");
@@ -89,8 +90,17 @@ retCode parse_common_section()
     iniFindInt(gbl.ini_file_ptr, tag, section, &gbl.init_dbg);
     DBG(gbl.init_dbg, "[%s] [%s] [%d]", section, tag, gbl.init_dbg);
 
+    tag     = "VERSION"; //optional
+    tmpstr = iniFindString(gbl.ini_file_ptr, tag, section, tmpbuf, sizeof(tmpbuf));
+    if (tmpstr != NULL) {
+        int major, minor;
+        sscanf(tmpstr, "%d.%d", &major, &minor);
+        gbl.version = major*1000 + minor;
+    }
+    DBG(gbl.init_dbg, "[%s] [%s] [%d]", section, tag, gbl.version);
+
     tag    = "HAL_MODULE_NAME"; //optional
-    tmpstr = iniFind(gbl.ini_file_ptr, tag, section);
+    tmpstr = iniFindString(gbl.ini_file_ptr, tag, section, tmpbuf, sizeof(tmpbuf));
     if (tmpstr != NULL) {
         gbl.hal_mod_name = strdup(tmpstr);
     }
@@ -116,19 +126,19 @@ retCode parse_common_section()
 }
 
 #define NAME_ALLOC_SIZE 5
-retCode parse_pin_names(const char * names_string, mb_tx_t *this_mb_tx)
+static retCode parse_pin_names(const char * const names_string, mb_tx_t * const this_mb_tx)
 {
     char *fnct_name = "parse_pin_names";
     int name_count = 0;
     int name_buf_size = NAME_ALLOC_SIZE;
     char **name_ptrs = malloc(sizeof(char *) * name_buf_size);
-    char *names = malloc(strlen(names_string)  + 1);
+    /* FIXME This memory block is leaked */
+    char *names = strndup(names_string,999942);
     if(name_ptrs == NULL || names == NULL)
     {
         ERR(gbl.init_dbg, "Failed allocating memory");
         return retERR;
     }
-    strcpy(names, names_string);	// Keep the names in a buffer
     char * name = strtok(names, ",");
     while(name)
     {
@@ -139,13 +149,14 @@ retCode parse_pin_names(const char * names_string, mb_tx_t *this_mb_tx)
         }
         if(name_count >= name_buf_size)
         {
-            name_count += NAME_ALLOC_SIZE;
-            name_ptrs = realloc(name_ptrs, sizeof(char *) * name_buf_size);
-            if(name_ptrs == NULL)
+            name_buf_size += NAME_ALLOC_SIZE;
+            char ** tmp = realloc(name_ptrs, sizeof(char *) * name_buf_size);
+            if(NULL == tmp)
             {
                 ERR(gbl.init_dbg, "Failed allocating memory");
                 return retERR;
             }
+            name_ptrs = tmp;
         }
         name_ptrs[name_count++]=name;
         name = strtok(NULL, ",");
@@ -163,9 +174,10 @@ retCode parse_pin_names(const char * names_string, mb_tx_t *this_mb_tx)
 retCode parse_transaction_section(const int mb_tx_num)
 {
     char *fnct_name = "parse_transaction_section";
-    char section[20];
+    char section[40];
     char *tag;
     const char *tmpstr;
+    char tmpbuf[INI_MAX_LINELEN];
     mb_tx_t *this_mb_tx;
 
     if (gbl.ini_file_ptr == NULL) {
@@ -187,7 +199,7 @@ retCode parse_transaction_section(const int mb_tx_num)
     snprintf(section, sizeof(section)-1, "TRANSACTION_%02d", mb_tx_num);
 
     tag = "LINK_TYPE"; //required 1st time, then optional
-    tmpstr = iniFind(gbl.ini_file_ptr, tag, section);
+    tmpstr = iniFindString(gbl.ini_file_ptr, tag, section, tmpbuf, sizeof(tmpbuf));
     if (tmpstr != NULL) {
         if (strcasecmp(tmpstr, "tcp") == retOK) {
             this_mb_tx->cfg_link_type = linkTCP;
@@ -264,7 +276,7 @@ retCode parse_transaction_section(const int mb_tx_num)
 
 
     tag = "PIN_NAMES";
-    tmpstr = iniFind(gbl.ini_file_ptr, tag, section);
+    tmpstr = iniFindString(gbl.ini_file_ptr, tag, section, tmpbuf, sizeof(tmpbuf));
     if (tmpstr != NULL) {
         if(parse_pin_names(tmpstr, this_mb_tx) != retOK)
         {
@@ -290,7 +302,7 @@ retCode parse_transaction_section(const int mb_tx_num)
     DBG(gbl.init_dbg, "[%s] [%s] [%d]", section, tag, this_mb_tx->mb_tx_nelem);
 
     tag = "MAX_UPDATE_RATE"; //optional
-    this_mb_tx->cfg_update_rate = 0; //default: 0=infinit
+    this_mb_tx->cfg_update_rate = 0; //default: 0=infinite
     if (iniFindDouble(gbl.ini_file_ptr, tag, section, &this_mb_tx->cfg_update_rate) != 0) { //not found
         if (mb_tx_num > 0) { //previous value?
             if (strcasecmp(this_mb_tx->cfg_link_type_str, gbl.mb_tx[mb_tx_num-1].cfg_link_type_str) == 0) {
@@ -334,7 +346,7 @@ retCode parse_transaction_section(const int mb_tx_num)
     DBG(gbl.init_dbg, "[%s] [%s] [%d]", section, tag, this_mb_tx->cfg_debug);
 
     tag = "MB_TX_CODE"; //required
-    tmpstr = iniFind(gbl.ini_file_ptr, tag, section);
+    tmpstr = iniFindString(gbl.ini_file_ptr, tag, section, tmpbuf, sizeof(tmpbuf));
     if (tmpstr != NULL) {
         int i;
         for (i=0 ; i<mbtxMAX; i++) {
@@ -344,7 +356,8 @@ retCode parse_transaction_section(const int mb_tx_num)
                 break;
             }
         }
-        if (this_mb_tx->mb_tx_fnct <= mbtxERR || this_mb_tx->mb_tx_fnct >= mbtxMAX) {
+        mb_tx_fnct max = gbl.version<1001?mbtx_01_READ_COILS:mbtxMAX;
+        if (this_mb_tx->mb_tx_fnct <= mbtxERR || this_mb_tx->mb_tx_fnct >= max) {
             ERR(gbl.init_dbg, "[%s] [%s] [%s] out of range", section, tag, tmpstr);
             return retERR;
         }
@@ -356,7 +369,7 @@ retCode parse_transaction_section(const int mb_tx_num)
     DBG(gbl.init_dbg, "[%s] [%s] [%s] [%d]", section, tag, this_mb_tx->mb_tx_fnct_name, this_mb_tx->mb_tx_fnct);
 
     tag = "HAL_TX_NAME"; //optional
-    tmpstr = iniFind(gbl.ini_file_ptr, tag, section);
+    tmpstr = iniFindString(gbl.ini_file_ptr, tag, section, tmpbuf, sizeof(tmpbuf));
     if (tmpstr != NULL) {
         strncpy(this_mb_tx->hal_tx_name, tmpstr, HAL_NAME_LEN);
     }
@@ -364,32 +377,6 @@ retCode parse_transaction_section(const int mb_tx_num)
         snprintf(this_mb_tx->hal_tx_name, sizeof(this_mb_tx->hal_tx_name), "%02d", mb_tx_num);
     }
     DBG(gbl.init_dbg, "[%s] [%s] [%s]", section, tag, this_mb_tx->hal_tx_name);
-
-    /*
-        str = iniFind(gbl.ini_file_ptr, "PINNAME", mb_tx_name);
-        if (str != NULL) {
-            pin_name = malloc(strlen(str) + 1);
-            rtapi_strxcpy(pin_name, str);	// convert a const string into one
-            // we can modify
-        }
-        else {
-            pin_name = malloc(1);	// empty string
-            *pin_name = 0;
-        }
-        if (mb_tx->name[0] != 0) {
-            strncpy(mb_tx_name, mb_tx->name, HAL_NAME_LEN);
-        }
-        else {
-            snprintf(mb_tx_name, sizeof(mb_tx_name), "%02d", mb_tx_num);
-        }
-        memcpy(&gbl.mb_tx[mb_tx_num], mb_tx, sizeof(mb_tx_t));
-        rc = create_pins(mb_tx_name, &gbl.mb_tx[mb_tx_num], pin_name);
-        free(pin_name);
-        if (rc != retOK) {
-            ERR(gbl.init_dbg, "Failed to create pins");
-            return retERR;
-        }
-    */
 
     return retOK;
 }
@@ -399,6 +386,7 @@ retCode parse_tcp_subsection(const char *section, const int mb_tx_num)
     char *fnct_name="parse_tcp_subsection";
     char *tag;
     const char *tmpstr;
+    char tmpbuf[INI_MAX_LINELEN];
     mb_tx_t *this_mb_tx;
 
     if (gbl.ini_file_ptr == NULL || section == NULL) {
@@ -413,7 +401,7 @@ retCode parse_tcp_subsection(const char *section, const int mb_tx_num)
     this_mb_tx = &gbl.mb_tx[mb_tx_num];
 
     tag = "TCP_IP"; //required 1st time, then optional
-    tmpstr = iniFind(gbl.ini_file_ptr, tag, section);
+    tmpstr = iniFindString(gbl.ini_file_ptr, tag, section, tmpbuf, sizeof(tmpbuf));
     if (tmpstr != NULL) {
         strncpy(this_mb_tx->cfg_tcp_ip, tmpstr, sizeof(this_mb_tx->cfg_tcp_ip)-1);
     }
@@ -455,6 +443,7 @@ retCode parse_serial_subsection(const char *section, const int mb_tx_num)
     char *fnct_name="parse_serial_subsection";
     char *tag;
     const char *tmpstr;
+    char tmpbuf[INI_MAX_LINELEN];
     mb_tx_t *this_mb_tx;
 
     if (gbl.ini_file_ptr == NULL || section == NULL) {
@@ -469,7 +458,7 @@ retCode parse_serial_subsection(const char *section, const int mb_tx_num)
     this_mb_tx = &gbl.mb_tx[mb_tx_num];
 
     tag = "SERIAL_PORT"; //required 1st time
-    tmpstr = iniFind(gbl.ini_file_ptr, tag, section);
+    tmpstr = iniFindString(gbl.ini_file_ptr, tag, section, tmpbuf, sizeof(tmpbuf));
     if (tmpstr != NULL) {
         strncpy(this_mb_tx->cfg_serial_device, tmpstr, sizeof(this_mb_tx->cfg_serial_device)-1);
     }
@@ -537,7 +526,7 @@ retCode parse_serial_subsection(const char *section, const int mb_tx_num)
     DBG(gbl.init_dbg, "[%s] [%s] [%d]", section, tag, this_mb_tx->cfg_serial_data_bit);
 
     tag = "SERIAL_PARITY"; //required 1st time
-    tmpstr = iniFind(gbl.ini_file_ptr, tag, section);
+    tmpstr = iniFindString(gbl.ini_file_ptr, tag, section, tmpbuf, sizeof(tmpbuf));
     if (tmpstr != NULL) {
         strncpy(this_mb_tx->cfg_serial_parity, tmpstr, sizeof(this_mb_tx->cfg_serial_parity)-1);
     }
@@ -686,7 +675,11 @@ retCode init_mb_links()
             this_mb_link->lp_link_type = this_mb_tx->cfg_link_type;
 
             if (this_mb_link->lp_link_type == linkRTU) { //serial
-                strncpy(this_mb_link->lp_serial_device, this_mb_tx->cfg_serial_device, MB2HAL_MAX_DEVICE_LENGTH-1);
+                if (strlen(this_mb_tx->cfg_serial_device) >= MB2HAL_MAX_DEVICE_LENGTH) {
+                    ERR(gbl.init_dbg, "serial_device name to long [%s]", this_mb_tx->cfg_serial_device);
+                    return retERR;
+                }
+                rtapi_strlcpy(this_mb_link->lp_serial_device, this_mb_tx->cfg_serial_device, MB2HAL_MAX_DEVICE_LENGTH);
                 this_mb_link->lp_serial_baud=this_mb_tx->cfg_serial_baud;
 
                 if (strcasecmp(this_mb_tx->cfg_serial_parity, "even") == 0) {
@@ -713,7 +706,11 @@ retCode init_mb_links()
                 }
             }
             else { //tcp
-                strncpy(this_mb_link->lp_tcp_ip, this_mb_tx->cfg_tcp_ip, sizeof(this_mb_tx->cfg_tcp_ip)-1);
+                if (strlen(this_mb_tx->cfg_tcp_ip) >= sizeof(this_mb_link->lp_tcp_ip)) {
+                    ERR(gbl.init_dbg, "tcp_ip too long [%s]", this_mb_tx->cfg_tcp_ip);
+                    return retERR;
+                }
+                rtapi_strlcpy(this_mb_link->lp_tcp_ip, this_mb_tx->cfg_tcp_ip, sizeof(this_mb_tx->cfg_tcp_ip));
                 this_mb_link->lp_tcp_port=this_mb_tx->cfg_tcp_port;
 
                 this_mb_link->modbus = modbus_new_tcp(this_mb_link->lp_tcp_ip, this_mb_link->lp_tcp_port);

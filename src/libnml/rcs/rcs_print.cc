@@ -12,10 +12,6 @@
 * Last change: 
 ********************************************************************/
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 #include <stdarg.h>		/* va_list, va_start(), va_end() */
 #include <stdio.h>		/* __printf()'s */
 #include <string.h>		/* strchr(), memmove() */
@@ -25,12 +21,9 @@ extern "C" {
 #include <sys/types.h>
 #include <unistd.h>		/* getpid() */
 
-#ifdef __cplusplus
-}
-#endif
 #include <rtapi_string.h>
-#include "rcs_print.hh"
-#include "linklist.hh"
+#include "libnml/rcs/rcs_print.hh"
+#include "libnml/linklist/linklist.hh"
 #ifndef _TIMER_H
 extern "C" double etime(void);
 #endif
@@ -47,7 +40,7 @@ long rcs_print_mode_flags = PRINT_RCS_ERRORS;
 FILE *rcs_print_file_stream = NULL;
 char rcs_print_file_name[80] = "rcs_out.txt";
 
-char last_error_bufs[4][100];
+char last_error_bufs[4][error_buf_size];
 int error_bufs_initialized = 0;
 int last_error_buf_filled = 0;
 
@@ -173,20 +166,22 @@ void convert_print_list_to_lines()
 		    temp_buf = (char *) malloc(strlen(string_from_list) + 1);
 		    rtapi_strlcpy(temp_buf, string_from_list, strlen(string_from_list) + 1);
 		} else {
-		    temp_buf = (char *) realloc(temp_buf, strlen(temp_buf)
-			+ strlen(string_from_list) + 1);
-		    strcat(temp_buf, string_from_list);
+		    char *ra = (char *) realloc(temp_buf, strlen(temp_buf) + strlen(string_from_list) + 1);
+		    if(ra) {
+			temp_buf = ra;
+			strcat(temp_buf, string_from_list);
+		    }
 		}
 		rcs_print_list->delete_current_node();
 	    } else {
 		if (temp_buf != NULL) {
-		    temp_buf = (char *) realloc(temp_buf, strlen(temp_buf)
-			+ strlen(string_from_list) + 1);
-		    strcat(temp_buf, string_from_list);
-		    rcs_print_list->delete_current_node();
-		    rcs_print_list->store_after_current_node(temp_buf,
-			strlen(temp_buf)
-			+ 1, 1);
+		    char *ra = (char *) realloc(temp_buf, strlen(temp_buf) + strlen(string_from_list) + 1);
+		    if(ra) {
+			temp_buf = ra;
+			strcat(temp_buf, string_from_list);
+			rcs_print_list->delete_current_node();
+			rcs_print_list->store_after_current_node(temp_buf, strlen(temp_buf) + 1, 1);
+		    }
 		    free(temp_buf);
 		    temp_buf = NULL;
 		} else if (next_line[1] != 0) {
@@ -214,9 +209,8 @@ void update_lines_table()
     }
     if (NULL != rcs_print_list) {
 	convert_print_list_to_lines();
-	rcs_lines_table = (char **) malloc(sizeof(char *)
-	    * rcs_print_list->list_size);
-	if (NULL != rcs_print_list) {
+	rcs_lines_table = (char **) malloc(sizeof(char *) * rcs_print_list->list_size);
+	if (NULL != rcs_lines_table) {
 	    char *string_from_list;
 	    string_from_list = (char *) rcs_print_list->get_head();
 	    int i = 0;
@@ -275,9 +269,10 @@ int separate_words(char **_dest, int _max, char *_src)
 	return -1;
     }
     rtapi_strxcpy(word_buffer, _src);
-    _dest[0] = strtok(word_buffer, " \n\r\t");
-    for (i = 0; NULL != _dest[i] && i < _max - 1; i++) {
-	_dest[i + 1] = strtok(NULL, " \n\r\t");
+    char* saveptr;
+    _dest[0] = strtok_r(word_buffer, " \n\r\t", &saveptr);
+    for (i = 0; i < _max - 1 && NULL != _dest[i]; i++) {
+	_dest[i + 1] = strtok_r(NULL, " \n\r\t", &saveptr);
     }
     if (_dest[_max - 1] == NULL && i == _max - 1) {
 	i--;
@@ -287,7 +282,7 @@ int separate_words(char **_dest, int _max, char *_src)
 
 int rcs_vprint(const char *_fmt, va_list _args, int save_string)
 {
-    static char temp_string[256];
+    static char temp_string[error_buf_size];
 
     if (NULL == _fmt) {
 	return (EOF);
@@ -308,7 +303,7 @@ int rcs_vprint(const char *_fmt, va_list _args, int save_string)
 	}
 	last_error_buf_filled++;
 	last_error_buf_filled %= 4;
-	strncpy(last_error_bufs[last_error_buf_filled], temp_string, 99);
+	rtapi_strlcpy(last_error_bufs[last_error_buf_filled], temp_string, 99);
     }
     return (rcs_fputs(temp_string));
 }
@@ -369,9 +364,6 @@ int rcs_fputs(const char *_str)
 	    break;
 	case RCS_PRINT_TO_FILE:
 	    if (NULL == rcs_print_file_stream) {
-		if (NULL == rcs_print_file_name) {
-		    return EOF;
-		}
 		rcs_print_file_stream = fopen(rcs_print_file_name, "a+");
 	    }
 	    if (NULL == rcs_print_file_stream) {

@@ -19,10 +19,11 @@
 #ifndef INTERP_BASE_HH
 #define INTERP_BASE_HH
 
+#include <stdio.h>
 #include <stdlib.h>
 #include <boost/noncopyable.hpp>
 #include <emcpos.h>
-#include <modal_state.hh>
+#include "modal_state.hh"
 
 /* Size of certain arrays */
 #define ACTIVE_G_CODES 17
@@ -66,6 +67,7 @@ public:
     virtual void print_state_tag(StateTag const &tag) = 0;
     virtual void set_loglevel(int level) = 0;
     virtual void set_loop_on_main_m99(bool state) = 0;
+    virtual FILE* get_stdout() { return stdout; };
 };
 
 InterpBase *interp_from_shlib(const char *shlib);

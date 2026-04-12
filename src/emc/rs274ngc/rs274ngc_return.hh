@@ -15,7 +15,7 @@
 //    Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 #ifndef RS274NGC_RETURN_HH
 #define RS274NGC_RETURN_HH
-#include "interp_return.hh"
+#include "nml_intf/interp_return.hh"
 #define NCE_A_FILE_IS_ALREADY_OPEN _("A file is already open")
 #define NCE_ALL_AXES_MISSING_WITH_G52_OR_G92 \
     _("All axes missing with g52 or g92")
@@ -77,10 +77,10 @@
 #define NCE_EQUAL_SIGN_MISSING_IN_PARAMETER_SETTING _("Equal sign missing in parameter setting")
 #define NCE_F_WORD_MISSING_WITH_INVERSE_TIME_ARC_MOVE _("F word missing with inverse time arc move")
 #define NCE_F_WORD_MISSING_WITH_INVERSE_TIME_G1_MOVE _("F word missing with inverse time g1 move")
-#define NCE_FILE_ENDED_WITH_NO_PERCENT_SIGN _("File ended with no percent sign")
-#define NCE_FILE_ENDED_WITH_NO_PERCENT_SIGN_OR_PROGRAM_END _("File ended with no percent sign or program end")
+#define NCE_FILE_ENDED_WITH_NO_PERCENT_SIGN _("File ended with no percent sign (%%)")
+#define NCE_FILE_ENDED_WITH_NO_PERCENT_SIGN_OR_PROGRAM_END _("File ended with no percent sign (%%) or program end (M2)")
 #define NCE_FILE_NAME_TOO_LONG _("File name too long")
-#define NCE_G_CODE_OUT_OF_RANGE _("G code out of range")
+#define NCE_G_CODE_OUT_OF_RANGE _("G-code out of range")
 #define NCE_I_WORD_GIVEN_FOR_ARC_IN_YZ_PLANE _("I word given for arc in yz plane")
 #define NCE_I_WORD_MISSING_WITH_G87 _("I word missing with g87")
 #define NCE_J_WORD_GIVEN_FOR_ARC_IN_XZ_PLANE _("J word given for arc in xz plane")
@@ -89,7 +89,7 @@
 #define NCE_K_WORD_MISSING_WITH_G87 _("K word missing with g87")
 #define NCE_LEFT_BRACKET_MISSING_AFTER_SLASH_WITH_ATAN _("Left bracket missing after slash with atan")
 #define NCE_LEFT_BRACKET_MISSING_AFTER_UNARY_OPERATION_NAME _("Left bracket missing after unary operation name")
-#define NCE_M_CODE_GREATER_THAN_199 _("M code greater than 199: M%d")
+#define NCE_M_CODE_GREATER_THAN_199 _("M-code greater than 199: M%d")
 #define NCE_MIXED_RADIUS_IJK_FORMAT_FOR_ARC _("Mixed radius ijk format for arc")
 #define NCE_MULTIPLE_$_WORDS_ON_ONE_LINE _("Multiple spindle choice ($) words on one line")
 #define NCE_MULTIPLE_A_WORDS_ON_ONE_LINE _("Multiple a words on one line")
@@ -121,7 +121,7 @@
 #define NCE_NEGATIVE_OR_ZERO_Q_VALUE_USED _("Negative or zero q value used")
 #define NCE_NEGATIVE_P_WORD_USED _("Negative p word used")
 #define NCE_NEGATIVE_SPINDLE_SPEED_USED _("Negative spindle speed used")
-#define NCE_NEGATIVE_TOOL_ID_USED _("Negative tool id used")
+#define NCE_NEGATIVE_TOOL_ID_USED _("Negative tool id (tool not found)")
 #define NCE_NESTED_COMMENT_FOUND _("Nested comment found")
 #define NCE_NO_CHARACTERS_FOUND_IN_READING_REAL_VALUE _("No characters found in reading real value")
 #define NCE_NON_INTEGER_VALUE_FOR_INTEGER _("Non integer value for integer")

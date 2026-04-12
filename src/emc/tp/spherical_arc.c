@@ -11,10 +11,10 @@
  *
  ********************************************************************/
 
-#include "posemath.h"
+#include <rtapi_math.h>
+
 #include "spherical_arc.h"
 #include "tp_types.h"
-#include "rtapi_math.h"
 
 #include "tp_debug.h"
 
@@ -120,6 +120,7 @@ int arcLength(SphericalArc const * const arc, double * const length)
 int arcFromLines(SphericalArc * const arc, PmCartLine const * const line1,
         PmCartLine const * const line2, double radius,
         double blend_dist, double center_dist, PmCartesian * const start, PmCartesian * const end, int consume) {
+    (void)radius;
 
     PmCartesian center, normal, binormal;
 

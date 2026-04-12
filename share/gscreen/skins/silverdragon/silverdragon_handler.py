@@ -2,13 +2,15 @@
 # to load a completely custom glade screen.
 # The only thing that really matters is that it's saved as a GTK builder project,
 # the toplevel window is called window1 (The default name) and you connect a destroy
-# window signal otherwise you can't close down linuxcnc 
+# window signal otherwise you can't close down linuxcnc
 
+import gi
+from gi.repository import Gtk as gtk
+from gi.repository import Gdk as gdk
+from gi.repository import GObject as gobject
+from gi.repository import Pango as pango
 import hal
 import hal_glib
-import gtk
-import pango
-import gobject
 import linuxcnc
 from time import strftime
 
@@ -88,7 +90,7 @@ class HandlerClass:
             self.height = 0
             self.file_to_load = ""
             gobject.timeout_add(1000, self.clock)
-            self.default_theme = gtk.settings_get_default().get_property("gtk-theme-name")
+            self.default_theme = gtk.Settings.get_default().get_property("gtk-theme-name")
             self.label_home_x = self.widgets.btn_home_x.get_children()[0]
             self.label_home_y = self.widgets.btn_home_y.get_children()[0]
             self.label_home_z = self.widgets.btn_home_z.get_children()[0]
@@ -206,7 +208,6 @@ class HandlerClass:
         self.data.spindle_override_max = self.gscreen.inifile.find("DISPLAY", "MAX_SPINDLE_OVERRIDE")
         self.data.spindle_override_min = self.gscreen.inifile.find("DISPLAY", "MIN_SPINDLE_OVERRIDE")
         self.data.feed_override_max = self.gscreen.inifile.find("DISPLAY", "MAX_FEED_OVERRIDE")
-        self.data.rapid_override_max = self.gscreen.inifile.find("DISPLAY", "MAX_RAPID_OVERRIDE")
         self.data.dro_actual = self.gscreen.inifile.find("DISPLAY", "POSITION_FEEDBACK")
         # set the slider limits
         self.widgets.jog_speed.set_range(100, float(self.jog_rate_max) * 60)
@@ -214,7 +215,7 @@ class HandlerClass:
         self.widgets.jog_speed.set_digits(0)
         self.widgets.spc_spindle.set_range(float(self.data.spindle_override_min) * 100, float(self.data.spindle_override_max) * 100)
         self.widgets.spc_spindle.set_value(100)
-        self.widgets.spc_rapid.set_range(1, float(self.data.rapid_override_max) * 100)
+        self.widgets.spc_rapid.set_range(1, 100)
         self.widgets.spc_rapid.set_value(100)
         self.widgets.spc_feed.set_range(1, float(self.data.feed_override_max) * 100)
         self.widgets.spc_feed.set_value(100)
@@ -276,22 +277,24 @@ class HandlerClass:
         else:
             self.laser_x = xpos
             self.laser_y = ypos
-            
+
     def init_button_colors(self):
         # set the button background colors and digits of the DRO
         self.homed_textcolor = self.gscreen.prefs.getpref("homed_textcolor", "#00FF00", str)     # default green
         self.unhomed_textcolor = self.gscreen.prefs.getpref("unhomed_textcolor", "#FF0000", str) # default red
-        self.widgets.homed_colorbtn.set_color(gtk.gdk.color_parse(self.homed_textcolor))
-        self.widgets.unhomed_colorbtn.set_color(gtk.gdk.color_parse(self.unhomed_textcolor))
-        self.homed_color = self.gscreen.convert_to_rgb(self.widgets.homed_colorbtn.get_color())
-        self.unhomed_color = self.gscreen.convert_to_rgb(self.widgets.unhomed_colorbtn.get_color())
-        self.widgets.tbtn_estop.modify_bg(gtk.STATE_NORMAL, gtk.gdk.color_parse("#00FF00"))
-        self.widgets.tbtn_estop.modify_bg(gtk.STATE_ACTIVE, gtk.gdk.color_parse("#FF0000"))
-        self.widgets.tbtn_on.modify_bg(gtk.STATE_NORMAL, gtk.gdk.color_parse("#FF0000"))
-        self.widgets.tbtn_on.modify_bg(gtk.STATE_ACTIVE, gtk.gdk.color_parse("#00FF00"))
-        self.label_home_x.modify_fg(gtk.STATE_NORMAL, gtk.gdk.color_parse("#FF0000"))
-        self.label_home_y.modify_fg(gtk.STATE_NORMAL, gtk.gdk.color_parse("#FF0000"))
-        self.label_home_z.modify_fg(gtk.STATE_NORMAL, gtk.gdk.color_parse("#FF0000"))
+        self.homed_color = gdk.RGBA()
+        self.homed_color.parse(self.homed_textcolor)
+        self.widgets.homed_colorbtn.set_rgba(self.homed_color)
+        self.unhomed_color = gdk.RGBA()
+        self.unhomed_color.parse(self.unhomed_textcolor)
+        self.widgets.unhomed_colorbtn.set_rgba(self.unhomed_color)
+        self.widgets.tbtn_estop.modify_bg(gtk.StateFlags.NORMAL, gdk.color_parse("#00FF00"))
+        self.widgets.tbtn_estop.modify_bg(gtk.StateFlags.ACTIVE, gdk.color_parse("#FF0000"))
+        self.widgets.tbtn_on.modify_bg(gtk.StateFlags.NORMAL, gdk.color_parse("#FF0000"))
+        self.widgets.tbtn_on.modify_bg(gtk.StateFlags.ACTIVE, gdk.color_parse("#00FF00"))
+        self.label_home_x.modify_fg(gtk.StateFlags.NORMAL, gdk.color_parse("#FF0000"))
+        self.label_home_y.modify_fg(gtk.StateFlags.NORMAL, gdk.color_parse("#FF0000"))
+        self.label_home_z.modify_fg(gtk.StateFlags.NORMAL, gdk.color_parse("#FF0000"))
         # set the active colours of togglebuttons and radiobuttons
         blue_list = ["tbtn_mist", "tbtn_flood", "tbtn_laser", "tbtn_spare",
                      "tbtn_units", "tbtn_pause",
@@ -302,16 +305,16 @@ class HandlerClass:
         other_list = ["rbt_view_p", "rbt_view_x", "rbt_view_y", "rbt_view_z",
                       "tbtn_view_dimension", "tbtn_view_tool_path"]
         for btn in blue_list:
-            self.widgets["{0}".format(btn)].modify_bg(gtk.STATE_ACTIVE, gtk.gdk.color_parse("#44A2CF"))
+            self.widgets["{0}".format(btn)].modify_bg(gtk.StateFlags.ACTIVE, gdk.color_parse("#44A2CF"))
         for btn in green_list:
-            self.widgets["{0}".format(btn)].modify_bg(gtk.STATE_ACTIVE, gtk.gdk.color_parse("#A2E592"))
+            self.widgets["{0}".format(btn)].modify_bg(gtk.StateFlags.ACTIVE, gdk.color_parse("#A2E592"))
         for btn in other_list:
-            self.widgets["{0}".format(btn)].modify_bg(gtk.STATE_ACTIVE, gtk.gdk.color_parse("#BB81B5"))
+            self.widgets["{0}".format(btn)].modify_bg(gtk.StateFlags.ACTIVE, gdk.color_parse("#BB81B5"))
 
     def init_sensitive_on_off(self):
         self.data.sensitive_on_off = ["table_run", "tbl_dro", "vbox_overrides",
                                       "vbox_tool", "hbox_spindle_ctl"]
-        
+
     def init_sensitive_run_idle(self):
         self.data.sensitive_run_idle = ["rbt_manual", "rbt_mdi", "rbt_auto",
                                         "tbtn_optional_blocks", "tbtn_optional_stops",
@@ -336,17 +339,17 @@ class HandlerClass:
         pin = self.halcomp.newpin("clear_mdi-waiting", hal.HAL_BIT, hal.HAL_OUT)
         pin = self.halcomp.newpin("clear_mdi-response", hal.HAL_BIT, hal.HAL_OUT)
         hal_glib.GPin(pin).connect("value_changed", self.on_clear_mdi_changed)
-        
+
     # every 100 milli seconds this gets called
     # add pass so gscreen doesn't try to update it's regular widgets or
     # add the individual function names that you would like to call.
     def periodic(self):
-        # put the poll comand in a try, so if the linuxcnc pid is killed
+        # put the poll command in a try, so if the linuxcnc pid is killed
         # from an external command, also quit the GUI
         try:
             self.stat.poll()
         except:
-            raise SystemExit, "SilverDragon cannot poll linuxcnc status any more"
+            raise SystemExit("SilverDragon cannot poll linuxcnc status any more")
         error = self.error_channel.poll()
         if error:
             self.gscreen.notify(_("ERROR"), _(error), ALERT_ICON)
@@ -372,7 +375,7 @@ class HandlerClass:
         self.widgets.rbt_rel.set_label(self.system_list[self.stat.g5x_index])
         self.widgets.entry_clock.set_text(strftime("%H:%M:%S"))
         return True
-    
+
 # ========================
 # Start of widget handlers
 # ========================
@@ -409,7 +412,7 @@ class HandlerClass:
 
     # estop machine before closing
     def on_window1_destroy(self, widget, data=None):
-        print "estopping / killing silverdragon"
+        print("estopping / killing silverdragon")
         self.command.state(linuxcnc.STATE_OFF)
         self.command.state(linuxcnc.STATE_ESTOP)
         gtk.main_quit()
@@ -630,7 +633,7 @@ class HandlerClass:
         command = "G53 G0 X{} Y{}".format(self.home_x, self.home_y)
         self.command.mdi(command)
         self.command.wait_complete()
-            
+
     def on_btn_laser_zero_clicked(self, widget, data=None):
         if self.stat.task_mode != linuxcnc.MODE_MDI:
             self.gscreen.notify(_("INFO"), _("Must be in MDI mode"), INFO_ICON)
@@ -659,7 +662,7 @@ class HandlerClass:
         command = "G53 G0 X{} Y{}".format(self.tool_sensor_x, self.tool_sensor_y)
         self.command.mdi(command)
         self.command.wait_complete()
-        
+
     def on_btn_blockheight_clicked(self, widget, data=None):
         title = "Enter Block Height"
         callback = "on_blockheight_return"
@@ -687,17 +690,17 @@ class HandlerClass:
 
     def jog_x(self,widget,direction,state):
         self.gscreen.do_key_jog(0,direction,state)
-        
+
     def jog_y(self,widget,direction,state):
         self.gscreen.do_key_jog(1,direction,state)
-        
+
     def jog_z(self,widget,direction,state):
         self.gscreen.do_key_jog(2,direction,state)
-        
+
     def jog_speed_changed(self,widget):
         value = widget.get_value()
         self.gscreen.set_jog_rate(absolute = value)
-        
+
     def on_cmb_increments_changed(self, widget, data=None):
         index = widget.get_active()
         if index == 0:
@@ -860,12 +863,10 @@ class HandlerClass:
                 self.gscreen.prefs.putpref("audio_alert", file)
 
     def on_homed_colorbtn_color_set(self, widget):
-        self.homed_color = self.gscreen.convert_to_rgb(widget.get_color())
-        self.gscreen.prefs.putpref('homed_textcolor', widget.get_color(), str)
+        self.gscreen.prefs.putpref('homed_textcolor', gdk.RGBA.to_string(widget.get_rgba()), str)
 
     def on_unhomed_colorbtn_color_set(self, widget):
-        self.unhomed_color = self.gscreen.convert_to_rgb(widget.get_color())
-        self.gscreen.prefs.putpref('unhomed_textcolor', widget.get_color(), str)
+        self.gscreen.prefs.putpref('unhomed_textcolor', gdk.RGBA.to_string(widget.get_rgba()), str)
 
     def _from_internal_linear_unit(self, v, unit=None):
         if unit is None:
@@ -935,7 +936,7 @@ class HandlerClass:
         self.command.wait_complete()
         self.gscreen.sensitize_widgets(self.data.sensitive_all_homed, True)
         self.set_motion_mode(1)
-        self.widgets.statusbar1.remove_message(self.gscreen.statusbar_id, self.gscreen.homed_status_message)
+        self.widgets.statusbar1.remove(self.gscreen.statusbar_id, self.gscreen.homed_status_message)
         self.gscreen.notify(_("INFO"), _("All axes have been homed"), INFO_ICON)
         if self.widgets.chk_reload_tool.get_active():
             if self.stat.tool_in_spindle == 0:
@@ -979,7 +980,7 @@ class HandlerClass:
             self.command.wait_complete()
             self.tool_change = False
         self.current_line = 0
-        
+
     def on_hal_status_interp_run(self, widget):
         print("RUN")
         self.gscreen.sensitize_widgets(self.data.sensitive_run_idle, False)
@@ -1011,7 +1012,7 @@ class HandlerClass:
         self.widgets.chk_ignore_limits.set_sensitive(True)
         self.widgets.tbtn_on.set_label("OFF")
         self.gscreen.sensitize_widgets(self.data.sensitive_on_off, False)
-        
+
     def on_hal_status_state_on(self, widget):
         if not self.widgets.tbtn_on.get_active():
             self.widgets.tbtn_on.set_active(True)
@@ -1293,20 +1294,13 @@ class HandlerClass:
         j = 0
         for i in self.data.axis_list:
             if self.stat.joint[j]['homed']:
-                self["label_home_%s"%i].modify_fg(gtk.STATE_NORMAL, gtk.gdk.color_parse("#0000FF"))
+                self["label_home_%s"%i].modify_fg(gtk.StateFlags.NORMAL, gdk.color_parse("#0000FF"))
                 color = self.homed_color
             else:
-                self["label_home_%s"%i].modify_fg(gtk.STATE_NORMAL, gtk.gdk.color_parse("#FF0000"))
+                self["label_home_%s"%i].modify_fg(gtk.StateFlags.NORMAL, gdk.color_parse("#FF0000"))
                 color = self.unhomed_color
             j += 1
-            attr = pango.AttrList()
-            fg_color = pango.AttrForeground(color[0],color[1],color[2], 0, 11)
-            size = pango.AttrSize(22000, 0, -1)
-            weight = pango.AttrWeight(600, 0, -1)
-            attr.insert(fg_color)
-            attr.insert(size)
-            attr.insert(weight)
-            self.widgets["hal_dro_%s"%i].set_attributes(attr)
+            self.widgets["hal_dro_%s"%i].override_color(gtk.StateFlags.NORMAL, color)
 
     def _set_spindle(self, command):
         if self.stat.task_state == linuxcnc.STATE_ESTOP:
@@ -1431,7 +1425,7 @@ class HandlerClass:
 
         self.scale_jog_vel = self.scale_jog_vel * self.factor
         self.fast_jog = self.fast_jog * self.factor
-        self.slow_jog = self.slow_jog * self.factor            
+        self.slow_jog = self.slow_jog * self.factor
 
     def init_offsetpage(self):
         self.gscreen.init_offsetpage()
@@ -1444,7 +1438,7 @@ class HandlerClass:
             self.widgets.offsetpage1.machine_units_mm = _INCH
         self.widgets.offsetpage1.set_row_visible("1", False)
         self.widgets.offsetpage1.set_font("sans 12")
-        self.widgets.offsetpage1.set_foreground_color("#28D0D9")
+        self.widgets.offsetpage1.set_foreground_color(gdk.RGBA(0.151, 0.813, 0.845, 1.0))
         self.widgets.offsetpage1.selection_mask = ("Tool", "G5x", "Rot")
         systemlist = ["Tool", "G5x", "Rot", "G92", "G54", "G55", "G56", "G57", "G58", "G59", "G59.1",
                       "G59.2", "G59.3"]
@@ -1457,7 +1451,7 @@ class HandlerClass:
 
     def on_offset_axis_return(self, widget, result, calc, userdata, userdata2):
         value = calc.get_value()
-        if result == gtk.RESPONSE_ACCEPT:
+        if result == gtk.ResponseType.ACCEPT:
             if value is not None:
                 r = self.axis_to_ref
                 self.gscreen.prefs.putpref("offset_axis_{}".format(r), value, str)
@@ -1473,7 +1467,7 @@ class HandlerClass:
 
     def on_blockheight_return(self, widget, result, calc, userdata, userdata2):
         blockheight = calc.get_value()
-        if result == gtk.RESPONSE_ACCEPT:
+        if result == gtk.ResponseType.ACCEPT:
             if blockheight == "CANCEL" or blockheight == "ERROR":
                 return
             if blockheight is not None or blockheight is not False or blockheight == 0:

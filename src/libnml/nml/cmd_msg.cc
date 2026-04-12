@@ -12,20 +12,14 @@
 * Last change: 
 ********************************************************************/
 
-#ifdef __cplusplus
-extern "C" {
-#endif
 #include <stdio.h>
-#ifdef __cplusplus
-}
-#endif
 #include "nml.hh"
 #include "nmlmsg.hh"
-#include "cms.hh"
+#include "libnml/cms/cms.hh"
 NMLTYPE nmltype;
 
 #include "cmd_msg.hh"
-#include "linklist.hh"
+#include "libnml/linklist/linklist.hh"
 
 RCS_CMD_MSG::RCS_CMD_MSG(NMLTYPE t, long sz):NMLmsg(t, sz)
 {
@@ -48,8 +42,9 @@ int RCS_CMD_MSG_format(NMLTYPE t, void *buf, CMS * cms)
     return (0);
 }
 
-RCS_GENERIC_CMD::RCS_GENERIC_CMD():
-RCS_CMD_MSG(RCS_GENERIC_CMD_TYPE, sizeof(RCS_GENERIC_CMD))
+RCS_GENERIC_CMD::RCS_GENERIC_CMD()
+  : RCS_CMD_MSG(RCS_GENERIC_CMD_TYPE, sizeof(RCS_GENERIC_CMD)),
+    gen_id(0)
 {
 // Just avoiding an inline function.
 }

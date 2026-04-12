@@ -35,7 +35,7 @@
     The default is channel zero.
 
     'num_samples', if present, specifies the number of samples
-    to be printed, after which the program will exit.  If ommitted
+    to be printed, after which the program will exit.  If omitted
     it will print continuously until killed.
 
     '-t' tells sampler to print the sample number at the start
@@ -67,10 +67,11 @@
     codes, and the authors of this software can not, and do not, take
     any responsibility for such compliance.
 
-    This code was written as part of the LINUXCNC HAL project.  For more
+    This code was written as part of the LinuxCNC HAL project.  For more
     information, go to www.linuxcnc.org.
 */
 #include <Python.h>
+#include <pyconfig.h>
 #include <time.h>
 
 #include <stdio.h>
@@ -84,8 +85,8 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 
-#include "rtapi.h"      /* RTAPI realtime OS API */
-#include "hal.h"                /* HAL public API decls */
+#include <rtapi.h>      /* RTAPI realtime OS API */
+#include <hal.h>                /* HAL public API decls */
 #include "streamer.h"
 
 /***********************************************************************
@@ -109,7 +110,7 @@ int nochange = 0x40;
 int rowshift;
 int ncols = 8;
 int nrows = 8;
-int rollover = 2; //maximuim number of simultaneous keys presses recongnised
+int rollover = 2; //maximum number of simultaneous keys presses recognised
 int s = 0; //key press state argument to pass to python
 int r; //row argument passed to python
 int c; //column argument passed to python
@@ -129,6 +130,7 @@ PyObject *pExit,*pValue;
 static sig_atomic_t stop;
 static void quit(int sig)
 {
+    (void)sig;
     if ( ignore_sig ) {
     return;
     }
@@ -206,13 +208,11 @@ int main(int argc, char **argv)
 
     /* import the python module and get references for needed function */
     PyObject *pModule, *pFunc, *pPeriodicFunc, *pClass;
-    char name[] = "panelui";
-    #if PY_MAJOR_VERSION >=3    
-        wchar_t *wname = Py_DecodeLocale(name, NULL);
-        Py_SetProgramName(wname);
-    #else
-        Py_SetProgramName(name);
-    #endif
+    PyConfig config;
+    PyConfig_InitPythonConfig(&config);
+    char name[] = "panelui"; 
+    wchar_t *wname = Py_DecodeLocale(name, NULL);
+    PyConfig_SetString(&config, &config.program_name, wname);
     Py_Initialize();
     PyRun_SimpleString("import pyui\n"
                      "pyui.instance = pyui.master.keyboard()\n"
@@ -220,11 +220,11 @@ int main(int argc, char **argv)
                      "pyui.update_funct =  pyui.master.keyboard.update\n"
                      "pyui.periodic_funct =  pyui.master.keyboard.periodic\n");
     if (vdbg == 1){
-        PyRun_SimpleString("pyui.intilize = pyui.instance.build(2)\n");
+        PyRun_SimpleString("pyui.instance.build(2)\n");
     }else if (dbg == 1){
-        PyRun_SimpleString("pyui.intilize = pyui.instance.build(1)\n");
+        PyRun_SimpleString("pyui.instance.build(1)\n");
     }else{
-        PyRun_SimpleString("pyui.intilize = pyui.instance.build(0)\n");
+        PyRun_SimpleString("pyui.instance.build(0)\n");
     }
     pModule = PyImport_ImportModule("pyui");
 
@@ -310,7 +310,7 @@ int main(int argc, char **argv)
             last_sample = this_sample;
         }
         if ( tag ) {
-            printf ( "%d ", this_sample-1 );
+            printf ( "%u ", this_sample-1 );
         }
         /* get raw value, mask keyup and keydown codes */
         /* compute row and column */
@@ -362,7 +362,7 @@ skip:
             if (PyErr_Occurred()) PyErr_Print();
         }
     }
-    /* run was succesfull */
+    /* run was successful */
     exitval = 0;
 
 out:
@@ -371,7 +371,7 @@ out:
     if ( comp_id >= 0 ) {
         hal_exit(comp_id);
     }
-    PyRun_SimpleString("print '''Exiting panelui's python module '''");
+    PyRun_SimpleString("print ('''Exiting panelui's python module ''')");
     pValue = PyObject_CallObject(pExit, NULL);
     if (PyErr_Occurred()) {
         PyErr_Print();

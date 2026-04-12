@@ -2,7 +2,7 @@
  * Copyright (C) 2003 John Kasunich
  *                     <jmkasunich AT users DOT sourceforge DOT net>
  *
- *  Other contributers:
+ *  Other contributors:
  *                     Martin Kuhnle
  *                     <mkuhnle AT users DOT sourceforge DOT net>
  *                     Alex Joni
@@ -39,10 +39,12 @@
 
 #include "halcmd_completion.h"
 #include "config.h"
-#include "rtapi.h"		/* RTAPI realtime OS API */
-#include "hal.h"		/* HAL public API decls */
+#include <rtapi.h>		/* RTAPI realtime OS API */
+#include <hal.h>		/* HAL public API decls */
 #include "../hal_priv.h"	/* private HAL decls */
 #include <rtapi_mutex.h>
+#include <string.h>
+#include <ctype.h>
 
 static int argno;
 
@@ -134,7 +136,7 @@ static int writer_match(hal_pin_dir_t dir, int writers) {
 
 static void check_match_type_pin(const char *name) {
     int next = hal_data->pin_list_ptr;
-    int sz = strcspn(name, " \t");
+    size_t sz = strcspn(name, " \t");
 
     while(next) {
         hal_pin_t *pin = SHMPTR(next);
@@ -149,7 +151,7 @@ static void check_match_type_pin(const char *name) {
 
 static void check_match_type_signal(const char *name) {
     int next = hal_data->sig_list_ptr;
-    int sz = strcspn(name, " \t");
+    size_t sz = strcspn(name, " \t");
 
     while(next) {
         hal_sig_t *sig = SHMPTR(next);
@@ -343,7 +345,7 @@ static char *usrcomp_generator(const char *text, int state) {
     while(next) {
         hal_comp_t *comp = SHMPTR(next);
         next = comp->next_ptr;
-        if(comp->type) continue;
+        if(comp->type != COMPONENT_TYPE_USER) continue;
 	if(strncmp(text, comp->name, len) == 0)
             return strdup(comp->name);
     }
@@ -387,7 +389,7 @@ static char *rtcomp_generator(const char *text, int state) {
     while(next) {
         hal_comp_t *comp = SHMPTR(next);
         next = comp->next_ptr;
-        if(!comp->type) continue;
+        if(comp->type == COMPONENT_TYPE_USER) continue;
 	if ( strncmp(text, comp->name, len) == 0 )
             return strdup(comp->name);
     }
@@ -539,6 +541,8 @@ static char *loadrt_generator(const char *text, int state) {
         if(startswith(ent->d_name, "rtapi.")) continue;
         if(strncmp(text, ent->d_name, len) != 0) continue;
         result = strdup(ent->d_name);
+        if(!result)
+            return NULL;
         result[strlen(result) - strlen(MODULE_EXT)] = 0;
         return result;
     }
@@ -559,6 +563,7 @@ static char *nextword(char *s) {
 }
 
 char **halcmd_completer(const char *text, int start, int end, hal_completer_func func, char *buffer) {
+    (void)end;
     int i;
     char **result = NULL, *n;
 

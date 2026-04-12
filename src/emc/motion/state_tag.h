@@ -133,6 +133,7 @@ struct state_tag_t {
      * pure C struct).
      */
     unsigned long int packed_flags;
+    char filename[256];
 };
 
 #endif

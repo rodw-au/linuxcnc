@@ -65,12 +65,12 @@
  *   2: clock by rising edge
  *   3: clock by any edge
  */
-#include "rtapi.h"              /* RTAPI realtime OS API */
-#include "rtapi_app.h"          /* RTAPI realtime module decls */
-#include "hal.h"                /* HAL public API decls */
+#include <rtapi.h>              /* RTAPI realtime OS API */
+#include <rtapi_app.h>          /* RTAPI realtime module decls */
+#include <hal.h>                /* HAL public API decls */
 #include "streamer.h"		/* decls and such for fifos */
-#include "rtapi_errno.h"
-#include "rtapi_string.h"
+#include <rtapi_errno.h>
+#include <rtapi_string.h>
 
 /* module information */
 MODULE_AUTHOR("John Kasunich");
@@ -167,6 +167,7 @@ void rtapi_app_exit(void)
 
 static void update(void *arg, long period)
 {
+    (void)period;
     streamer_t *str;
     pin_data_t *pptr;
     int n, doclk;
@@ -346,8 +347,7 @@ static int init_streamer(int num, streamer_t *str)
 	pptr++;
     }
     /* export update function */
-    rtapi_snprintf(buf, sizeof(buf), "streamer.%d", num);
-    retval = hal_export_funct(buf, update, str, usefp, 0, comp_id);
+    retval = hal_export_functf(update, str, usefp, 0, comp_id, "streamer.%d", num);
     if (retval != 0) {
 	rtapi_print_msg(RTAPI_MSG_ERR,
 	    "STREAMER: ERROR: function export failed\n");

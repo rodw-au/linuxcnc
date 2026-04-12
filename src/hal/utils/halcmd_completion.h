@@ -2,7 +2,7 @@
  * Copyright (C) 2003 John Kasunich
  *                     <jmkasunich AT users DOT sourceforge DOT net>
  *
- *  Other contributers:
+ *  Other contributors:
  *                     Martin Kuhnle
  *                     <mkuhnle AT users DOT sourceforge DOT net>
  *                     Alex Joni
@@ -41,8 +41,8 @@
 #define HALCMD_COMPLETION_H
 
 #include <stdio.h>
-#include <readline/readline.h>
-#include <readline/history.h>
+#include <editline/readline.h>
+#include <histedit.h>
 
 extern int comp_id;
 extern void halcmd_init_readline();

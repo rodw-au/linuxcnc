@@ -29,9 +29,9 @@
 *
 ********************************************************************/
 
-#include "rtapi.h"		/* RTAPI realtime OS API */
-#include "rtapi_app.h"		/* RTAPI realtime module decls */
-#include "hal.h"		/* HAL public API decls */
+#include <rtapi.h>		/* RTAPI realtime OS API */
+#include <rtapi_app.h>		/* RTAPI realtime module decls */
+#include <hal.h>		/* HAL public API decls */
 
 #define MAX_SUMMERS	8
 
@@ -171,6 +171,7 @@ void rtapi_app_exit(void)
 */
 static void process_wsums(void *arg, long period)
 {
+    (void)period;
     wsum_t *wsums, *thissum;
     int n, b, running_total;
 

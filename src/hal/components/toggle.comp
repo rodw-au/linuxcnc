@@ -1,11 +1,26 @@
 component toggle "'push-on, push-off' from momentary pushbuttons";
+
+description
+"""
+....
+     ┐     ┌──┐        ┌──┐
+in : └─────┘  └────────┘  └──
+
+     ┐     ┌───────────┐
+out: └─────┘           └─────
+....
+
+""";
+
 pin in bit in "button input";
 pin io bit out "on/off output";
 param rw u32 debounce = 2 "debounce delay in periods";
 option data toggle_data;
+option period no;
 
-function _ nofp;
+function _;
 license "GPL";
+author "John Kasunich";
 ;;
 
 typedef struct {
@@ -22,7 +37,7 @@ FUNCTION(_) {
     if ( in ) {
 	/* pressed */
 	data.debounce_cntr++;
-	if ( data.debounce_cntr >= debounce ) {
+	if ( data.debounce_cntr >= (int)debounce ) {
 	    data.debounce_cntr = debounce;
 	    if ( data.debounced == 0 ) {
 		/* toggle output */

@@ -46,13 +46,9 @@
     of HAL pin compname.my-led 
 """
 
-from __future__ import print_function
 import sys
-if sys.version_info[0] == 3:
-    import tkinter as Tkinter
-    from tkinter import *
-else:
-    from Tkinter import *
+import tkinter as Tkinter
+from tkinter import *
 from hal import *
 import math
 import bwidget
@@ -100,7 +96,7 @@ class pyvcp_dial(Canvas):
     """
     # FIXME:
     # -jogging should be enabled only when the circle has focus
-    #   TJP nocando:   only widgets have events, not thier 'items', the circle is an item
+    #   TJP nocando:   only widgets have events, not their 'items', the circle is an item
     
     # -circle should maintain focus when mouse over dot
     #   TJP nocando:   ditto, the circle is an item, so focus & event are not aligned to it
@@ -169,8 +165,8 @@ class pyvcp_dial(Canvas):
             self.title=self.create_text([self.mid,self.mid-self.txtroom],
                         text=text,font=('Arial',-self.txtroom))
         # the output
-        self.dro=self.create_text([self.mid,self.mid],
-                        text=str(self.out),font=('Arial',-self.txtroom))
+        self.dro=self.create_text([self.mid,self.mid],font=('Arial',-self.txtroom))
+        self.update_dro()
         # the scale
         self.delta=self.create_text([self.mid,self.mid+self.txtroom], 
                         text='x '+ str(self.funit),font=('Arial',-self.txtroom))
@@ -202,12 +198,11 @@ class pyvcp_dial(Canvas):
             halpin = "dial."+str(pyvcp_dial.n)+".out"
         self.halpin=halpin            
 
+        self.param_pin = param_pin
         if halparam == None:
-            self.param_pin = param_pin
-            if self.param_pin == 1:
-                halparam = "dial." + str(pyvcp_dial.n) + ".param_pin"
-                self.halparam=halparam        
-                pycomp.newpin(halparam, HAL_FLOAT, HAL_IN)
+            halparam = "dial." + str(pyvcp_dial.n) + ".param_pin"
+        self.halparam=halparam        
+        pycomp.newpin(halparam, HAL_FLOAT, HAL_IN)
 
         pyvcp_dial.n += 1
         self.pycomp=pycomp
@@ -313,7 +308,8 @@ class pyvcp_dial(Canvas):
                             self.mid+(self.r*1.1)*math.sin(self.alfa))  
 
     def update_dro(self):
-        valtext = str(self.out)
+        decimals = max(0,len(str(self.funit)) -2)
+        valtext = "{{:.{}f}}".format(decimals).format(self.out)
         self.itemconfig(self.dro,text=valtext)
 
     def update_scale(self):
@@ -523,7 +519,7 @@ class pyvcp_jogwheel(Canvas):
         #TJP items get rendered in order of creation, so the knob will be behind these texts
         #TJP the font can be described with pixel size by using negative value
 
-        self.txtroom=size/10
+        self.txtroom=int(size/10)
         # a title, if the user has supplied one
         if text!=None:
             self.title=self.create_text([self.mid,self.mid-self.txtroom],
@@ -982,12 +978,12 @@ class pyvcp_spinbox(Spinbox):
             
         self.halpin=halpin
 
-        if halparam == None:
-            self.param_pin = param_pin
-            if self.param_pin == 1:
+        self.param_pin = param_pin
+        if self.param_pin == 1:
+            if halparam == None:
                 halparam = "spinbox." + str(pyvcp_spinbox.n) + ".param_pin"
-                self.halparam=halparam
-                pycomp.newpin(halparam, HAL_FLOAT, HAL_IN)
+            self.halparam=halparam
+            pycomp.newpin(halparam, HAL_FLOAT, HAL_IN)
 
         pyvcp_spinbox.n += 1
         
@@ -1089,7 +1085,7 @@ class pyvcp_u32(Label):
             halpin = "number."+str(pyvcp_number.n)
             pyvcp_number.n += 1
         self.halpin=halpin
-        self.value=0.0
+        self.value=int(0.0)
         dummy = "%(b)"+self.format
         self.v.set( str( dummy  % {'b':self.value} ) )
         pycomp.newpin(halpin, HAL_U32, HAL_IN)
@@ -1113,7 +1109,7 @@ class pyvcp_s32(Label):
             halpin = "number."+str(pyvcp_number.n)
             pyvcp_number.n += 1
         self.halpin=halpin
-        self.value=0.0
+        self.value=int(0.0)
         dummy = "%(b)"+self.format
         self.v.set( str( dummy  % {'b':self.value} ) )
         pycomp.newpin(halpin, HAL_S32, HAL_IN)
@@ -1250,7 +1246,7 @@ class pyvcp_bar(Canvas):
         start=tmp[0]
         end=tmp[1]
         self.bar=self.create_rectangle(start,2,end,self.bh-1)
-        # default fill unless overriden
+        # default fill unless overridden
         self.itemconfig(self.bar,fill=fillcolor)
 
         # start text
@@ -1563,12 +1559,12 @@ class pyvcp_scale(Scale):
             halpin = "scale."+str(pyvcp_scale.n)
         self.halpin=halpin
 
-        if halparam == None:
-            self.param_pin = param_pin
-            if self.param_pin == 1:
+        self.param_pin = param_pin
+        if self.param_pin == 1:
+            if halparam == None:
                 halparam = "scale."+str(pyvcp_scale.n)+".param_pin"
-                self.halparam=halparam        
-                pycomp.newpin(halparam, HAL_FLOAT, HAL_IN)
+            self.halparam=halparam        
+            pycomp.newpin(halparam, HAL_FLOAT, HAL_IN)
 
         pyvcp_scale.n += 1       
         

@@ -19,12 +19,12 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 
-#include "emc.hh"
-#include "rcs_print.hh"
+#include "nml_intf/emc.hh"
+#include "libnml/rcs/rcs_print.hh"
 #include "emcIniFile.hh"
 #include "inijoint.hh"		// these decls
-#include "emcglb.h"		// EMC_DEBUG
-#include "emccfg.h"		// default values for globals
+#include "nml_intf/emcglb.h"		// EMC_DEBUG
+#include "nml_intf/emccfg.h"		// default values for globals
 
 #include "inihal.hh"
 
@@ -32,7 +32,7 @@ extern value_inihal_data old_inihal_data;
 /*
   loadJoint(int joint)
 
-  Loads ini file params for joint, joint = 0, ...
+  Loads INI file params for joint, joint = 0, ...
 
   TYPE <LINEAR ANGULAR>        type of joint
   MAX_VELOCITY <float>         max vel for joint
@@ -73,7 +73,6 @@ extern value_inihal_data old_inihal_data;
 static int loadJoint(int joint, EmcIniFile *jointIniFile)
 {
     char jointString[16];
-    const char *inistring;
     EmcJointType jointType;
     double units;
     double backlash;
@@ -94,6 +93,7 @@ static int loadJoint(int joint, EmcIniFile *jointIniFile)
     int comp_file_type; //type for the compensation file. type==0 means nom, forw, rev. 
     double maxVelocity;
     double maxAcceleration;
+    double maxJerk;
     double ferror;
 
     // compose string to match, joint = 0 -> JOINT_0, etc.
@@ -182,7 +182,7 @@ static int loadJoint(int joint, EmcIniFile *jointIniFile)
         ignore_limits = false;	        // default
         jointIniFile->Find(&ignore_limits, "HOME_IGNORE_LIMITS", jointString);
 
-        sequence = 999;// default: use unrealizable and postive sequence no.
+        sequence = 999;// default: use unrealizable and positive sequence no.
                        // so that joints with unspecified HOME_SEQUENCE=
                        // will not be homed in home-all
         jointIniFile->Find(&sequence, "HOME_SEQUENCE", jointString);
@@ -224,10 +224,18 @@ static int loadJoint(int joint, EmcIniFile *jointIniFile)
         }
         old_inihal_data.joint_max_acceleration[joint] = maxAcceleration;
 
+        maxJerk = DEFAULT_JOINT_MAX_JERK;
+        jointIniFile->Find(&maxJerk, "MAX_JERK", jointString);
+        if (0 != emcJointSetMaxJerk(joint, maxJerk)) {
+            return -1;
+        }
+        old_inihal_data.joint_jerk[joint] = maxJerk;
+
         comp_file_type = 0;             // default
         jointIniFile->Find(&comp_file_type, "COMP_FILE_TYPE", jointString);
-        if (NULL != (inistring = jointIniFile->Find("COMP_FILE", jointString))) {
-            if (0 != emcJointLoadComp(joint, inistring, comp_file_type)) {
+        auto comp_file = jointIniFile->Find("COMP_FILE", jointString);
+        if (comp_file) {
+            if (0 != emcJointLoadComp(joint, comp_file->c_str(), comp_file_type)) {
                 return -1;
             }
         }
@@ -250,7 +258,7 @@ static int loadJoint(int joint, EmcIniFile *jointIniFile)
 /*
   iniJoint(int joint, const char *filename)
 
-  Loads ini file parameters for specified joint
+  Loads INI file parameters for specified joint
 
   Looks for [KINS]JOINTS for how many to do, up to EMC_JOINT_MAX.
  */

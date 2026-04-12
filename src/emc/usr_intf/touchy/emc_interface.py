@@ -97,7 +97,6 @@ class emc_control:
                 self.emccommand.home(joint)
 
         def unhome_selected(self, axis):
-                print(axis)
                 if self.masked: return
                 self.emccommand.mode(self.emc.MODE_MANUAL)
                 self.emccommand.teleop_enable(0)
@@ -408,7 +407,7 @@ class emc_status:
                 set_text(self.status['file'], self.emcstat.file)
                 set_text(self.status['file_lines'], "%d" % len(self.listing.program))
                 set_text(self.status['line'], "%d" % self.emcstat.current_line)
-                set_text(self.status['id'], "%d" % self.emcstat.id)
+                set_text(self.status['id'], "%d" % self.emcstat.motion_id)
                 set_text(self.status['dtg'], "%.4f" % self.emcstat.distance_to_go)
                 set_text(self.status['velocity'], "%.4f" % (self.emcstat.current_vel * 60.0))
                 set_text(self.status['delay'], "%.2f" % self.emcstat.delay_left)
@@ -452,7 +451,11 @@ class emc_status:
                         
                 
                 set_text(self.status['xyrotation'], "%d" % self.emcstat.rotation_xy)
-                set_text(self.status['tlo'], "%.4f" % self.emcstat.tool_offset[2])
+
+                if lathe:
+                    set_text(self.status['tlo'], "X:%.4f Z:%.4f" % (self.emcstat.tool_offset[0], self.emcstat.tool_offset[2]))
+                else:
+                    set_text(self.status['tlo'], "%.4f" % self.emcstat.tool_offset[2])
 
                 cs = self.emcstat.g5x_index
                 if cs<7:
@@ -503,16 +506,16 @@ class emc_status:
                 set_active(self.blockdel['off'], not self.emcstat.block_delete)
                 
 
-                if self.emcstat.id == 0 and (self.emcstat.interp_state == self.emc.INTERP_PAUSED or self.emcstat.exec_state == self.emc.EXEC_WAITING_FOR_DELAY):
+                if self.emcstat.motion_id == 0 and (self.emcstat.interp_state == self.emc.INTERP_PAUSED or self.emcstat.exec_state == self.emc.EXEC_WAITING_FOR_DELAY):
                         self.listing.highlight_line(self.emcstat.current_line)
-                elif self.emcstat.id == 0:
+                elif self.emcstat.motion_id == 0:
                         self.listing.highlight_line(self.emcstat.motion_line)
                 else:
-                        self.listing.highlight_line(self.emcstat.id or self.emcstat.motion_line)
+                        self.listing.highlight_line(self.emcstat.motion_id or self.emcstat.motion_line)
 
                 e = self.emcerror.poll()
                 if e:
                         kind, text = e
-                        set_text(self.error, text)
+                        set_text(self.error, text[:80])
 
                 

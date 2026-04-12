@@ -13,21 +13,24 @@
 #ifndef INTERP_INTERNAL_HH
 #define INTERP_INTERNAL_HH
 
+#include <locale.h>
 #include <algorithm>
-#include "config.h"
+#include <linuxcnc.h>
 #include <limits.h>
 #include <stdio.h>
 #include <set>
 #include <map>
 #include <bitset>
-#include "canon.hh"
-#include "emcpos.h"
+#include "nml_intf/canon.hh"
+#include <emcpos.h>
 #include "libintl.h"
 #include <boost/python/object_fwd.hpp>
 #include <cmath>
+#include <rtapi_string.h>	// rtapi_strlcpy()
 #include "interp_parameter_def.hh"
 #include "interp_fwd.hh"
 #include "interp_base.hh"
+#include "tooldata/tooldata.hh"
 
 
 #define _(s) gettext(s)
@@ -48,23 +51,16 @@ inline int round_to_int(T x) {
     return (int)std::nearbyint(x);
 }
 
-/* how far above hole bottom for rapid return, in inches */
-#define G83_RAPID_DELTA 0.010
-
 /* nested remap: a remapped code is found in the body of a subroutine
  * which is executing on behalf of another remapped code
- * example: a user G code command executes a tool change
+ * example: a user G-code command executes a tool change
  */
 #define MAX_NESTED_REMAPS 10
-
-// English - Metric conversion (long number keeps error buildup down)
-#define MM_PER_INCH 25.4
-//#define INCH_PER_MM 0.039370078740157477
 
 /* numerical constants */
 
 /*****************************************************************************
-The default tolerance (if none tighter is specified in the ini file) should be:
+The default tolerance (if none tighter is specified in the INI file) should be:
 2 * 0.001 * sqrt(2) for inch, and 2 * 0.01 * sqrt(2) for mm.
 This would mean that any valid arc where the endpoints and/or centerpoint
 got rounded or truncated to 0.001 inch or 0.01 mm precision would be accepted.
@@ -89,8 +85,8 @@ Tighter tolerance down to a minimum of 1 micron +- also accepted.
 #define SPIRAL_RELATIVE_TOLERANCE 0.001
 
 /* angle threshold for concavity for cutter compensation, in radians */
-#define TOLERANCE_CONCAVE_CORNER 0.05  
-#define TOLERANCE_EQUAL 0.0001 /* two numbers compare EQ if the
+#define TOLERANCE_CONCAVE_CORNER 0.05
+#define TOLERANCE_EQUAL 1e-6 /* two numbers compare EQ if the
 				  difference is less than this */
 
 static inline bool equal(double a, double b)
@@ -104,7 +100,7 @@ static inline bool equal(double a, double b)
 #define MAX_EMS  4
 
 // feed_mode
-enum FEED_MODE {
+enum class FEED_MODE {
     UNITS_PER_MINUTE=0,
     INVERSE_TIME=1,
     UNITS_PER_REVOLUTION=2
@@ -112,13 +108,14 @@ enum FEED_MODE {
 
 // cutter radius compensation mode, 0 or false means none
 // not using CANON_SIDE since interpreter handles cutter radius comp
-enum CUTTER_COMP_DIRECTION {
+enum class CUTTER_COMP {
+    OFF = 0,
     RIGHT = 1,
     LEFT = 2,
 };
 
 // spindle control modes
-enum SPINDLE_MODE {
+enum class SPINDLE_MODE {
     CONSTANT_RPM,
     CONSTANT_SURFACE
 };
@@ -195,7 +192,7 @@ enum OCodes
     O_ = 18,
 };
 
-// G Codes are symbolic to be dialect-independent in source code
+// G-codes are symbolic to be dialect-independent in source code
 enum GCodes
 {
     G_0 = 0,
@@ -207,6 +204,10 @@ enum GCodes
     G_5_1 = 51,
     G_5_2 = 52,
     G_5_3 = 53,
+    G_6	= 60,
+    G_6_1 = 61,
+    G_6_2 = 62,
+    G_6_3 = 63,
     G_7 = 70,
     G_8 = 80,
     G_10 = 100,
@@ -309,14 +310,14 @@ std::string toString(GCodes g);
 /**********************/
 
 /* distance_mode */
-enum DISTANCE_MODE
+enum class DISTANCE_MODE
 {
-    MODE_ABSOLUTE,
-    MODE_INCREMENTAL,
+    ABSOLUTE,
+    INCREMENTAL,
 };
 
 /* retract_mode for cycles */
-enum RETRACT_MODE
+enum class RETRACT_MODE
 {
     R_PLANE,
     OLD_Z,
@@ -426,83 +427,82 @@ typedef int_remap_map::iterator int_remap_iterator;
 
 struct block_struct
 {
-  block_struct ();
+  char comment[256]{};
+  double a_number{};
+  double b_number{};
+  double c_number{};
+  double d_number_float{};
+  double e_number{};
+  double f_number{};
+  int h_number{};
+  double i_number{};
+  double j_number{};
+  double k_number{};
+  int l_number{};
+  int n_number{};
+  double p_number{};
+  double q_number{};
+  double r_number{};
+  double s_number{};
+  int t_number{};
+  double u_number{};
+  double v_number{};
+  double w_number{};
+  double x_number{};
+  double y_number{};
+  double z_number{};
 
-  bool a_flag;
-  double a_number;
-  bool b_flag;
-  double b_number;
-  bool c_flag;
-  double c_number;
-  char comment[256];
-  double d_number_float;
-  bool d_flag;
-  int dollar_number;
-  bool dollar_flag;
-  bool e_flag;
-  double e_number;
-  bool f_flag;
-  double f_number;
+  int line_number{};
+  int saved_line_number{};  // value of sequence_number when a remap was encountered
+  int motion_to_be{};
+  int m_count{};
+  int m_modes[11]{};
+  int user_m{};
+  int dollar_number{};
+  int g_modes[GM_MAX_MODAL_GROUPS]{};
 
-  int g_modes[GM_MAX_MODAL_GROUPS];
+  bool a_flag{};
+  bool b_flag{};
+  bool c_flag{};
+  bool d_flag{};
+  bool e_flag{};
+  bool f_flag{};
+  bool h_flag{};
+  bool i_flag{};
+  bool j_flag{};
+  bool k_flag{};
+  bool l_flag{};
+  bool p_flag{};
+  bool q_flag{};
+  bool r_flag{};
+  bool s_flag{};
+  bool t_flag{};
+  bool u_flag{};
+  bool v_flag{};
+  bool w_flag{};
+  bool x_flag{};
+  bool y_flag{};
+  bool z_flag{};
 
-  bool h_flag;
-  int h_number;
-  bool i_flag;
-  double i_number;
-  bool j_flag;
-  double j_number;
-  bool k_flag;
-  double k_number;
-  int l_number;
-  bool l_flag;
-  int line_number;
-  int saved_line_number;  // value of sequence_number when a remap was encountered
-  int n_number;
-  int motion_to_be;
-  int m_count;
-  int m_modes[11];
-  int user_m;
-  double p_number;
-  bool p_flag;
-  double q_number;
-  bool q_flag;
-  bool r_flag;
-  double r_number;
-  bool s_flag;
-  double s_number;
-  bool t_flag;
-  int t_number;
-  bool u_flag;
-  double u_number;
-  bool v_flag;
-  double v_number;
-  bool w_flag;
-  double w_number;
-  bool x_flag;
-  double x_number;
-  bool y_flag;
-  double y_number;
-  bool z_flag;
-  double z_number;
+  bool dollar_flag{};
 
-  int radius_flag;
-  double radius;
-  int theta_flag;
-  double theta;
+  double radius{};
+  double theta{};
+  int radius_flag{};
+  int theta_flag{};
 
   // control (o-word) stuff
-  long     offset;   // start of line in file
-  int      o_type;
-  int      call_type; // oword-sub, python oword-sub, remap
-  const char    *o_name;   // !!!KL be sure to free this
-  double   params[INTERP_SUB_PARAMS];
-  int param_cnt;
+  long     offset{};   // start of line in file
+  int      o_type{};
+  int      call_type{}; // oword-sub, python oword-sub, remap
+  const char    *o_name{};   // !!!KL be sure to free this
+  double   params[INTERP_SUB_PARAMS]{};
+  int param_cnt{};
 
   // bitmap of phases already executed
   // we have some 31 or so different steps in a block. We must remember
   // which one is done when we reexecute a block after a remap.
-  std::bitset<MAX_STEPS>  breadcrumbs;
+  std::bitset<MAX_STEPS>  breadcrumbs{};
 
 #define TICKOFF(step) block->breadcrumbs[step] = 1
 #define TODO(step) (block->breadcrumbs[step] == 0)
@@ -511,16 +511,16 @@ struct block_struct
 
 
     // there might be several remapped items in a block, but at any point
-    // in time there's only one excuting
+    // in time there's only one executing
     // conceptually blocks[1..n] are also the 'remap frames'
-    remap_pointer executing_remap; // refers to config descriptor
-    std::set<int> remappings; // all remappings in this block (enum phases)
-    int phase; // current remap execution phase
+    remap_pointer executing_remap{}; // refers to config descriptor
+    std::set<int> remappings{}; // all remappings in this block (enum phases)
+    int phase{}; // current remap execution phase
 
     // the strategy to get the builtin behaviour of a code in a remap procedure is as follows:
     // if recursion is detected in find_remappings() (called by parse_line()), that *step* 
     // (roughly the modal group) is NOT added to the set of remapped steps in a block (block->remappings)
-    // in the convert_* procedures we test if the step is remapped with the macro below, and wether
+    // in the convert_* procedures we test if the step is remapped with the macro below, and whether
     // it is the current code which is remapped (IS_USER_MCODE, IS_USER_GCODE etc). If both
     // are true, we execute the remap procedure; if not, use the builtin code.
 #define STEP_REMAPPED_IN_BLOCK(bp, step) (bp->remappings.find(step) != bp->remappings.end())
@@ -528,8 +528,8 @@ struct block_struct
     // true if in a remap procedure the code being remapped was
     // referenced, which caused execution of the builtin semantics
     // reason for recording the fact: this permits an epilog to do the
-    // right thing depending on wether the builtin was used or not.
-    bool builtin_used; 
+    // right thing depending on whether the builtin was used or not.
+    bool builtin_used{};
 };
 
 // indicates which type of Python handler yielded, and needs reexecution
@@ -567,7 +567,7 @@ typedef parameter_map::iterator parameter_map_iterator;
 #define PA_GLOBAL	2
 #define PA_UNSET	4
 #define PA_USE_LOOKUP	8   // use lookup_named_param() to retrieve value
-#define PA_FROM_INI	16  // a variable of the form '_[section]value' was retrieved from the ini file
+#define PA_FROM_INI	16  // a variable of the form '_[section]value' was retrieved from the INI file
 #define PA_PYTHON	32  // call namedparams.<varname>() to retrieve the value
 
 // optional 3rd arg to store_named_param()
@@ -576,7 +576,7 @@ typedef parameter_map::iterator parameter_map_iterator;
 
 #define MAX_REMAPOPTS 20
 // current implementation limits - legal modal groups
-// for M and G codes
+// for M- and G-codes
 #define M_MODE_OK(m) ((m > 3) && (m < 11))
 #define G_MODE_OK(m) (m == 1)
 
@@ -601,8 +601,8 @@ struct context_struct {
     double saved_params[INTERP_SUB_PARAMS];
     parameter_map named_params;
     unsigned char context_status;		// see CONTEXT_ defines below
-    int saved_g_codes[ACTIVE_G_CODES];  // array of active G codes
-    int saved_m_codes[ACTIVE_M_CODES];  // array of active M codes
+    int saved_g_codes[ACTIVE_G_CODES];  // array of active G-codes
+    int saved_m_codes[ACTIVE_M_CODES];  // array of active M-codes
     double saved_settings[ACTIVE_SETTINGS];     // array of feed, speed, etc.
     int call_type; // enum call_types
     pycontext pystuff;
@@ -640,13 +640,17 @@ and is not represented here
 
 */
 #define STACK_LEN 50
-#define STACK_ENTRY_LEN 80
+#define STACK_ENTRY_LEN 256
 #define MAX_SUB_DIRS 10
 
 struct setup
 {
   setup();
   ~setup();
+
+  // Not copyable
+  setup(const setup&) = delete;
+  setup& operator= (const setup&) = delete;
 
   double AA_axis_offset;        // A-axis g92 offset
   double AA_current;            // current A-axis position
@@ -662,8 +666,8 @@ struct setup
   double v_axis_offset, v_current, v_origin_offset;
   double w_axis_offset, w_current, w_origin_offset;
 
-  int active_g_codes[ACTIVE_G_CODES];  // array of active G codes
-  int active_m_codes[ACTIVE_M_CODES];  // array of active M codes
+  int active_g_codes[ACTIVE_G_CODES];  // array of active G-codes
+  int active_m_codes[ACTIVE_M_CODES];  // array of active M-codes
   double active_settings[ACTIVE_SETTINGS];     // array of feed, speed, etc.
   StateTag state_tag;
 
@@ -685,13 +689,15 @@ struct setup
   CANON_MOTION_MODE control_mode;       // exact path or cutting mode
     double tolerance;           // G64 blending tolerance
     double naivecam_tolerance;  // G64 naive cam tolerance
-  int current_pocket;             // carousel slot number of current tool
+    double tolerance_default;   // G64 P Default value, -1 to disable
+    double naivecam_tolerance_default; // G64 Q Default Value, -1 to disable 
+  int current_pocket;             // carousel slot (index) number of current tool
   double current_x;             // current X-axis position
   double current_y;             // current Y-axis position
   double current_z;             // current Z-axis position
   double cutter_comp_radius;    // current cutter compensation radius
   int cutter_comp_orientation;  // current cutter compensation tool orientation
-  int cutter_comp_side;         // current cutter compensation side
+  CUTTER_COMP cutter_comp_side;         // current cutter compensation side
   double cycle_cc;              // cc-value (normal) for canned cycles
   double cycle_i;               // i-value for canned cycles
   double cycle_j;               // j-value for canned cycles
@@ -704,7 +710,7 @@ struct setup
   int cycle_il_flag;            // il is currently valid because we're in a series of cycles
   DISTANCE_MODE distance_mode;  // absolute or incremental
   DISTANCE_MODE ijk_distance_mode;  // absolute or incremental for IJK in arcs
-  int feed_mode;                // G_93 (inverse time) or G_94 units/min
+  FEED_MODE feed_mode;                // G_93 (inverse time) or G_94 units/min
   bool feed_override;         // whether feed override is enabled
   double feed_rate;             // feed rate in current units/min
   double arc_radius;			// arc radius
@@ -716,8 +722,8 @@ struct setup
   FILE *file_pointer;           // file pointer for open NC code file
   bool flood;                 // whether flood coolant is on
   CANON_UNITS length_units;     // millimeters or inches
-  double center_arc_radius_tolerance_inch; // modify with ini setting
-  double center_arc_radius_tolerance_mm;   // modify with ini setting
+  double center_arc_radius_tolerance_inch; // modify with INI setting
+  double center_arc_radius_tolerance_mm;   // modify with INI setting
   int line_length;              // length of line last read
   char linetext[LINELEN];       // text of most recent line read
   bool mist;                  // whether mist coolant is on
@@ -747,23 +753,23 @@ struct setup
   double program_z;             // program y, used when cutter comp on
   RETRACT_MODE retract_mode;    // for cycles, old_z or r_plane
   int random_toolchanger;       // tool changer swaps pockets, and pocket 0 is the spindle instead of "no tool"
-  int selected_pocket;          // tool slot selected but not active
+  int selected_pocket;          // tool slot (index) selected but not active
     int selected_tool;          // start switchover to pocket-agnostic interp
   int sequence_number;          // sequence number of line last read
   int num_spindles;				// number of spindles available
   int active_spindle;			// the spindle currently used for CSS, FPR etc.
   double speed[EMCMOT_MAX_SPINDLES];// array of spindle speeds
-  SPINDLE_MODE spindle_mode[EMCMOT_MAX_SPINDLES];// CONSTANT_RPM or CONSTANT_SURFACE
+  SPINDLE_MODE spindle_mode[EMCMOT_MAX_SPINDLES];// SPINDLE_MODE::CONSTANT_RPM or SPINDLE_MODE::CONSTANT_SURFACE
   CANON_SPEED_FEED_MODE speed_feed_mode;        // independent or synched
   bool speed_override[EMCMOT_MAX_SPINDLES];        // whether speed override is enabled
   CANON_DIRECTION spindle_turning[EMCMOT_MAX_SPINDLES];  // direction spindle is turning
   char stack[STACK_LEN][STACK_ENTRY_LEN];      // stack of calls for error reporting
   int stack_index;              // index into the stack
   EmcPose tool_offset;          // tool length offset
-  int pockets_max;                 // number of pockets in carousel (including pocket 0, the spindle)
   CANON_TOOL_TABLE tool_table[CANON_POCKETS_MAX];      // index is pocket number
   double traverse_rate;         // rate for traverse motions
   double orient_offset;         // added to M19 R word, from [RS274NGC]ORIENT_OFFSET
+  bool g43_with_zero_offset;    // added to allow active G43 with tool offset values all zero
 
   /* stuff for subroutines and control structures */
   int defining_sub;                  // true if in a subroutine defn
@@ -779,13 +785,13 @@ struct setup
   int value_returned;                // the last NGC procedure did/did not return a value
   int call_level;                    // current subroutine level
   context sub_context[INTERP_SUB_ROUTINE_LEVELS];
-  int call_state;                  //  enum call_states - inidicate Py handler reexecution
+  int call_state;                  //  enum call_states - indicate Py handler reexecution
   offset_map_type offset_map;      // store label x name, file, line
 
   bool adaptive_feed;              // adaptive feed is enabled
   bool feed_hold;                  // feed hold is enabled
   int loggingLevel;                  // 0 means logging is off
-  int debugmask;                     // from ini  EMC/DEBUG
+  int debugmask;                     // from INI EMC/DEBUG
   char log_file[PATH_MAX];
   char program_prefix[PATH_MAX];            // program directory
   const char *subroutines[MAX_SUB_DIRS];  // subroutines directories
@@ -796,6 +802,8 @@ struct setup
   int tool_change_at_g30;
   int tool_change_quill_up;
   int tool_change_with_spindle_on;
+  double parameter_g73_peck_clearance;
+  double parameter_g83_peck_clearance;
   int a_axis_wrapped;
   int b_axis_wrapped;
   int c_axis_wrapped;
@@ -868,7 +876,7 @@ macros totally crash-proof. If the function call stack is deeper than
     do {                                                   \
         setError (fmt, ## __VA_ARGS__);                    \
         _setup.stack_index = 0;                            \
-        (strncpy(_setup.stack[_setup.stack_index], __PRETTY_FUNCTION__, STACK_ENTRY_LEN)); \
+        (rtapi_strlcpy(_setup.stack[_setup.stack_index], __PRETTY_FUNCTION__, STACK_ENTRY_LEN)); \
         _setup.stack[_setup.stack_index][STACK_ENTRY_LEN-1] = 0; \
         _setup.stack_index++; \
         _setup.stack[_setup.stack_index][0] = 0;           \
@@ -879,7 +887,7 @@ macros totally crash-proof. If the function call stack is deeper than
     do {                                                   \
         setError (fmt, ## __VA_ARGS__);                    \
         _setup.stack_index = 0;                            \
-        (strncpy(_setup.stack[_setup.stack_index], __PRETTY_FUNCTION__, STACK_ENTRY_LEN)); \
+        (rtapi_strlcpy(_setup.stack[_setup.stack_index], __PRETTY_FUNCTION__, STACK_ENTRY_LEN)); \
         _setup.stack[_setup.stack_index][STACK_ENTRY_LEN-1] = 0; \
         _setup.stack_index++; \
         _setup.stack[_setup.stack_index][0] = 0;           \
@@ -890,7 +898,7 @@ macros totally crash-proof. If the function call stack is deeper than
 #define ERN(error_code)                                    \
     do {                                                   \
         _setup.stack_index = 0;                            \
-        (strncpy(_setup.stack[_setup.stack_index], __PRETTY_FUNCTION__, STACK_ENTRY_LEN)); \
+        (rtapi_strlcpy(_setup.stack[_setup.stack_index], __PRETTY_FUNCTION__, STACK_ENTRY_LEN)); \
         _setup.stack[_setup.stack_index][STACK_ENTRY_LEN-1] = 0; \
         _setup.stack_index++; \
         _setup.stack[_setup.stack_index][0] = 0;           \
@@ -902,7 +910,7 @@ macros totally crash-proof. If the function call stack is deeper than
 #define ERP(error_code)                                        \
     do {                                                       \
         if (_setup.stack_index < STACK_LEN - 1) {                         \
-            (strncpy(_setup.stack[_setup.stack_index], __PRETTY_FUNCTION__, STACK_ENTRY_LEN)); \
+            (rtapi_strlcpy(_setup.stack[_setup.stack_index], __PRETTY_FUNCTION__, STACK_ENTRY_LEN)); \
             _setup.stack[_setup.stack_index][STACK_ENTRY_LEN-1] = 0;    \
             _setup.stack_index++;                                       \
             _setup.stack[_setup.stack_index][0] = 0;           \
@@ -996,5 +1004,14 @@ macros totally crash-proof. If the function call stack is deeper than
        CHP(call); \
      }
 
+;
 
+struct scoped_locale {
+    scoped_locale(int category_, const char *locale_) : category(category_), oldlocale(setlocale(category, NULL)) { setlocale(category, locale_); }
+    ~scoped_locale() { setlocale(category, oldlocale.c_str()); }
+    int category;
+    std::string oldlocale;
+};
+
+#define FORCE_LC_NUMERIC_C scoped_locale force_lc_numeric_c(LC_NUMERIC, "C")
 #endif // INTERP_INTERNAL_HH

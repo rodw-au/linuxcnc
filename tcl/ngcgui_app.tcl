@@ -1,3 +1,4 @@
+#!/usr/bin/tclsh
 # read ini items, source ngcgui.tcl, create axis tabs
 # provide tcl package Ngcgui
 
@@ -47,7 +48,7 @@ from axis.py (LinuxCNC 2.5) or"] \[DISPLAY\]USER_COMMAND_FILE (LinuxCNC 2.4)"
     # this can occur due to obsolete USER_COMMAND_FILE
     puts "[_ "Unexpected: multiple startups for ngcgui"] <$ngcgui>"
     puts "\n[_ LinuxCNC version"] = $::version"
-    puts "[_ "for linuxCNC 2.5.xxx, Do not include tkapp.py in the ini file"]\n"
+    puts "[_ "for LinuxCNC 2.5.xxx, Do not include tkapp.py in the ini file"]\n"
     return -code error "[_ "Unexpected: multiple startups for ngcgui"] <$ngcgui>"
   }
 

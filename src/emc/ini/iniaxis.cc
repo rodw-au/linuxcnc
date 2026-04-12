@@ -21,12 +21,12 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 
-#include "emc.hh"
-#include "rcs_print.hh"
+#include "nml_intf/emc.hh"
+#include "libnml/rcs/rcs_print.hh"
 #include "emcIniFile.hh"
 #include "iniaxis.hh"		// these decls
-#include "emcglb.h"		// EMC_DEBUG
-#include "emccfg.h"		// default values for globals
+#include "nml_intf/emcglb.h"		// EMC_DEBUG
+#include "nml_intf/emccfg.h"		// default values for globals
 
 #include "inihal.hh"
 
@@ -39,7 +39,7 @@ double ext_offset_a_or_v_ratio[EMCMOT_MAX_AXIS]; // all zero
 /*
   loadAxis(int axis)
 
-  Loads ini file params for axis, axis = X, Y, Z, A, B, C, U, V, W 
+  Loads INI file params for axis, axis = X, Y, Z, A, B, C, U, V, W 
 
   TYPE <LINEAR ANGULAR>        type of axis (hardcoded: X,Y,Z,U,V,W: LINEAR, A,B,C: ANGULAR)
   MAX_VELOCITY <float>         max vel for axis
@@ -62,6 +62,7 @@ static int loadAxis(int axis, EmcIniFile *axisIniFile)
     double maxVelocity;
     double maxAcceleration;
     int    lockingjnum = -1; // -1 ==> locking joint not used
+    double maxJerk;
 
     // compose string to match, axis = 0 -> AXIS_X etc.
     switch (axis) {
@@ -149,6 +150,16 @@ static int loadAxis(int axis, EmcIniFile *axisIniFile)
             }
             return -1;
         }
+        
+        maxJerk = DEFAULT_AXIS_MAX_JERK;
+        axisIniFile->Find(&maxJerk, "MAX_JERK", axisString);
+        if (0 != emcAxisSetMaxJerk(axis, maxJerk)) {
+            if (emc_debug & EMC_DEBUG_CONFIG) {
+                rcs_print_error("bad return from emcAxisSetMaxJerk\n");
+            }
+            return -1;
+        }
+        old_inihal_data.axis_jerk[axis] = maxJerk;
     }
 
 
@@ -163,7 +174,7 @@ static int loadAxis(int axis, EmcIniFile *axisIniFile)
 /*
   iniAxis(int axis, const char *filename)
 
-  Loads ini file parameters for specified axis, [0 .. AXES - 1]
+  Loads INI file parameters for specified axis, [0 .. AXES - 1]
 
  */
 int iniAxis(int axis, const char *filename)

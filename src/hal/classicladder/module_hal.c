@@ -24,10 +24,10 @@
    Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 */
 
-#include "rtapi.h"
-#include "rtapi_app.h"
-#include "rtapi_errno.h"
-#include "hal.h"
+#include <rtapi.h>
+#include <rtapi_app.h>
+#include <rtapi_errno.h>
+#include <hal.h>
 
 #include "classicladder.h"
 #include "global.h"
@@ -133,6 +133,7 @@ void HalWriteFloatOutputs(void) {
 // and HAL pins take (it is displayed in the 'section display' GUI (in microseconds). 
 
 static void hal_task(void *arg, long period) {
+	(void)arg;
 	unsigned long t0, t1,milliseconds;
 	static unsigned long leftover=0;
 	leftover += period;

@@ -2,18 +2,18 @@
 * Description: cms_up.hh
 *   This C++ header file defines the abstract CMS_UPDATER class
 *   that defines the interface used by CMS to convert between local
-*   machine-specific data representations and network machine-independant
-*   represantations such as XDR via the derived classes of CMS_UPDATER.
+*   machine-specific data representations and network machine-independent
+*   representations such as XDR via the derived classes of CMS_UPDATER.
 *
 *   Derived from a work by Fred Proctor & Will Shackleford
 *
 * Author:
 * License: LGPL Version 2
 * System: Linux
-*    
+*
 * Copyright (c) 2004 All rights reserved.
 *
-* Last change: 
+* Last change:
 ********************************************************************/
 
 #ifndef CMS_UP_HH
@@ -39,25 +39,25 @@ struct CMS_POINTER_TABLE_ENTRY {
 class CMS_UPDATER {
   public:
     virtual CMS_STATUS update(bool &x) = 0;
-    virtual CMS_STATUS update(char &x) = 0;
-    virtual CMS_STATUS update(unsigned char &x) = 0;
-    virtual CMS_STATUS update(short int &x) = 0;
-    virtual CMS_STATUS update(unsigned short int &x) = 0;
-    virtual CMS_STATUS update(int &x) = 0;
-    virtual CMS_STATUS update(unsigned int &x) = 0;
-    virtual CMS_STATUS update(long int &x) = 0;
-    virtual CMS_STATUS update(unsigned long int &x) = 0;
+    virtual CMS_STATUS update(int8_t &x) = 0;
+    virtual CMS_STATUS update(uint8_t &x) = 0;
+    virtual CMS_STATUS update(int16_t &x) = 0;
+    virtual CMS_STATUS update(uint16_t &x) = 0;
+    virtual CMS_STATUS update(int32_t &x) = 0;
+    virtual CMS_STATUS update(uint32_t &x) = 0;
+    virtual CMS_STATUS update(int64_t &x) = 0;
+    virtual CMS_STATUS update(uint64_t &x) = 0;
     virtual CMS_STATUS update(float &x) = 0;
     virtual CMS_STATUS update(double &x) = 0;
     virtual CMS_STATUS update(long double &x) = 0;
-    virtual CMS_STATUS update(char *x, unsigned int len) = 0;
-    virtual CMS_STATUS update(unsigned char *x, unsigned int len) = 0;
-    virtual CMS_STATUS update(short *x, unsigned int len) = 0;
-    virtual CMS_STATUS update(unsigned short *x, unsigned int len) = 0;
-    virtual CMS_STATUS update(int *x, unsigned int len) = 0;
-    virtual CMS_STATUS update(unsigned int *x, unsigned int len) = 0;
-    virtual CMS_STATUS update(long *x, unsigned int len) = 0;
-    virtual CMS_STATUS update(unsigned long *x, unsigned int len) = 0;
+    virtual CMS_STATUS update(int8_t *x, unsigned int len) = 0;
+    virtual CMS_STATUS update(uint8_t *x, unsigned int len) = 0;
+    virtual CMS_STATUS update(int16_t *x, unsigned int len) = 0;
+    virtual CMS_STATUS update(uint16_t *x, unsigned int len) = 0;
+    virtual CMS_STATUS update(int32_t *x, unsigned int len) = 0;
+    virtual CMS_STATUS update(uint32_t *x, unsigned int len) = 0;
+    virtual CMS_STATUS update(int64_t *x, unsigned int len) = 0;
+    virtual CMS_STATUS update(uint64_t *x, unsigned int len) = 0;
     virtual CMS_STATUS update(float *x, unsigned int len) = 0;
     virtual CMS_STATUS update(double *x, unsigned int len) = 0;
     virtual CMS_STATUS update(long double *x, unsigned int len) = 0;
@@ -67,6 +67,7 @@ class CMS_UPDATER {
 						   header.size */
     virtual int set_mode(CMS_UPDATER_MODE);
     virtual CMS_UPDATER_MODE get_mode();
+    // cppcheck-suppress virtualCallInConstructor
     virtual void set_encoded_data(void *, long _encoded_data_size);
 
   protected:

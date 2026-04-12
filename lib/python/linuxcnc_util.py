@@ -44,7 +44,6 @@ class LinuxCNC:
         while time.time() - start_time < timeout:
             self.status.poll()
             if (self.status.angular_units == 0.0) \
-                or (self.status.axes == 0) \
                 or (self.status.axis_mask == 0) \
                 or (self.status.cycle_time == 0.0) \
                 or (self.status.exec_state != linuxcnc.EXEC_DONE) \
@@ -55,7 +54,7 @@ class LinuxCNC:
                 or (self.status.max_velocity == 0.0) \
                 or (self.status.program_units == 0.0) \
                 or (self.status.rapidrate == 0.0) \
-                or (self.status.state != linuxcnc.STATE_ESTOP) \
+                or (self.status.state != linuxcnc.RCS_DONE) \
                 or (self.status.task_state != linuxcnc.STATE_ESTOP):
                 time.sleep(0.1)
             else:
@@ -192,7 +191,7 @@ class LinuxCNC:
             if i == axis_index:
                 continue;
             if start_pos[i] != self.status.position[i]:
-                raise LinuxCNC_Exception("axis %s moved from %.3f to %.3f but shouldnt have!" % ('xyzabcuvw'[i], start_pos[i], self.status.position[i]))
+                raise LinuxCNC_Exception("axis %s moved from %.3f to %.3f but should not have!" % ('xyzabcuvw'[i], start_pos[i], self.status.position[i]))
 
 
     def wait_for_axis_to_stop_at(self, axis_letter, target, timeout=10.0, tolerance = 0.0001):
@@ -268,7 +267,7 @@ class LinuxCNC:
             the spindle.
 
             'timeout', float, the number of seconds to wait for the
-            specfied tool to show up in the spindle.
+            specified tool to show up in the spindle.
 
         This function polls the LinuxCNC Status buffer, waiting for the
         specified tool to appear in the spindle.  If the timeout expires

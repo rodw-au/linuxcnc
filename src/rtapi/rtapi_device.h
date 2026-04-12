@@ -13,8 +13,8 @@
 //    You should have received a copy of the GNU General Public License
 //    along with this program; if not, write to the Free Software
 //    Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
-#ifndef RTAPI_DEVICE_H
-#define RTAPI_DEVICE_H
+#ifndef __LINUXCNC_RTAPI_DEVICE_H
+#define __LINUXCNC_RTAPI_DEVICE_H
 
 #ifdef __KERNEL__
 #include <linux/device.h>
@@ -57,7 +57,7 @@ rtapi_dev_set_name(struct rtapi_device *dev, const char *name, ...)
 }
 
 
-static __inline__ int rtapi_device_register(struct rtapi_device *dev) {return 0;}
+static __inline__ int rtapi_device_register(struct rtapi_device *dev) { (void)dev; return 0;}
 static __inline__ void rtapi_device_unregister(struct rtapi_device *dev) { dev->release(dev); };
 
 RTAPI_END_DECLS

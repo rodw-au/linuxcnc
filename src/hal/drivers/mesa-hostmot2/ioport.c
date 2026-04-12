@@ -19,13 +19,13 @@
 
 #include <rtapi_slab.h>
 
-#include "rtapi.h"
-#include "rtapi_string.h"
-#include "rtapi_math.h"
+#include <rtapi.h>
+#include <rtapi_string.h>
+#include <rtapi_math.h>
 
-#include "hal.h"
+#include <hal.h>
 
-#include "hal/drivers/mesa-hostmot2/hostmot2.h"
+#include "hostmot2.h"
 
 
 
@@ -202,10 +202,26 @@ void hm2_ioport_cleanup(hostmot2_t *hm2) {
 
 static int do_alias(const char *orig_base, const char *alias_base,
         const char *suffix, int (*funct)(const char *, const char *)) {
+    size_t ob = strlen(orig_base);
+    size_t ab = strlen(alias_base);
+    size_t sf = strlen(suffix);
+    if(ob + sf >= HAL_NAME_LEN) {
+        HM2_ERR_NO_LL("ioport: do_alias(): HAL name too long '%s%s' (orig_base(%zu) + suffix(%zu) >= %u\n",
+                        orig_base, suffix, ob, sf, HAL_NAME_LEN);
+        return -ENOMEM;
+    }
+    if(ab + sf >= HAL_NAME_LEN) {
+        HM2_ERR_NO_LL("ioport: do_alias(): HAL name too long '%s%s' (alias_base(%zu) + suffix(%zu) >= %u\n",
+                        alias_base, suffix, ab, sf, HAL_NAME_LEN);
+        return -ENOMEM;
+    }
     char orig_name[HAL_NAME_LEN];
     char alias_name[HAL_NAME_LEN];
-    snprintf(orig_name, sizeof(orig_name), "%s%s", orig_base, suffix);
-    snprintf(alias_name, sizeof(alias_name), "%s%s", alias_base, suffix);
+    // We know the sizes and know it fits. Using strcpy should be fine.
+    strcpy(orig_name, orig_base);
+    strcpy(orig_name + ob, suffix);
+    strcpy(alias_name, alias_base);
+    strcpy(alias_name + ab, suffix);
     return funct(orig_name, alias_name);
 }
 
@@ -458,10 +474,9 @@ static void hm2_ioport_force_write_open_drain(hostmot2_t *hm2) {
 
 void hm2_ioport_initialize_ddr(hostmot2_t *hm2) {
     int port;
-    int port_pin;
 
     for (port = 0; port < hm2->ioport.num_instances; port ++) {
-        for (port_pin = 0; port_pin < hm2->idrom.port_width; port_pin ++) {
+        for (unsigned port_pin = 0; port_pin < hm2->idrom.port_width; port_pin ++) {
             int io_pin = (port * hm2->idrom.port_width) + port_pin;
             hm2->pin[io_pin].direction = hm2->pin[io_pin].direction_at_start;
         }
@@ -471,10 +486,9 @@ void hm2_ioport_initialize_ddr(hostmot2_t *hm2) {
 
 void hm2_ioport_update(hostmot2_t *hm2) {
     int port;
-    int port_pin;
 
     for (port = 0; port < hm2->ioport.num_instances; port ++) {
-        for (port_pin = 0; port_pin < hm2->idrom.port_width; port_pin ++) {
+        for (unsigned port_pin = 0; port_pin < hm2->idrom.port_width; port_pin ++) {
             int io_pin = (port * hm2->idrom.port_width) + port_pin;
 
             if (hm2->pin[io_pin].gtag == HM2_GTAG_IOPORT) {
@@ -504,7 +518,7 @@ void hm2_ioport_update(hostmot2_t *hm2) {
             } else {
                 hm2->ioport.open_drain_reg[port] &= ~(1 << port_pin);  // clear the bit in the open drain register
                 hm2->ioport.ddr_reg[port] &= ~(1 << port_pin);  // clear the bit in the ddr register
-                // it doesnt matter what the Invert Output register says
+                // it doesn't matter what the Invert Output register says
             }
         }
     }
@@ -516,11 +530,12 @@ void hm2_ioport_force_write(hostmot2_t *hm2) {
 
     hm2_ioport_update(hm2);
 
-    hm2_ioport_force_write_ddr(hm2);
     hm2_ioport_force_write_output_invert(hm2);
     hm2_ioport_force_write_open_drain(hm2);
-
     hm2->llio->write(hm2->llio, hm2->ioport.alt_source_addr,    hm2->ioport.alt_source_reg,    size);
+// write the DDR last to avoid startup glitches.
+    hm2_ioport_force_write_ddr(hm2);
+
 }
 
 
@@ -528,13 +543,6 @@ void hm2_ioport_write(hostmot2_t *hm2) {
     int port;
 
     hm2_ioport_update(hm2);
-
-    for (port = 0; port < hm2->ioport.num_instances; port ++) {
-        if (hm2->ioport.written_ddr[port] != hm2->ioport.ddr_reg[port]) {
-            hm2_ioport_force_write_ddr(hm2);
-            break;
-        }
-    }
 
     for (port = 0; port < hm2->ioport.num_instances; port ++) {
         if (hm2->ioport.written_open_drain[port] != hm2->ioport.open_drain_reg[port]) {
@@ -546,6 +554,13 @@ void hm2_ioport_write(hostmot2_t *hm2) {
     for (port = 0; port < hm2->ioport.num_instances; port ++) {
         if (hm2->ioport.written_output_invert[port] != hm2->ioport.output_invert_reg[port]) {
             hm2_ioport_force_write_output_invert(hm2);
+            break;
+        }
+    }
+// write the DDR last to avoid startup glitches.
+    for (port = 0; port < hm2->ioport.num_instances; port ++) {
+        if (hm2->ioport.written_ddr[port] != hm2->ioport.ddr_reg[port]) {
+            hm2_ioport_force_write_ddr(hm2);
             break;
         }
     }
@@ -575,14 +590,13 @@ void hm2_ioport_gpio_tram_write_init(hostmot2_t *hm2) {
 
 void hm2_ioport_gpio_process_tram_read(hostmot2_t *hm2) {
     int port;
-    int port_pin;
 
     // 
     // parse it out to the HAL pins
     //
 
     for (port = 0; port < hm2->ioport.num_instances; port ++) {
-        for (port_pin = 0; port_pin < hm2->idrom.port_width; port_pin ++) {
+        for (unsigned port_pin = 0; port_pin < hm2->idrom.port_width; port_pin ++) {
             int io_pin = (port * hm2->idrom.port_width) + port_pin;
             hal_bit_t bit;
 
@@ -603,14 +617,13 @@ void hm2_ioport_gpio_process_tram_read(hostmot2_t *hm2) {
 
 void hm2_ioport_gpio_prepare_tram_write(hostmot2_t *hm2) {
     int port;
-    int port_pin;
 
     //
     // copy HAL pins to HM2 pins
     //
 
     for (port = 0; port < hm2->ioport.num_instances; port ++) {
-        for (port_pin = 0; port_pin < hm2->idrom.port_width; port_pin ++) {
+        for (unsigned port_pin = 0; port_pin < hm2->idrom.port_width; port_pin ++) {
             int io_pin = (port * hm2->idrom.port_width) + port_pin;
 
             if (hm2->pin[io_pin].gtag != HM2_GTAG_IOPORT) continue;
@@ -625,7 +638,6 @@ void hm2_ioport_gpio_prepare_tram_write(hostmot2_t *hm2) {
 
 void hm2_ioport_gpio_read(hostmot2_t *hm2) {
     int port;
-    int port_pin;
 
     // this should never happen - what's an AnyIO board without IO?
     if (hm2->ioport.num_instances <= 0) return;
@@ -640,7 +652,7 @@ void hm2_ioport_gpio_read(hostmot2_t *hm2) {
 
     // FIXME: this block duplicates code in hm2_ioport_gpio_process_tram_read()
     for (port = 0; port < hm2->ioport.num_instances; port ++) {
-        for (port_pin = 0; port_pin < hm2->idrom.port_width; port_pin ++) {
+        for (unsigned port_pin = 0; port_pin < hm2->idrom.port_width; port_pin ++) {
             int io_pin = (port * hm2->idrom.port_width) + port_pin;
             hal_bit_t bit;
 
@@ -656,7 +668,6 @@ void hm2_ioport_gpio_read(hostmot2_t *hm2) {
 
 void hm2_ioport_gpio_write(hostmot2_t *hm2) {
     int port;
-    int port_pin;
 
     // this should never happen - what's an AnyIO board without IO?
     if (hm2->ioport.num_instances <= 0) return;
@@ -665,7 +676,7 @@ void hm2_ioport_gpio_write(hostmot2_t *hm2) {
 
     // FIXME: this block duplicates code in hm2_ioport_gpio_prepare_tram_write()
     for (port = 0; port < hm2->ioport.num_instances; port ++) {
-        for (port_pin = 0; port_pin < hm2->idrom.port_width; port_pin ++) {
+        for (unsigned port_pin = 0; port_pin < hm2->idrom.port_width; port_pin ++) {
             int io_pin = (port * hm2->idrom.port_width) + port_pin;
 
             if (hm2->pin[io_pin].gtag != HM2_GTAG_IOPORT) continue;

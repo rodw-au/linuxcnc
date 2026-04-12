@@ -16,6 +16,7 @@
  */
 
 #include "config.h"
+#include <linuxcnc.h>
 
 #ifdef __linux__
 #include <sys/fsuid.h>
@@ -29,7 +30,6 @@
 #include <errno.h>
 #include <dlfcn.h>
 #include <signal.h>
-#include <iostream>
 #include <vector>
 #include <string>
 #include <map>
@@ -38,7 +38,6 @@
 #include <time.h>
 #include <stdlib.h>
 #include <stdio.h>
-#include <errno.h>
 #ifdef HAVE_SYS_IO_H
 #include <sys/io.h>
 #endif
@@ -52,17 +51,14 @@
 #include <pthread_np.h>
 #endif
 
-#include "config.h"
+#include <boost/lockfree/queue.hpp>
 
 #include "rtapi.h"
-#include "hal.h"
+#include <hal.h>
 #include "hal/hal_priv.h"
 #include "rtapi_uspace.hh"
 
-#include <string.h>
-#include <boost/lockfree/queue.hpp>
-
-std::atomic<int> WithRoot::level;
+std::atomic_int WithRoot::level;
 static uid_t euid, ruid;
 
 #include "rtapi/uspace_common.h"
@@ -83,9 +79,6 @@ WithRoot::~WithRoot() {
     }
 }
 
-extern "C"
-int rtapi_is_realtime();
-
 namespace
 {
 RtapiApp &App();
@@ -98,8 +91,27 @@ struct message_t {
 boost::lockfree::queue<message_t, boost::lockfree::capacity<128>>
 rtapi_msg_queue;
 
+static void set_namef(const char *fmt, ...) {
+    char *buf = NULL;
+    va_list ap;
+
+    va_start(ap, fmt);
+    if (vasprintf(&buf, fmt, ap) < 0) {
+        va_end(ap);
+        return;
+    }
+    va_end(ap);
+
+    int res = pthread_setname_np(pthread_self(), buf);
+    if (res) {
+        fprintf(stderr, "pthread_setname_np() failed for %s: %d\n", buf, res);
+    }
+    free(buf);
+}
+
 pthread_t queue_thread;
-void *queue_function(void *arg) {
+void *queue_function(void * /*arg*/) {
+    set_namef("rtapi_app:mesg");
     // note: can't use anything in this function that requires App() to exist
     // but it's OK to use functions that aren't safe for realtime (that's the
     // point of running this in a thread)
@@ -134,7 +146,7 @@ static std::map<string, void*> modules;
 static int instance_count = 0;
 static int force_exit = 0;
 
-static int do_newinst_cmd(string type, string name, string arg) {
+static int do_newinst_cmd(const string& type, const string& name, const string& arg) {
     void *module = modules["hal_lib"];
     if(!module) {
         rtapi_print_msg(RTAPI_MSG_ERR,
@@ -258,7 +270,7 @@ static int do_comp_args(void *module, vector<string> args) {
     return 0;
 }
 
-static int do_load_cmd(string name, vector<string> args) {
+static int do_load_cmd(const string& name, const vector<string>& args) {
     void *w = modules[name];
     if(w == NULL) {
         char what[LINELEN+1];
@@ -302,7 +314,7 @@ static int do_load_cmd(string name, vector<string> args) {
     }
 }
 
-static int do_unload_cmd(string name) {
+static int do_unload_cmd(const string& name) {
     void *w = modules[name];
     if(w == NULL) {
         rtapi_print_msg(RTAPI_MSG_ERR, "%s: not loaded\n", name.c_str());
@@ -315,6 +327,21 @@ static int do_unload_cmd(string name) {
         instance_count --;
     }
     return 0;
+}
+
+static int do_debug_cmd(const string& value) {
+    try{
+        int new_level = stoi(value);
+        if (new_level < 0 || new_level > 5){
+            rtapi_print_msg(RTAPI_MSG_ERR, "Debug level must be >=0 and <= 5\n");
+            return -EINVAL;
+        }
+        return rtapi_set_msg_level(new_level);
+    }catch(invalid_argument &e){
+        //stoi will throw an exception if parsing is not possible
+        rtapi_print_msg(RTAPI_MSG_ERR, "Debug level is not a number\n");
+        return -EINVAL;
+    }
 }
 
 struct ReadError : std::exception {};
@@ -335,14 +362,21 @@ static int read_number(int fd) {
 
 static string read_string(int fd) {
     int len = read_number(fd);
-    char buf[len];
-    if(read(fd, buf, len) != len) throw ReadError();
-    return string(buf, len);
+    if(len < 0)
+        throw ReadError();
+    if(!len)
+        return string();
+    string str(len, 0);
+    if(read(fd, str.data(), len) != len)
+        throw ReadError();
+    return str;
 }
 
 static vector<string> read_strings(int fd) {
     vector<string> result;
     int count = read_number(fd);
+    if(count < 0)
+        return result;
     for(int i=0; i<count; i++) {
         result.push_back(read_string(fd));
     }
@@ -355,12 +389,12 @@ static void write_number(string &buf, int num) {
     buf = buf + numbuf;
 }
 
-static void write_string(string &buf, string s) {
+static void write_string(string &buf, const string& s) {
     write_number(buf, s.size());
     buf += s;
 }
 
-static void write_strings(int fd, vector<string> strings) {
+static void write_strings(int fd, const vector<string>& strings) {
     string buf;
     write_number(buf, strings.size());
     for(unsigned int i=0; i<strings.size(); i++) {
@@ -384,6 +418,8 @@ static int handle_command(vector<string> args) {
         return do_newinst_cmd(args[1], args[2], "");
     } else if(args.size() == 4 && args[0] == "newinst") {
         return do_newinst_cmd(args[1], args[2], args[3]);
+    } else if(args.size() == 2 && args[0] == "debug") {
+        return do_debug_cmd(args[1]);
     } else {
         rtapi_print_msg(RTAPI_MSG_ERR,
                 "Unrecognized command starting with %s\n",
@@ -392,7 +428,7 @@ static int handle_command(vector<string> args) {
     }
 }
 
-static int slave(int fd, vector<string> args) {
+static int slave(int fd, const vector<string>& args) {
     try {
         write_strings(fd, args);
     }
@@ -438,15 +474,17 @@ static int callback(int fd)
 
 static pthread_t main_thread{};
 
-static int master(int fd, vector<string> args) {
+static int master(int fd, const vector<string>& args) {
     main_thread = pthread_self();
-    if(pthread_create(&queue_thread, nullptr, &queue_function, nullptr) < 0) {
+    int result;
+    if((result = pthread_create(&queue_thread, nullptr, &queue_function, nullptr)) != 0) {
+        errno = result;
         perror("pthread_create (queue function)");
         return -1;
     }
-    do_load_cmd("hal_lib", vector<string>()); instance_count = 0;
+    do_load_cmd("hal_lib", vector<string>());
+    instance_count = 0;
     App(); // force rtapi_app to be created
-    int result=0;
     if(args.size()) {
         result = handle_command(args);
         if(result != 0) goto out;
@@ -491,10 +529,11 @@ get_fifo_path() {
 
 static int
 get_fifo_path(char *buf, size_t bufsize) {
+	int len;
     const char *s = get_fifo_path();
     if(!s) return -1;
-    strncpy(buf, s, bufsize);
-    return 0;
+    len=snprintf(buf+1, bufsize-1, "%s", s);
+    return len;
 }
 
 int main(int argc, char **argv) {
@@ -503,20 +542,23 @@ int main(int argc, char **argv) {
         int fallback_uid = fallback_uid_str ? atoi(fallback_uid_str) : 0;
         if(fallback_uid == 0)
         {
+	    // Cppcheck cannot see EMC2_BIN_DIR when RTAPI is defined, but that
+	    // doesn't happen in uspace.
             fprintf(stderr,
                 "Refusing to run as root without fallback UID specified\n"
                 "To run under a debugger with I/O, use e.g.,\n"
+                // cppcheck-suppress unknownMacro
                 "    sudo env RTAPI_UID=`id -u` RTAPI_FIFO_PATH=$HOME/.rtapi_fifo gdb " EMC2_BIN_DIR "/rtapi_app\n");
             exit(1);
         }
-        setreuid(fallback_uid, 0);
+        if (setreuid(fallback_uid, 0) != 0) { perror("setreuid"); abort(); }
         fprintf(stderr,
             "Running with fallback_uid.  getuid()=%d geteuid()=%d\n",
             getuid(), geteuid());
     }
     ruid = getuid();
     euid = geteuid();
-    setresuid(euid, euid, ruid);
+    if (setresuid(euid, euid, ruid) != 0) { perror("setresuid"); abort(); }
 #ifdef __linux__
     setfsuid(ruid);
 #endif
@@ -524,37 +566,40 @@ int main(int argc, char **argv) {
     for(int i=1; i<argc; i++) { args.push_back(string(argv[i])); }
 
 become_master:
+    int len=0;
     int fd = socket(PF_UNIX, SOCK_STREAM, 0);
     if(fd == -1) { perror("socket"); exit(1); }
 
     int enable = 1;
     setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &enable, sizeof(enable));
     struct sockaddr_un addr;
+	memset(&addr, 0x0, sizeof(addr));
     addr.sun_family = AF_UNIX;
-    if(get_fifo_path(addr.sun_path, sizeof(addr.sun_path)) < 0)
+    if((len=get_fifo_path(addr.sun_path, sizeof(addr.sun_path))) < 0)
        exit(1);
-    int result = ::bind(fd, (sockaddr*)&addr, sizeof(addr));
+	
+	// plus one because we use the abstract namespace, it will show up in
+	// /proc/net/unix prefixed with an @
+    int result = ::bind(fd, (sockaddr*)&addr, len+sizeof(addr.sun_family)+1); 
 
     if(result == 0) {
         int result = listen(fd, 10);
         if(result != 0) { perror("listen"); exit(1); }
         setsid(); // create a new session if we can...
         result = master(fd, args);
-        unlink(get_fifo_path());
         return result;
     } else if(errno == EADDRINUSE) {
         struct timeval t0, t1;
         gettimeofday(&t0, NULL);
         gettimeofday(&t1, NULL);
         for(int i=0; i < 3 || (t1.tv_sec < 3 + t0.tv_sec) ; i++) {
-            result = connect(fd, (sockaddr*)&addr, sizeof(addr));
+            result = connect(fd, (sockaddr*)&addr, len+sizeof(addr.sun_family)+1);
             if(result == 0) break;
             if(i==0) srand48(t0.tv_sec ^ t0.tv_usec);
             usleep(lrand48() % 100000);
             gettimeofday(&t1, NULL);
         }
         if(result < 0 && errno == ECONNREFUSED) {
-            unlink(get_fifo_path());
             fprintf(stderr, "Waited 3 seconds for master.  giving up.\n");
             close(fd);
             goto become_master;
@@ -581,9 +626,11 @@ struct rtapi_module {
 #define MODULE_OFFSET 32768
 
 rtapi_task::rtapi_task()
-    : magic{}, id{}, owner{}, stacksize{}, prio{},
+    : magic{}, id{}, owner{}, uses_fp{}, stacksize{}, prio{},
       period{}, nextstart{},
-      ratio{}, arg{}, taskcode{}
+      ratio{}, pll_correction{}, pll_correction_limit{},
+      arg{}, taskcode{}
+
 {}
 
 namespace
@@ -600,8 +647,9 @@ struct Posix : RtapiApp
 {
     Posix(int policy = SCHED_FIFO) : RtapiApp(policy), do_thread_lock(policy != SCHED_FIFO) {
         pthread_once(&key_once, init_key);
-        if(do_thread_lock)
-            pthread_mutex_init(&thread_lock, 0);
+        if(do_thread_lock) {
+            pthread_once(&lock_once, init_lock);
+        }
     }
     int task_delete(int id);
     int task_start(int task_id, unsigned long period_nsec);
@@ -619,12 +667,17 @@ struct Posix : RtapiApp
     int run_threads(int fd, int (*callback)(int fd));
     static void *wrapper(void *arg);
     bool do_thread_lock;
-    pthread_mutex_t thread_lock;
 
     static pthread_once_t key_once;
     static pthread_key_t key;
     static void init_key(void) {
         pthread_key_create(&key, NULL);
+    }
+
+    static pthread_once_t lock_once;
+    static pthread_mutex_t thread_lock;
+    static void init_lock(void) {
+        pthread_mutex_init(&thread_lock, NULL);
     }
 
     long long do_get_time(void) {
@@ -636,7 +689,7 @@ struct Posix : RtapiApp
     void do_delay(long ns);
 };
 
-static void signal_handler(int sig, siginfo_t *si, void *uctx)
+static void signal_handler(int sig, siginfo_t * /*si*/, void * /*uctx*/)
 {
     switch (sig) {
     case SIGXCPU:
@@ -657,7 +710,9 @@ static void signal_handler(int sig, siginfo_t *si, void *uctx)
                         "rtapi_app: caught signal %d - dumping core\n", sig);
         sleep(1); // let syslog drain
         signal(sig, SIG_DFL);
-        raise(sig);
+        // for reasons unknown raise(sig); doesn't lead to core dump file
+        // but this will
+        kill(getpid(), sig);
         break;
     }
     exit(1);
@@ -685,7 +740,22 @@ static void configure_memory()
                   "mallopt(M_MMAP_MAX, -1) failed\n");
     }
 #endif
-    char *buf = static_cast<char *>(malloc(PRE_ALLOC_SIZE));
+    /*
+     * The following code seems pointless, but there is a non-observable effect
+     * in the allocation and loop.
+     *
+     * The malloc() is forced to set brk() because mmap() allocation is
+     * disabled in a call to mallopt() above. All touched pages become resident
+     * and locked in the loop because of above mlockall() call (see notes in
+     * mlockall(2)). The mallopt() trim setting prevents the brk() from being
+     * reduced after free(), effectively creating an open space for future
+     * allocations that will not generate page faults.
+     *
+     * The qualifier 'volatile' on the buffer pointer is required because newer
+     * clang would remove the malloc(), for()-loop and free() completely.
+     * Marking 'buf' volatile ensures that the code will remain in place.
+     */
+    volatile char *buf = static_cast<volatile char *>(malloc(PRE_ALLOC_SIZE));
     if (buf == NULL) {
         rtapi_print_msg(RTAPI_MSG_WARN, "malloc(PRE_ALLOC_SIZE) failed\n");
         return;
@@ -698,7 +768,7 @@ static void configure_memory()
              * memory and never given back to the system. */
             buf[i] = 0;
     }
-    free(buf);
+    free((void *)buf);
 }
 
 static int harden_rt()
@@ -709,9 +779,11 @@ static int harden_rt()
 #if defined(__linux__) && (defined(__x86_64__) || defined(__i386__))
     if (iopl(3) < 0) {
         rtapi_print_msg(RTAPI_MSG_ERR,
+                        "iopl() failed: %s\n"
                         "cannot gain I/O privileges - "
-                        "forgot 'sudo make setuid'?\n");
-        return -EPERM;
+                        "forgot 'sudo make setuid' or using secure boot? -"
+                        "parallel port access is not allowed\n",
+                        strerror(errno));
     }
 #endif
 
@@ -729,7 +801,7 @@ static int harden_rt()
     // enable core dumps
     if (setrlimit(RLIMIT_CORE, &unlimited) < 0)
 	rtapi_print_msg(RTAPI_MSG_WARN,
-		  "setrlimit: %s - core dumps may be truncated or non-existant\n",
+		  "setrlimit: %s - core dumps may be truncated or non-existent\n",
 		  strerror(errno));
 
     // even when setuid root
@@ -783,7 +855,10 @@ static RtapiApp *makeApp()
     }
     WithRoot r;
     void *dll = nullptr;
-    if(detect_xenomai()) {
+    if(detect_xenomai_evl()) {
+        dll = dlopen(EMC2_HOME "/lib/libuspace-xenomai-evl.so.0", RTLD_NOW);
+        if(!dll) fprintf(stderr, "dlopen: %s\n", dlerror());
+    }else if(detect_xenomai()) {
         dll = dlopen(EMC2_HOME "/lib/libuspace-xenomai.so.0", RTLD_NOW);
         if(!dll) fprintf(stderr, "dlopen: %s\n", dlerror());
     } else if(detect_rtai()) {
@@ -814,37 +889,60 @@ struct rtapi_task *task_array[MAX_TASKS];
 
 /* Priority functions.  Uspace uses POSIX task priorities. */
 
-int RtapiApp::prio_highest()
+int RtapiApp::prio_highest() const
 {
     return sched_get_priority_max(policy);
 }
 
-int RtapiApp::prio_lowest()
+int RtapiApp::prio_lowest() const
 {
   return sched_get_priority_min(policy);
 }
 
-int RtapiApp::prio_next_higher(int prio)
-{
-  /* return a valid priority for out of range arg */
-  if (prio >= rtapi_prio_highest())
-    return rtapi_prio_highest();
-  if (prio < rtapi_prio_lowest())
-    return rtapi_prio_lowest();
-
-  /* return next higher priority for in-range arg */
-  return prio + 1;
+int RtapiApp::prio_higher_delta() const {
+    if(rtapi_prio_highest() > rtapi_prio_lowest()) {
+        return 1;
+    }
+    return -1;
 }
 
-int RtapiApp::prio_next_lower(int prio)
+int RtapiApp::prio_bound(int prio) const {
+    if(rtapi_prio_highest() > rtapi_prio_lowest()) {
+        if (prio >= rtapi_prio_highest())
+            return rtapi_prio_highest();
+        if (prio < rtapi_prio_lowest())
+            return rtapi_prio_lowest();
+    } else {
+        if (prio <= rtapi_prio_highest())
+            return rtapi_prio_highest();
+        if (prio > rtapi_prio_lowest())
+            return rtapi_prio_lowest();
+    }
+    return prio;
+}
+
+bool RtapiApp::prio_check(int prio) const {
+    if(rtapi_prio_highest() > rtapi_prio_lowest()) {
+        return (prio <= rtapi_prio_highest()) && (prio >= rtapi_prio_lowest());
+    } else {
+        return (prio <= rtapi_prio_lowest()) && (prio >= rtapi_prio_highest());
+    }
+}
+
+int RtapiApp::prio_next_higher(int prio) const
 {
-  /* return a valid priority for out of range arg */
-  if (prio <= rtapi_prio_lowest())
-    return rtapi_prio_lowest();
-  if (prio > rtapi_prio_highest())
-    return rtapi_prio_highest();
-  /* return next lower priority for in-range arg */
-  return prio - 1;
+    prio = prio_bound(prio);
+    if(prio != rtapi_prio_highest())
+        return prio + prio_higher_delta();
+    return prio;
+}
+
+int RtapiApp::prio_next_lower(int prio) const
+{
+    prio = prio_bound(prio);
+    if(prio != rtapi_prio_lowest())
+        return prio - prio_higher_delta();
+    return prio;
 }
 
 int RtapiApp::allocate_task_id()
@@ -859,10 +957,12 @@ int RtapiApp::allocate_task_id()
 }
 
 int RtapiApp::task_new(void (*taskcode) (void*), void *arg,
-        int prio, int owner, unsigned long int stacksize, int uses_fp) {
+        int prio, int owner, unsigned long int stacksize, int /*uses_fp*/) {
   /* check requested priority */
-  if ((prio > rtapi_prio_highest()) || (prio < rtapi_prio_lowest()))
+  if (!prio_check(prio))
   {
+    rtapi_print_msg(RTAPI_MSG_ERR,"rtapi:task_new prio is not in bound lowest %i prio %i highest %i\n",
+        rtapi_prio_lowest(), prio, rtapi_prio_highest());
     return -EINVAL;
   }
 
@@ -874,7 +974,8 @@ int RtapiApp::task_new(void (*taskcode) (void*), void *arg,
   if(stacksize < (1024*1024)) stacksize = (1024*1024);
   task->id = n;
   task->owner = owner;
-  task->uses_fp = uses_fp;
+  /* uses_fp is deprecated and ignored; always save FPU state */
+  task->uses_fp = 1;
   task->arg = arg;
   task->stacksize = stacksize;
   task->taskcode = taskcode;
@@ -897,7 +998,7 @@ rtapi_task *RtapiApp::get_task(int task_id) {
     return task;
 }
 
-void RtapiApp::unexpected_realtime_delay(rtapi_task *task, int nperiod) {
+void RtapiApp::unexpected_realtime_delay(rtapi_task *task, int /*nperiod*/) {
     static int printed = 0;
     if(!printed)
     {
@@ -923,47 +1024,71 @@ int Posix::task_delete(int id)
   return 0;
 }
 
-static int find_rt_cpu_number() {
+//parse_cpu_list from https://gitlab.com/Xenomai/xenomai4/libevl/-/blob/11e6a1fb183a315ae861762e7650fd5e10d83ff5/tests/helpers.c
+//License: MIT
+static void parse_cpu_list(const char *path, cpu_set_t *cpuset)
+{
+    char *p, *range, *range_p = NULL, *id, *id_r;
+    int start, end, cpu;
+    char buf[BUFSIZ];
+    FILE *fp;
+
+    CPU_ZERO(cpuset);
+
+    fp = fopen(path, "r");
+    if (fp == NULL)
+        return;
+
+    if (!fgets(buf, sizeof(buf), fp))
+        goto out;
+
+    p = buf;
+    while ((range = strtok_r(p, ",", &range_p)) != NULL) {
+        if (*range == '\0' || *range == '\n')
+            goto next;
+        end = -1;
+        id = strtok_r(range, "-", &id_r);
+        if (id) {
+            start = atoi(id);
+            id = strtok_r(NULL, "-", &id_r);
+            if (id)
+                end = atoi(id);
+            else if (end < 0)
+                end = start;
+            for (cpu = start; cpu <= end; cpu++)
+                CPU_SET(cpu, cpuset);
+        }
+    next:
+        p = NULL;
+    }
+out:
+    fclose(fp);
+}
+
+int find_rt_cpu_number() {
     if(getenv("RTAPI_CPU_NUMBER")) return atoi(getenv("RTAPI_CPU_NUMBER"));
 
 #ifdef __linux__
-    cpu_set_t cpuset_orig;
-    int r = sched_getaffinity(getpid(), sizeof(cpuset_orig), &cpuset_orig);
-    if(r < 0)
-        // if getaffinity fails, (it shouldn't be able to), just use CPU#0
-        return 0;
-
+    const char* isolated_file="/sys/devices/system/cpu/isolated";
     cpu_set_t cpuset;
-    CPU_ZERO(&cpuset);
-    long top_probe = sysconf(_SC_NPROCESSORS_CONF);
-    // in old glibc versions, it was an error to pass to sched_setaffinity bits
-    // that are higher than an imagined/probed kernel-side CPU mask size.
-    // this caused the message
-    //     sched_setaffinity: Invalid argument
-    // to be printed at startup, and the probed CPU would not take into
-    // account CPUs masked from this process by default (whether by
-    // isolcpus or taskset).  By only setting bits up to the "number of
-    // processes configured", the call is successful on glibc versions such as
-    // 2.19 and older.
-    for(long i=0; i<top_probe && i<CPU_SETSIZE; i++) CPU_SET(i, &cpuset);
 
-    r = sched_setaffinity(getpid(), sizeof(cpuset), &cpuset);
-    if(r < 0)
-        // if setaffinity fails, (it shouldn't be able to), go on with
-        // whatever the default CPUs were.
-        perror("sched_setaffinity");
+    parse_cpu_list(isolated_file, &cpuset);
 
-    r = sched_getaffinity(getpid(), sizeof(cpuset), &cpuset);
-    if(r < 0) {
-        // if getaffinity fails, (it shouldn't be able to), copy the
-        // original affinity list in and use it
-        perror("sched_getaffinity");
-        CPU_AND(&cpuset, &cpuset_orig, &cpuset);
+    //Print list
+    rtapi_print_msg(RTAPI_MSG_INFO, "cpuset isolated ");
+    for(int i=0; i<CPU_SETSIZE; i++) {
+        if(CPU_ISSET(i, &cpuset)){
+            rtapi_print_msg(RTAPI_MSG_INFO, "%i ", i);
+        }
     }
+    rtapi_print_msg(RTAPI_MSG_INFO, "\n");
 
     int top = -1;
     for(int i=0; i<CPU_SETSIZE; i++) {
         if(CPU_ISSET(i, &cpuset)) top = i;
+    }
+    if(top == -1){
+        rtapi_print_msg(RTAPI_MSG_ERR, "No isolated CPU's found, expect some latency or set RTAPI_CPU_NUMBER to select CPU\n");
     }
     return top;
 #else
@@ -991,18 +1116,20 @@ int Posix::task_start(int task_id, unsigned long int period_nsec)
   int nprocs = sysconf( _SC_NPROCESSORS_ONLN );
 
   pthread_attr_t attr;
-  if(pthread_attr_init(&attr) < 0)
-      return -errno;
-  if(pthread_attr_setstacksize(&attr, task->stacksize) < 0)
-      return -errno;
-  if(pthread_attr_setschedpolicy(&attr, policy) < 0)
-      return -errno;
-  if(pthread_attr_setschedparam(&attr, &param) < 0)
-      return -errno;
-  if(pthread_attr_setinheritsched(&attr, PTHREAD_EXPLICIT_SCHED) < 0)
-      return -errno;
+  int ret;
+  if((ret = pthread_attr_init(&attr)) != 0)
+      return -ret;
+  if((ret = pthread_attr_setstacksize(&attr, task->stacksize)) != 0)
+      return -ret;
+  if((ret = pthread_attr_setschedpolicy(&attr, policy)) != 0)
+      return -ret;
+  if((ret = pthread_attr_setschedparam(&attr, &param)) != 0)
+      return -ret;
+  if((ret = pthread_attr_setinheritsched(&attr, PTHREAD_EXPLICIT_SCHED)) != 0)
+      return -ret;
   if(nprocs > 1) {
       const static int rt_cpu_number = find_rt_cpu_number();
+      rtapi_print_msg(RTAPI_MSG_INFO, "rt_cpu_number = %i\n", rt_cpu_number);
       if(rt_cpu_number != -1) {
 #ifdef __FreeBSD__
           cpuset_t cpuset;
@@ -1011,12 +1138,12 @@ int Posix::task_start(int task_id, unsigned long int period_nsec)
 #endif
           CPU_ZERO(&cpuset);
           CPU_SET(rt_cpu_number, &cpuset);
-          if(pthread_attr_setaffinity_np(&attr, sizeof(cpuset), &cpuset) < 0)
-               return -errno;
+          if((ret = pthread_attr_setaffinity_np(&attr, sizeof(cpuset), &cpuset)) != 0)
+               return -ret;
       }
   }
-  if(pthread_create(&task->thr, &attr, &wrapper, reinterpret_cast<void*>(task)) < 0)
-      return -errno;
+  if((ret = pthread_create(&task->thr, &attr, &wrapper, reinterpret_cast<void*>(task))) != 0)
+      return -ret;
 
   return 0;
 }
@@ -1024,7 +1151,9 @@ int Posix::task_start(int task_id, unsigned long int period_nsec)
 #define RTAPI_CLOCK (CLOCK_MONOTONIC)
 
 pthread_once_t Posix::key_once = PTHREAD_ONCE_INIT;
+pthread_once_t Posix::lock_once = PTHREAD_ONCE_INIT;
 pthread_key_t Posix::key;
+pthread_mutex_t Posix::thread_lock;
 
 void *Posix::wrapper(void *arg)
 {
@@ -1040,6 +1169,7 @@ void *Posix::wrapper(void *arg)
 	  task, task->period, task->ratio);
 
   pthread_setspecific(key, arg);
+  set_namef("rtapi_app:T#%d", task->id);
 
   Posix &papp = reinterpret_cast<Posix&>(App());
   if(papp.do_thread_lock)
@@ -1112,6 +1242,7 @@ unsigned char Posix::do_inb(unsigned int port)
 #ifdef HAVE_SYS_IO_H
     return inb(port);
 #else
+    (void)port;
     return 0;
 #endif
 }
@@ -1120,6 +1251,9 @@ void Posix::do_outb(unsigned char val, unsigned int port)
 {
 #ifdef HAVE_SYS_IO_H
     return outb(val, port);
+#else
+    (void)val;
+    (void)port;
 #endif
 }
 
@@ -1175,7 +1309,12 @@ int rtapi_task_delete(int id) {
 
 int rtapi_task_start(int task_id, unsigned long period_nsec)
 {
-    return App().task_start(task_id, period_nsec);
+    int ret = App().task_start(task_id, period_nsec);
+    if(ret != 0) {
+        errno = -ret;
+        perror("rtapi_task_start()");
+    }
+    return ret;
 }
 
 int rtapi_task_pause(int task_id)

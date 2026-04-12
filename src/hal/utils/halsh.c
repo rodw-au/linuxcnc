@@ -52,10 +52,12 @@ static int init() {
     return result;
 }
 static void halExit(ClientData d) {
+    (void)d;
     shutdown();
 }
 
 static int halCmd(ClientData cd, Tcl_Interp *interp, int argc, const char **argv) {
+    (void)cd;
     int result;
     Tcl_ResetResult(interp);
 
@@ -92,7 +94,7 @@ int Hal_Init(Tcl_Interp *interp) {
 	return TCL_ERROR;
     }
 
-    if (Tcl_InitStubs(interp, "8.1", 0) == NULL)
+    if (Tcl_InitStubs(interp, TCL_VERSION, 0) == NULL)
     {
         return TCL_ERROR;
     }

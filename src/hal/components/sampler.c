@@ -53,12 +53,12 @@
     information, go to www.linuxcnc.org.
 */
 
-#include "rtapi.h"              /* RTAPI realtime OS API */
-#include "rtapi_app.h"          /* RTAPI realtime module decls */
-#include "hal.h"                /* HAL public API decls */
+#include <rtapi.h>              /* RTAPI realtime OS API */
+#include <rtapi_app.h>          /* RTAPI realtime module decls */
+#include <hal.h>                /* HAL public API decls */
 #include "streamer.h"		/* decls and such for fifos */
-#include "rtapi_errno.h"
-#include "rtapi_string.h"
+#include <rtapi_errno.h>
+#include <rtapi_string.h>
 
 /* module information */
 MODULE_AUTHOR("John Kasunich");
@@ -152,6 +152,7 @@ void rtapi_app_exit(void)
 
 static void sample(void *arg, long period)
 {
+    (void)period;
     sampler_t *samp;
     pin_data_t *pptr;
     int n;
@@ -289,8 +290,7 @@ static int init_sampler(int num, sampler_t *str)
 	pptr++;
     }
     /* export update function */
-    rtapi_snprintf(buf, sizeof(buf), "sampler.%d", num);
-    retval = hal_export_funct(buf, sample, str, usefp, 0, comp_id);
+    retval = hal_export_functf(sample, str, usefp, 0, comp_id, "sampler.%d", num);
     if (retval != 0) {
 	rtapi_print_msg(RTAPI_MSG_ERR,
 	    "SAMPLER: ERROR: function export failed\n");

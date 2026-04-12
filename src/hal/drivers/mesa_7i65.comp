@@ -3,7 +3,10 @@ component mesa_7i65 "Support for the Mesa 7i65 Octuple Servo Card";
 description """The component takes parameters in the form of a comma-separated
 list of bspi (buffered SPI) instance names, for example:
 
-\\fB loadrt mesa_7i65 bspi_chans=hm2_5i23.0.bspi.0, hm2_5i23.0.bspi.1\\fR
+[source,hal]
+----
+loadrt mesa_7i65 bspi_chans=hm2_5i23.0.bspi.0, hm2_5i23.0.bspi.1
+----
 
 The BSPI instances are printed to the dmesg buffer during the Hostmot2 setup
 sequence, one for each bspi instance included in the bitfile loaded to each
@@ -158,6 +161,7 @@ static int read(void *subdata) {
 }
 
 EXTRA_SETUP(){
+    (void)prefix;
     int i, r;
     char *name = bspi_chans[extra_arg]; // This is the string which identifies board and instance
 
@@ -206,15 +210,27 @@ EXTRA_SETUP(){
                       "quitting\n", -r);
         return -EINVAL;
     }
+
+    // Clear BSPI Rx & Tx FIFOs.
+    // This discards the received data from the ADC setup writes above,
+    // and any other old stale data.
+    r = hm2_bspi_clear_fifo(name);
+    if (r < 0) {
+        rtapi_print_msg(RTAPI_MSG_ERR, "failed to clear BSPI fifos on %s\n", name);
+    }
+
     // Add BSPI Frames
+    // digital inputs and outputs
     r += hm2_tram_add_bspi_frame(name, 4, &CPLD_write,
                             &CPLD_read);
 
+    // analog inputs
     for(i = 0; i < 8; i++) {
         r += hm2_tram_add_bspi_frame(name, 3, &AD7329_write[i],
                                 &AD7329_read[i]);
     }
 
+    // analog outputs
     r += hm2_tram_add_bspi_frame(name, 1, &AD5754_1A,0);
     r += hm2_tram_add_bspi_frame(name, 1, &AD5754_1B,0);
     r += hm2_tram_add_bspi_frame(name, 1, &AD5754_1C,0);

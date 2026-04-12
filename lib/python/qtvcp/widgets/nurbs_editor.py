@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 #############################################################################
 ##
 ## Copyright (C) 2010 Hans-Peter Jansen <hpj@urpla.net>.
@@ -41,12 +42,11 @@
 import os
 import sys
 import traceback
-from PyQt5 import uic
-from PyQt5.QtCore import pyqtSlot, QFile, QRegExp, Qt, QTextStream
-from PyQt5.QtWidgets import (QApplication, QDialog, QFileDialog, QMessageBox,
-        QStyleFactory, QWidget, QColorDialog)
-from PyQt5 import QtGui, QtCore
+from qtpy import uic
+from qtpy.QtCore import Slot, QFile, QTextStream
+from qtpy.QtWidgets import (QApplication, QDialog)
 
+import gcode
 from qt5_graphics import Lcnc_3dGraphics
 from qtvcp.core import Info, Path, Action
 
@@ -66,16 +66,16 @@ class NurbsEditor(QDialog):
         self.bluck_update = True
 
         # Load the widgets UI file:
-        self.filename = os.path.join(INFO.LIB_PATH,'widgets_ui', 'nurbs_editor.ui')
+        self.filename = os.path.join(PATH.SHAREDIR,'widgets_ui', 'nurbs_editor.ui')
         try:
             self.instance = uic.loadUi(self.filename, self)
         except AttributeError as e:
             #exc_type, exc_value, exc_traceback = sys.exc_info()
             formatted_lines = traceback.format_exc().splitlines()
-            print
-            print "Ui loadinr error",formatted_lines[0]
+            print()
+            print("Ui loadinr error",formatted_lines[0])
             #traceback.print_tb(exc_traceback, limit=1, file=sys.stdout)
-            print formatted_lines[-1]
+            print(formatted_lines[-1])
             if 'slotname' in formatted_lines[-2]:
                 LOG.critical('Missing slot name {}'.format(e))
             else:
@@ -88,7 +88,7 @@ class NurbsEditor(QDialog):
         self.emptypath = os.path.join( "/tmp/LINUXCNCtempEmpty.ngc")
 
         emptyfile = open(self.emptypath, "w")
-        print >> emptyfile, ("m2")
+        print(("m2"), file=emptyfile)
         emptyfile.close()
 
         self.set_spinbuttons_default()
@@ -100,7 +100,7 @@ class NurbsEditor(QDialog):
         self.update()
 
     def setGraphicsDisplay(self):
-        # class patch to catch gcode errors - in theory 
+        # class patch to catch gcode errors - in theory
         self.graphics.report_gcode_error = self.report_gcode_error
         # reset trverse color so other displays don;t change
         self.defaultColor = self.graphics.colors['traverse']
@@ -189,46 +189,46 @@ class NurbsEditor(QDialog):
         ###############################
         t = self.toolNum.value()
         if t:
-            print >> self.workfile, ('T{} M6 G43').format(self.toolNum.value())
-        print >> self.workfile, ('( Starting position )')
-        print >> self.workfile, ('G0 X {} Y {} Z {}').format(self.rapidX.value(),self.rapidY.value(),self.rapidZ.value())
+            print(('T{} M6 G43').format(self.toolNum.value()), file=self.workfile)
+        print(('( Starting position )'), file=self.workfile)
+        print(('G0 X {} Y {} Z {}').format(self.rapidX.value(),self.rapidY.value(),self.rapidZ.value()), file=self.workfile)
 
         ###############################
         # Nurbs block
         ###############################
-        print >> self.workfile, ('')
-        print >> self.workfile, ('( Nurbs block )')
+        print((''), file=self.workfile)
+        print(('( Nurbs block )'), file=self.workfile)
         f = self.feedRate.value()
         if f:
-            print >> self.workfile, ('F{}').format(self.feedRate.value())
+            print(('F{}').format(self.feedRate.value()), file=self.workfile)
         #print >> self.workfile, ('F')
-        print >> self.workfile, ('G5.2')
+        print(('G5.2'), file=self.workfile)
         for i in range(1,8):
             u = 'use_ctrl{}'.format(i)
             X = 'x{}'.format(i)
             Y = 'y{}'.format(i)
             P = 'w{}'.format(i)
             if self[u].isChecked():
-                print >> self.workfile, ('X {} Y {} P {}').format(self[X].value(),self[Y].value(),self[P].value())
-        print >> self.workfile, ('G5.3')
+                print(('X {} Y {} P {}').format(self[X].value(),self[Y].value(),self[P].value()), file=self.workfile)
+        print(('G5.3'), file=self.workfile)
 
         ##############################
-        # rapids to show boundry
+        # rapids to show boundary
         ##############################
-        print >> self.workfile, ('')
-        print >> self.workfile, ('( Show control points with rapid lines )')
-        print >> self.workfile, ('G0 X {} Y {} Z {}').format(self.rapidX.value(),self.rapidY.value(),self.rapidZ.value())
+        print((''), file=self.workfile)
+        print(('( Show control points with rapid lines )'), file=self.workfile)
+        print(('G0 X {} Y {} Z {}').format(self.rapidX.value(),self.rapidY.value(),self.rapidZ.value()), file=self.workfile)
         for i in range(1,8):
             u = 'use_ctrl{}'.format(i)
             X = 'x{}'.format(i)
             Y = 'y{}'.format(i)
             if self[u].isChecked():
-                print >> self.workfile, ('G0 X{} y{}').format(self[X].value(),self[Y].value())
+                print(('G0 X{} y{}').format(self[X].value(),self[Y].value()), file=self.workfile)
 
         ##############################
         # cleanup
         ##############################
-        print >> self.workfile, ('m2')
+        print(('m2'), file=self.workfile)
 
         self.workfile.close()
         self.updateDisplay(self.workpath)
@@ -250,26 +250,26 @@ class NurbsEditor(QDialog):
         self.graphics.set_current_view()
         #self.activateWindow()
 
-    @pyqtSlot()
+    @Slot()
     def on_makeButton_clicked(self):
-        print 'make'
+        print('make')
         file = QFile(self.workpath)
         file.open(QFile.ReadOnly)
         gcode = file.readAll()
         try:
             # Python v2.
-            gcode = unicode(gcode, encoding='utf8')
+            gcode = str(gcode, encoding='utf8')
         except NameError:
             # Python v3.
             gcode = str(gcode, encoding='utf8')
         self.gcodeText.setPlainText(gcode)
 
-    @pyqtSlot()
+    @Slot()
     def on_applyButton_clicked(self):
         self.finalizeGcode()
         ACTION.OPEN_PROGRAM(self.workpath)
 
-    @pyqtSlot()
+    @Slot()
     def on_closeButton_clicked(self):
         self.close()
 
@@ -299,9 +299,8 @@ if __name__ == '__main__':
     elif len(sys.argv) == 2:
         inifilename = sys.argv[1]
     else:
-        usage()
+        sys.exit(1)
     window = NurbsEditor(path = inifilename)
     window.load_dialog()
     sys.exit(app.exec_())
-  
 

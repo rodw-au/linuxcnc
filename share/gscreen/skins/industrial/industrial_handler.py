@@ -15,10 +15,14 @@
 #   along with this program; if not, write to the Free Software
 #   Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 #
+
+import gi
+from gi.repository import Gtk as gtk
+from gi.repository import Gdk
+from gi.repository import Pango as pango
+
 import hal
-import gtk
 import gladevcp.makepins # needed for the dialog's calulator widget
-import pango
 
 _MAN = 0;_MDI = 1;_AUTO = 2;_LOCKTOGGLE = 1
 
@@ -26,7 +30,7 @@ _MAN = 0;_MDI = 1;_AUTO = 2;_LOCKTOGGLE = 1
 # to load a completely custom glade screen
 # The only things that really matters is that it's saved as a GTK builder project,
 # the toplevel window is caller window1 (The default name) and you connect a destroy
-# window signal else you can't close down linuxcnc 
+# window signal else you can't close down linuxcnc
 class HandlerClass:
 
     # This will be pretty standard to gain access to everything
@@ -56,7 +60,7 @@ class HandlerClass:
 
     def on_diameter_mode_pressed(self, widget):
         data = widget.get_active()
-        print "switch diam mode",data
+        print("switch diam mode",data)
         self.gscreen.set_diameter_mode(data)
         for i in ("1","2","3"):
             axis = "dro_x%s"% (i)
@@ -66,9 +70,9 @@ class HandlerClass:
                 self.widgets[axis].set_to_radius()
 
     # This is a new method for our button
-    # we selected this method name in the glade file as a signal callback 
+    # we selected this method name in the glade file as a signal callback
     def on_estop_clicked(self,*args):
-        print "estop"
+        print("estop")
         if self.data.estopped:
             self.emc.estop_reset(1)
             self.gscreen.add_alarm_entry("Machine Estop Reset")
@@ -80,7 +84,7 @@ class HandlerClass:
         return True
 
     # This is a new method for our new button
-    # we selected this method name in the glade file as a signal callback 
+    # we selected this method name in the glade file as a signal callback
     def on_machine_state_clicked(self,widget):
         if self.data.estopped:
             return
@@ -193,27 +197,25 @@ class HandlerClass:
         if _LOCKTOGGLE == 0: return True
         dialog = gtk.Dialog("Enter System Unlock Code",
                    self.widgets.window1,
-                   gtk.DIALOG_DESTROY_WITH_PARENT,
-                   (gtk.STOCK_CANCEL, gtk.RESPONSE_REJECT,
-                    gtk.STOCK_OK, gtk.RESPONSE_ACCEPT))
+                   gtk.DialogFlags.DESTROY_WITH_PARENT)
         label = gtk.Label("Enter System Unlock Code")
         label.modify_font(pango.FontDescription("sans 20"))
         calc = gladevcp.Calculator()
-        dialog.vbox.pack_start(label)
+        dialog.vbox.pack_start(label,True,True,0)
         dialog.vbox.add(calc)
         calc.set_value("")
         calc.set_property("font","sans 20")
         calc.set_editable(True)
-        calc.entry.connect("activate", lambda w : dialog.emit('response',gtk.RESPONSE_ACCEPT))
-        dialog.parse_geometry("400x400")
+        calc.entry.connect("activate", lambda w : dialog.emit('response',gtk.ResponseType.ACCEPT))
+        calc.integer_entry_only(True)
+        calc.num_pad_only(True)
+        dialog.parse_geometry("360x400")
         dialog.set_decorated(False)
         dialog.show_all()
-        calc.num_pad_only(True)
-        calc.integer_entry_only(True)
         response = dialog.run()
         code = calc.get_value()
         dialog.destroy()
-        if response == gtk.RESPONSE_ACCEPT:
+        if response == gtk.ResponseType.ACCEPT:
             if code == int(self.data.unlock_code):
                 self.gscreen.add_alarm_entry("System page unlocked")
                 _LOCKTOGGLE = 0
@@ -221,35 +223,44 @@ class HandlerClass:
         _LOCKTOGGLE = 1
         return False
 
+    def _get_RGBA_color(self, color_raw):
+        def convert_color(color):
+            colortuple = ((int(color.red * 255.0), int(color.green * 255.0), int(color.blue * 255.0)))
+            return ('#' + ''.join(f'{i:02X}' for i in colortuple))
+
+        # convert string RGB to 8bit RGBA
+        if type(color_raw) == str:
+            color = Gdk.RGBA()
+            color.parse(color_raw)
+            return convert_color(Gdk.RGBA(color.red, color.green, color.blue, color.alpha))
+
+        # convert old 16bit RGB to 8bit RGBA
+        elif type(color_raw) == tuple:
+            b = Gdk.RGBA(color_raw[0], color_raw[1], color_raw[2], 0)
+            color = Gdk.RGBA()
+            color.parse(b.to_string())
+            return  convert_color(Gdk.RGBA(color.red, color.green, color.blue, color.alpha))
+
     def on_abs_colorbutton_color_set(self,widget):
         self.gscreen.set_abs_color()
-        color = self.data.abs_color
-        fg_color = pango.AttrForeground(color[0],color[1],color[2], 0, 11)
         for i in self.data.axis_list:
             axis = "dro_%s1"% i
-            attr = self.widgets[axis].get_attributes()
-            attr.insert(fg_color)
-            self.widgets[axis].set_attributes(attr)
+            color = self._get_RGBA_color(self.data.abs_color)
+            self.widgets[axis].set_style("labelcolor", color )
 
     def on_rel_colorbutton_color_set(self,widget):
         self.gscreen.set_rel_color()
-        color = self.data.rel_color
-        fg_color = pango.AttrForeground(color[0],color[1],color[2], 0, 11)
+        color = self._get_RGBA_color(self.data.rel_color)
         for i in self.data.axis_list:
             axis = "dro_%s2"% i
-            attr = self.widgets[axis].get_attributes()
-            attr.insert(fg_color)
-            self.widgets[axis].set_attributes(attr)
+            self.widgets[axis].set_style("labelcolor", color )
 
     def on_dtg_colorbutton_color_set(self,widget):
         self.gscreen.set_dtg_color()
-        color = self.data.dtg_color
-        fg_color = pango.AttrForeground(color[0],color[1],color[2], 0, 11)
+        color = self._get_RGBA_color(self.data.dtg_color)
         for i in self.data.axis_list:
             axis = "dro_%s3"% i
-            attr = self.widgets[axis].get_attributes()
-            attr.insert(fg_color)
-            self.widgets[axis].set_attributes(attr)
+            self.widgets[axis].set_style("labelcolor", color )
 
     def on_hal_status_not_all_homed(self,widget,data):
         temp =[]
@@ -327,7 +338,7 @@ class HandlerClass:
         for i in ("setup_button","mdi_button","run_button","tooledit_button","offsetpage_button","button_index_tool"):
             self.data.sensitive_override_mode.append(i)
             self.data.sensitive_graphics_mode.append(i)
-            self.data.sensitive_origin_mode.append(i) 
+            self.data.sensitive_origin_mode.append(i)
         self.widgets["spindle-at-speed"].set_property("on_color","black")
         self.gscreen.init_unlock_code()
         self.gscreen.init_state()
@@ -365,7 +376,7 @@ class HandlerClass:
         self.widgets.show_dtg.set_active(self.data.show_dtg)
         self.on_show_dtg_pressed(self.widgets.show_dtg)
         self.gscreen.init_dro()
-        data = self.data.dro_units 
+        data = self.data.dro_units
         for i in ("1","2","3"):
             for letter in self.data.axis_list:
                 axis = "dro_%s%s"% (letter,i)
@@ -376,7 +387,7 @@ class HandlerClass:
 
     # every 100 milli seconds this gets called
     # we add calls to the regular functions for the widgets we are using.
-    # and add any extra calls/code 
+    # and add any extra calls/code
     def periodic(self):
         self.update_mdi_spindle_button() # local method
         self.gscreen.update_spindle_bar()

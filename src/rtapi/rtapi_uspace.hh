@@ -15,16 +15,16 @@
  *    along with this program; if not, write to the Free Software
  *    Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
-#ifndef RTAPI_USPACE_HH
-#define RTAPI_USPACE_HH
+#ifndef __LINUXCNC_RTAPI_USPACE_HH
+#define __LINUXCNC_RTAPI_USPACE_HH
 #ifdef __linux__
 #include <sys/fsuid.h>
 #endif
 #include <unistd.h>
 #include <pthread.h>
-#include <atomic>
+#include "rtapi_atomic.h"
 
-inline void rtapi_timespec_add(timespec &result, const timespec &ta, const timespec &tb) {
+static inline void rtapi_timespec_add(timespec &result, const timespec &ta, const timespec &tb) {
     result.tv_sec = ta.tv_sec + tb.tv_sec;
     result.tv_nsec = ta.tv_nsec + tb.tv_nsec;
     if (result.tv_nsec >= 1000000000) {
@@ -33,7 +33,7 @@ inline void rtapi_timespec_add(timespec &result, const timespec &ta, const times
     }
 }
 
-inline bool rtapi_timespec_less(const struct timespec &ta, const struct timespec &tb) {
+static inline bool rtapi_timespec_less(const struct timespec &ta, const struct timespec &tb) {
     if(ta.tv_sec < tb.tv_sec) return 1;
     if(ta.tv_sec > tb.tv_sec) return 0;
     return ta.tv_nsec < tb.tv_nsec;
@@ -45,7 +45,7 @@ struct WithRoot
 {
     WithRoot();
     ~WithRoot();
-    static std::atomic<int> level;
+    static std::atomic_int level;
 };
 
 struct rtapi_task {
@@ -71,10 +71,13 @@ struct RtapiApp
 
     RtapiApp(int policy = SCHED_OTHER) : policy(policy), period(0) {}
 
-    int prio_highest();
-    int prio_lowest();
-    int prio_next_higher(int prio);
-    int prio_next_lower(int prio);
+    virtual int prio_highest() const;
+    virtual int prio_lowest() const;
+    int prio_higher_delta() const;
+    int prio_bound(int prio) const;
+    bool prio_check(int prio) const;
+    int prio_next_higher(int prio) const;
+    int prio_next_lower(int prio) const;
     long clock_set_period(long int period_nsec);
     int task_new(void (*taskcode)(void*), void *arg,
             int prio, int owner, unsigned long int stacksize, int uses_fp);
@@ -103,6 +106,8 @@ template<class T=rtapi_task>
 T *rtapi_get_task(int task_id) {
     return static_cast<T*>(RtapiApp::get_task(task_id));
 }
+
+int find_rt_cpu_number();
 
 #define MAX_TASKS  64
 #define TASK_MAGIC    21979	/* random numbers used as signatures */

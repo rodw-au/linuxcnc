@@ -5,7 +5,7 @@ import sys
 import os
 import linuxcnc
 
-from PyQt5 import QtCore, QtWidgets
+from qtpy import QtCore, QtWidgets
 
 from qtvcp.widgets.origin_offsetview import OriginOffsetView as OFFVIEW_WIDGET
 from qtvcp.widgets.dialog_widget import CamViewDialog as CAMVIEW
@@ -53,7 +53,7 @@ class HandlerClass:
     # the widgets are instantiated.
     # the HAL pins are built but HAL is not set ready
     def initialized__(self):
-        print self.PATHS.IMAGEDIR
+        print(self.PATHS.IMAGEDIR)
         self.w.imageswitcher.set_default_image((os.path.join(self.PATHS.IMAGEDIR,'unknown_tool.png')) or '')
         STATUS.emit('play-sound','SPEAK This is the blender screen for Qt V C P')
         STATUS.connect('tool-prep-changed', lambda w, data: self.change_tool_image(data))
@@ -97,6 +97,8 @@ class HandlerClass:
                 else:
                     event.accept()
                     return True
+
+        if event.isAutoRepeat():return True
 
         # ok if we got here then try keybindings function calls
         # KEYBINDING will call functions from handler file as

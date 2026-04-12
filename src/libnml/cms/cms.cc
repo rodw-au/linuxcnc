@@ -1,6 +1,6 @@
 /********************************************************************
 * Description: cms.cc
-*   C++ file for the  Communication Management System (CMS).
+*   C++ file for the Communication Management System (CMS).
 *   Includes member functions for class CMS.
 *   See cms_in.cc for the internal interface member functions and
 *   cms_up.cc for the update functions.
@@ -10,17 +10,13 @@
 * Author:
 * License: LGPL Version 2
 * System: Linux
-*    
+*
 * Copyright (c) 2004 All rights reserved.
 *
-* Last change: 
+* Last change:
 ********************************************************************/
 
-#include "rcsversion.h"
-
-#ifdef __cplusplus
-extern "C" {
-#endif
+#include "libnml/rcs/rcsversion.h"
 
 #include <stdlib.h>		/* malloc(), free() */
 #include <stddef.h>		/* size_t */
@@ -29,20 +25,19 @@ extern "C" {
 #include <ctype.h>		// tolower(), toupper()
 #include <errno.h>		/* errno, ERANGE */
 
-#ifdef __cplusplus
-}
-#endif
+#include <string>
 #include <rtapi_string.h>
+#include "cms_cfg.hh"
 #include "cms.hh"		/* class CMS */
 #include "cms_up.hh"		/* class CMS_UPDATER */
 #include "cms_xup.hh"		/* class CMS_XDR_UPDATER */
 #include "cms_aup.hh"		/* class CMS_ASCII_UPDATER */
 #include "cms_dup.hh"		/* class CMS_DISPLAY_ASCII_UPDATER */
-#include "rcs_print.hh"		/* rcs_print_error(), separate_words() */
+#include "libnml/rcs/rcs_print.hh"		/* rcs_print_error(), separate_words() */
 				/* rcs_print_debug() */
 #include "cmsdiag.hh"
-#include "linklist.hh"          /* LinkedList */
-#include "physmem.hh"
+#include "libnml/linklist/linklist.hh"          /* LinkedList */
+#include "libnml/buffer/physmem.hh"
 
 LinkedList *cmsHostAliases = NULL;
 CMS_CONNECTION_MODE cms_connection_mode = CMS_NORMAL_CONNECTION_MODE;
@@ -120,15 +115,15 @@ CMS::CMS(long s)
     rcs_print_debug(PRINT_CMS_CONSTRUCTORS, "new CMS (%lu)", s);
 
     /* Init string buffers */
-    memset(BufferName, 0, CMS_CONFIG_LINELEN);
-    memset(BufferHost, 0, CMS_CONFIG_LINELEN);
-    memset(ProcessName, 0, CMS_CONFIG_LINELEN);
-    memset(BufferLine, 0, CMS_CONFIG_LINELEN);
-    memset(ProcessLine, 0, CMS_CONFIG_LINELEN);
-    memset(ProcessHost, 0, CMS_CONFIG_LINELEN);
-    memset(buflineupper, 0, CMS_CONFIG_LINELEN);
-    memset(proclineupper, 0, CMS_CONFIG_LINELEN);
-    memset(PermissionString, 0, CMS_CONFIG_LINELEN);
+    memset(BufferName, 0, LINELEN);
+    memset(BufferHost, 0, LINELEN);
+    memset(ProcessName, 0, LINELEN);
+    memset(BufferLine, 0, LINELEN);
+    memset(ProcessLine, 0, LINELEN);
+    memset(ProcessHost, 0, LINELEN);
+    memset(buflineupper, 0, LINELEN);
+    memset(proclineupper, 0, LINELEN);
+    memset(PermissionString, 0, LINELEN);
 
     /* save constructor args */
     free_space = size = s;
@@ -150,7 +145,7 @@ CMS::CMS(long s)
     disable_diag_store = 0;
     diag_offset = 0;
 
-    /* Initailize some variables. */
+    /* Initialize some variables. */
     read_permission_flag = 0;	/* Allow both read and write by default.  */
     write_permission_flag = 0;
     queuing_enabled = 0;
@@ -198,15 +193,15 @@ CMS::CMS(const char *bufline_in, const char *procline_in, int set_to_server)
     confirm_write = 0;
     disable_final_write_raw_for_dma = 0;
     /* Init string buffers */
-    memset(BufferName, 0, CMS_CONFIG_LINELEN);
-    memset(BufferHost, 0, CMS_CONFIG_LINELEN);
-    memset(ProcessName, 0, CMS_CONFIG_LINELEN);
-    memset(BufferLine, 0, CMS_CONFIG_LINELEN);
-    memset(ProcessLine, 0, CMS_CONFIG_LINELEN);
-    memset(ProcessHost, 0, CMS_CONFIG_LINELEN);
-    memset(buflineupper, 0, CMS_CONFIG_LINELEN);
-    memset(proclineupper, 0, CMS_CONFIG_LINELEN);
-    memset(PermissionString, 0, CMS_CONFIG_LINELEN);
+    memset(BufferName, 0, LINELEN);
+    memset(BufferHost, 0, LINELEN);
+    memset(ProcessName, 0, LINELEN);
+    memset(BufferLine, 0, LINELEN);
+    memset(ProcessLine, 0, LINELEN);
+    memset(ProcessHost, 0, LINELEN);
+    memset(buflineupper, 0, LINELEN);
+    memset(proclineupper, 0, LINELEN);
+    memset(PermissionString, 0, LINELEN);
 
     /* Initialize some variables. */
     read_permission_flag = 0;	/* Allow both read and write by default.  */
@@ -231,11 +226,13 @@ CMS::CMS(const char *bufline_in, const char *procline_in, int set_to_server)
 	return;
     }
 
-    char *bufline = strdup(bufline_in);
-    char *procline = strdup(procline_in);
+    std::string buflineString(bufline_in);   // Local copies without strdup()
+    std::string proclineString(procline_in);
+    char *bufline = buflineString.data();
+    char *procline = proclineString.data();
 
-    convert2upper(buflineupper, bufline, CMS_CONFIG_LINELEN);
-    convert2upper(proclineupper, procline, CMS_CONFIG_LINELEN);
+    convert2upper(buflineupper, bufline, LINELEN);
+    convert2upper(proclineupper, procline, LINELEN);
 
     is_phantom = 0;
     max_message_size = 0;
@@ -278,8 +275,6 @@ CMS::CMS(const char *bufline_in, const char *procline_in, int set_to_server)
 	rcs_print_error("CMS: Error in buffer line from config file.\n");
 	rcs_print_error("%s\n", bufline);
 	status = CMS_CONFIG_ERROR;
-	free(bufline);
-	free(procline);
 	return;
     }
 
@@ -303,7 +298,7 @@ CMS::CMS(const char *bufline_in, const char *procline_in, int set_to_server)
     buffer_type_name = word[2];
 
     /* strtol should allow us to use the C syntax for specifying the radix of 
-       the numbers in the configuration file. (i.e. 0x???? for hexidecimal,
+       the numbers in the configuration file. (i.e. 0x???? for hexadecimal,
        0??? for octal and ???? for decimal.) */
     size = (long) strtol(word[4], (char **) NULL, 0);
     neutral = (int) strtol(word[5], (char **) NULL, 0);
@@ -312,13 +307,11 @@ CMS::CMS(const char *bufline_in, const char *procline_in, int set_to_server)
     total_connections = strtol(word[8], (char **) NULL, 0);
     free_space = size;
 
-    /* Check errno to see if all of the strtol's were sucessful. */
+    /* Check errno to see if all of the strtol's were successful. */
     if (ERANGE == errno) {
 	rcs_print_error("CMS: Error in buffer line from config file.\n");
 	rcs_print_error("%s\n", bufline);
 	status = CMS_CONFIG_ERROR;
-	free(bufline);
-	free(procline);
 	return;
     }
 
@@ -335,8 +328,6 @@ CMS::CMS(const char *bufline_in, const char *procline_in, int set_to_server)
     } else {
 	rcs_print_error("CMS: invalid buffer type (%s)\n", buffer_type_name);
 	status = CMS_CONFIG_ERROR;
-	free(bufline);
-	free(procline);
 	return;
     }
 
@@ -345,8 +336,6 @@ CMS::CMS(const char *bufline_in, const char *procline_in, int set_to_server)
 	rcs_print_error("CMS: Error in buffer line from config file.\n");
 	rcs_print_error("%s\n", bufline);
 	status = CMS_CONFIG_ERROR;
-	free(bufline);
-	free(procline);
 	return;
     }
     for (i = 8; i < num_words && i < 32; i++) {
@@ -446,8 +435,6 @@ CMS::CMS(const char *bufline_in, const char *procline_in, int set_to_server)
 		("CMS: Error parsing process line from config file.\n");
 	    rcs_print_error("%s\n", procline);
 	    status = CMS_CONFIG_ERROR;
-	    free(bufline);
-	    free(procline);
 	    return;
 	}
     } else {
@@ -456,8 +443,6 @@ CMS::CMS(const char *bufline_in, const char *procline_in, int set_to_server)
 		("CMS: Error parsing process line from config file.\n");
 	    rcs_print_error("%s\n", procline);
 	    status = CMS_CONFIG_ERROR;
-	    free(bufline);
-	    free(procline);
 	    return;
 	}
     }
@@ -498,18 +483,14 @@ CMS::CMS(const char *bufline_in, const char *procline_in, int set_to_server)
 		("CMS: connection number(%lu) must be less than total connections (%lu).\n",
 		connection_number, total_connections);
 	    status = CMS_CONFIG_ERROR;
-	    free(bufline);
-	    free(procline);
 	    return;
 	}
     }
-    /* Check errno to see if all of the strtol's were sucessful. */
+    /* Check errno to see if all of the strtol's were successful. */
     if (ERANGE == errno) {
 	rcs_print_error("CMS: Error in proc line from config file.\n");
 	rcs_print_error("%s\n", procline);
 	status = CMS_CONFIG_ERROR;
-	free(bufline);
-	free(procline);
 	return;
     }
 
@@ -606,8 +587,6 @@ CMS::CMS(const char *bufline_in, const char *procline_in, int set_to_server)
     if (enable_diagnostics) {
 	setup_diag_proc_info();
     }
-    free(bufline);
-    free(procline);
 }
 
 /* Function for allocating memory and initializing XDR streams, which */
@@ -651,20 +630,19 @@ void CMS::open(void)
     /* Save some memory and time if this is a PHANTOMMEM object. */
     if (!is_phantom) {
 	/* Allocate memory for the local copy of global buffer. */
-	data = malloc(size);
-	memset(data, 0, size);
-	subdiv_data = data;
-	if (force_raw) {
-	    encoded_data = data;
-	}
-	rcs_print_debug(PRINT_CMS_CONSTRUCTORS, "%p = data = calloc(%lu,1);\n",
-	    data, size);
+	data = calloc(size, 1);
 	/* Check to see if allocating memory was successful. */
 	if (data == NULL) {
 	    rcs_print_error("CMS: Can't allocate memory for local buffer.\n");
 	    status = CMS_CREATE_ERROR;
 	    return;
 	}
+	subdiv_data = data;
+	if (force_raw) {
+	    encoded_data = data;
+	}
+	rcs_print_debug(PRINT_CMS_CONSTRUCTORS, "%p = data = calloc(%lu,1);\n",
+	    data, size);
     }
     if (isserver || neutral || ((ProcessType == CMS_REMOTE_TYPE) && !force_raw)) {
 	switch (neutral_encoding_method) {
@@ -731,7 +709,7 @@ void CMS::open(void)
 	nfactor = updater->neutral_size_factor;
     }
 
-    /* Set some varaibles to let the user know how much space is left. */
+    /* Set some variables to let the user know how much space is left. */
     size_without_diagnostics = size;
     diag_offset = 0;
     if (enable_diagnostics) {
@@ -890,7 +868,7 @@ CMS::~CMS()
 
 /* This function should never be called. It exists so that classes  which */
  /* overload read, write etc don't have to bother creating it. */
-CMS_STATUS CMS::main_access(void *_local, int *serial_number)
+CMS_STATUS CMS::main_access(void *_local, int * /*serial_number*/)
 {
     rcs_print_error("CMS::main_access called by %s for %s.\n",
 	ProcessName, BufferName);
@@ -1053,7 +1031,7 @@ CMS_STATUS CMS::write_if_read(void *user_data, int *serial_number)
 // For protocols that provide No security, tell the
 // application the login was successful.
 // This method needs to be overloaded to have any security.
-int CMS::login(const char *name, const char *passwd)
+int CMS::login(const char * /*name*/, const char * /*passwd*/)
 {
     return 1;
 }
@@ -1166,8 +1144,8 @@ int CMS::encode_header()
     }
     CMS_UPDATER_MODE original_mode;
     original_mode = updater->get_mode();
-    format_low_ptr = (char *) &header;
-    format_high_ptr = ((char *) &header) + sizeof(CMS_HEADER);
+    format_low_ptr = reinterpret_cast<char *>(&header);
+    format_high_ptr = reinterpret_cast<char *>(&header) + sizeof(CMS_HEADER);
     updater->set_mode(CMS_ENCODE_HEADER);
     updater->rewind();
     updater->update(header.was_read);
@@ -1195,8 +1173,8 @@ int CMS::decode_header()
 	return -1;
     }
     CMS_UPDATER_MODE original_mode = updater->get_mode();
-    format_low_ptr = (char *) &header;
-    format_high_ptr = ((char *) &header) + sizeof(CMS_HEADER);
+    format_low_ptr = reinterpret_cast<char *>(&header);
+    format_high_ptr = reinterpret_cast<char *>(&header) + sizeof(CMS_HEADER);
     updater->set_mode(CMS_DECODE_HEADER);
     updater->rewind();
     updater->update(header.was_read);
@@ -1216,8 +1194,8 @@ int CMS::encode_queuing_header()
 	return -1;
     }
     CMS_UPDATER_MODE original_mode = updater->get_mode();
-    format_low_ptr = (char *) &queuing_header;
-    format_high_ptr = ((char *) &queuing_header) + sizeof(CMS_QUEUING_HEADER);
+    format_low_ptr = reinterpret_cast<char *>(&queuing_header);
+    format_high_ptr = reinterpret_cast<char *>(&queuing_header) + sizeof(CMS_QUEUING_HEADER);
     updater->set_mode(CMS_ENCODE_QUEUING_HEADER);
     updater->rewind();
     updater->update(queuing_header.head);
@@ -1247,8 +1225,8 @@ int CMS::decode_queuing_header()
 	return -1;
     }
     CMS_UPDATER_MODE original_mode = updater->get_mode();
-    format_low_ptr = (char *) &queuing_header;
-    format_high_ptr = ((char *) &queuing_header) + sizeof(CMS_QUEUING_HEADER);
+    format_low_ptr = reinterpret_cast<char *>(&queuing_header);
+    format_high_ptr = reinterpret_cast<char *>(&queuing_header) + sizeof(CMS_QUEUING_HEADER);
     updater->set_mode(CMS_DECODE_QUEUING_HEADER);
     updater->rewind();
     updater->update(queuing_header.head);
@@ -1307,7 +1285,7 @@ CMS_STATUS CMS::update(bool &x)
     }
 }
 
-CMS_STATUS CMS::update(char &x)
+CMS_STATUS CMS::update(int8_t &x)
 {
     if (NULL != updater) {
 	return (updater->update(x));
@@ -1316,7 +1294,7 @@ CMS_STATUS CMS::update(char &x)
     }
 }
 
-CMS_STATUS CMS::update(unsigned char &x)
+CMS_STATUS CMS::update(uint8_t &x)
 {
     if (NULL != updater) {
 	return (updater->update(x));
@@ -1325,7 +1303,7 @@ CMS_STATUS CMS::update(unsigned char &x)
     }
 }
 
-CMS_STATUS CMS::update(short int &x)
+CMS_STATUS CMS::update(int16_t &x)
 {
     if (NULL != updater) {
 	return (updater->update(x));
@@ -1334,7 +1312,7 @@ CMS_STATUS CMS::update(short int &x)
     }
 }
 
-CMS_STATUS CMS::update(unsigned short int &x)
+CMS_STATUS CMS::update(uint16_t &x)
 {
     if (NULL != updater) {
 	return (updater->update(x));
@@ -1343,7 +1321,7 @@ CMS_STATUS CMS::update(unsigned short int &x)
     }
 }
 
-CMS_STATUS CMS::update(int &x)
+CMS_STATUS CMS::update(int32_t &x)
 {
     if (NULL != updater) {
 	return (updater->update(x));
@@ -1352,7 +1330,7 @@ CMS_STATUS CMS::update(int &x)
     }
 }
 
-CMS_STATUS CMS::update(unsigned int &x)
+CMS_STATUS CMS::update(uint32_t &x)
 {
     if (NULL != updater) {
 	return (updater->update(x));
@@ -1361,7 +1339,7 @@ CMS_STATUS CMS::update(unsigned int &x)
     }
 }
 
-CMS_STATUS CMS::update(long int &x)
+CMS_STATUS CMS::update(int64_t &x)
 {
     if (NULL != updater) {
 	return (updater->update(x));
@@ -1370,7 +1348,7 @@ CMS_STATUS CMS::update(long int &x)
     }
 }
 
-CMS_STATUS CMS::update(unsigned long int &x)
+CMS_STATUS CMS::update(uint64_t &x)
 {
     if (NULL != updater) {
 	return (updater->update(x));
@@ -1406,7 +1384,7 @@ CMS_STATUS CMS::update(long double &x)
     }
 }
 
-CMS_STATUS CMS::update(char *x, unsigned int len)
+CMS_STATUS CMS::update(int8_t *x, unsigned int len)
 {
     if (NULL != updater) {
 	return (updater->update(x, len));
@@ -1415,7 +1393,7 @@ CMS_STATUS CMS::update(char *x, unsigned int len)
     }
 }
 
-CMS_STATUS CMS::update(unsigned char *x, unsigned int len)
+CMS_STATUS CMS::update(uint8_t *x, unsigned int len)
 {
     if (NULL != updater) {
 	return (updater->update(x, len));
@@ -1424,7 +1402,7 @@ CMS_STATUS CMS::update(unsigned char *x, unsigned int len)
     }
 }
 
-CMS_STATUS CMS::update(short *x, unsigned int len)
+CMS_STATUS CMS::update(int16_t *x, unsigned int len)
 {
     if (NULL != updater) {
 	return (updater->update(x, len));
@@ -1433,7 +1411,7 @@ CMS_STATUS CMS::update(short *x, unsigned int len)
     }
 }
 
-CMS_STATUS CMS::update(unsigned short *x, unsigned int len)
+CMS_STATUS CMS::update(uint16_t *x, unsigned int len)
 {
     if (NULL != updater) {
 	return (updater->update(x, len));
@@ -1442,7 +1420,7 @@ CMS_STATUS CMS::update(unsigned short *x, unsigned int len)
     }
 }
 
-CMS_STATUS CMS::update(int *x, unsigned int len)
+CMS_STATUS CMS::update(int32_t *x, unsigned int len)
 {
     if (NULL != updater) {
 	return (updater->update(x, len));
@@ -1451,7 +1429,7 @@ CMS_STATUS CMS::update(int *x, unsigned int len)
     }
 }
 
-CMS_STATUS CMS::update(unsigned int *x, unsigned int len)
+CMS_STATUS CMS::update(uint32_t *x, unsigned int len)
 {
     if (NULL != updater) {
 	return (updater->update(x, len));
@@ -1460,7 +1438,7 @@ CMS_STATUS CMS::update(unsigned int *x, unsigned int len)
     }
 }
 
-CMS_STATUS CMS::update(long *x, unsigned int len)
+CMS_STATUS CMS::update(int64_t *x, unsigned int len)
 {
     if (NULL != updater) {
 	return (updater->update(x, len));
@@ -1469,7 +1447,7 @@ CMS_STATUS CMS::update(long *x, unsigned int len)
     }
 }
 
-CMS_STATUS CMS::update(unsigned long *x, unsigned int len)
+CMS_STATUS CMS::update(uint64_t *x, unsigned int len)
 {
     if (NULL != updater) {
 	return (updater->update(x, len));
@@ -1521,7 +1499,7 @@ const char *CMS::status_string(int status_type)
 
     case CMS_NO_MASTER_ERROR:
 	return
-	    ("CMS_NO_MASTER_ERROR: An error occurred becouse the master was not started.");
+	    ("CMS_NO_MASTER_ERROR: An error occurred because the master was not started.");
 
     case CMS_CONFIG_ERROR:
 	return ("CMS_CONFIG_ERROR: There was an error in the configuration.");
@@ -1604,11 +1582,6 @@ int CMS::set_subdivision(int _subdiv)
     current_subdivision = _subdiv;
     subdiv_data = ((char *) data) + _subdiv * (subdiv_size);
     return (0);
-}
-
-// This constructor declared private to prevent copying.
-CMS::CMS(CMS & cms)
-{
 }
 
 int

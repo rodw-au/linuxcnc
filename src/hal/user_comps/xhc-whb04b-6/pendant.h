@@ -17,7 +17,8 @@
    02111-1307 USA.
  */
 
-#pragma once
+#ifndef __XHC_WHB04B_6_PENDANT_H
+#define __XHC_WHB04B_6_PENDANT_H
 
 // local includes
 #include "pendant-types.h"
@@ -226,6 +227,7 @@ public:
     const KeyCode                           percent_60;
     const KeyCode                           percent_100;
     const KeyCode                           lead;
+    const KeyCode                           lead9B;
     const KeyCode                           undefined;
     const std::map<uint8_t, const KeyCode*> codeMap;
 
@@ -314,7 +316,7 @@ public:
     const MetaButtonCodes function;
     const MetaButtonCodes probe_z;
     const MetaButtonCodes macro9;
-    const MetaButtonCodes macro10;        // Hardcoded Absolue/relative Dro
+    const MetaButtonCodes macro10;        // Hardcoded Absolute/relative Dro
     const MetaButtonCodes macro14;
     const MetaButtonCodes continuous;
     const MetaButtonCodes macro15;
@@ -391,6 +393,7 @@ public:
     ~FeedRotaryButton();
     virtual bool setKeyCode(const KeyCode& keyCode) override;
     void setStepMode(HandwheelStepmodes::Mode stepMode);
+    void setStepMode_5_10(bool enable);
     HandwheelStepmodes::Mode stepMode() const;
     float stepSize() const;
     bool isPermitted() const override;
@@ -438,7 +441,6 @@ public:
     Handwheel(const FeedRotaryButton& feedButton, KeyEventListener* listener = nullptr);
     ~Handwheel();
     void enableVerbose(bool enable);
-    void setMode(HandWheelCounters::CounterNameToIndex mode);
     void count(int8_t delta);
     const HandWheelCounters& counters() const;
     HandWheelCounters& counters();
@@ -583,13 +585,12 @@ private:
     ButtonsState mCurrentButtonsState;
     Handwheel    mHandWheel;
     Display      mDisplay;
-    //! if in Lead mode: if true jog wheel changes the spindle speed, changes the feed overide otherwise
+    //! if in Lead mode: if true jog wheel changes the spindle speed, changes the feed override otherwise
     bool         mIsLeadModeSpindle = false;
     bool         mIsLeadModeFeed = false;
-    bool         mIsStepMode_5_10 = false;
 
-    float mScale;
-    float mMaxVelocity;
+    // float mScale;
+    // float mMaxVelocity;
 
     const char  * mPrefix;
     std::ostream  mDevNull{nullptr};
@@ -611,3 +612,4 @@ private:
 // ----------------------------------------------------------------------
 std::ostream& operator<<(std::ostream& os, const Pendant& data);
 }
+#endif

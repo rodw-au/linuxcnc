@@ -19,82 +19,47 @@
 
 #include <rtapi_slab.h>
 
-#include "rtapi.h"
-#include "rtapi_string.h"
-#include "rtapi_math.h"
-#include "rtapi_math64.h"
+#include <rtapi.h>
+#include <rtapi_string.h>
+#include <rtapi_math.h>
+#include <rtapi_math64.h>
 
-#include "hal.h"
+#include <hal.h>
 
 #include "hostmot2.h"
 #include "bitfile.h"
 
+// Local definition of labs() because RTAI compile barfs on using labs(). It
+// could be optimized using compiler built-ins, but the single use in here is
+// not critical.
+static inline rtapi_s64 xlabs(rtapi_s64 x) { return x < 0 ? -x : x; }
 
 int getbits(hm2_sserial_remote_t *chan, rtapi_u64 *val, int start, int len){
-    long long user0 = (chan->reg_0_read == NULL)? 0 : *chan->reg_0_read;
-    long long user1 = (chan->reg_1_read == NULL)? 0 : *chan->reg_1_read;
-    long long user2 = (chan->reg_2_read == NULL)? 0 : *chan->reg_2_read;
-    long long mask = (~0ull >> (64 - len));
-
-    if (start + len <= 32){
-        *val = (user0 >> start) & mask;
-    } else if (start + len <= 64){
-        if (start >= 32){
-            *val = (user1 >> (start - 32)) & mask;
-        } else {
-            *val = (((user1 << 32) | user0) >> start ) & mask;
-        }
-    } else {
-        if (start >= 64){
-            *val = (user2 >> (start - 64)) & mask;
-        } else if (start >= 32) {
-            *val = (((user2 << 32) | user1) >> (start - 32)) & mask;
-        } else {
-            *val = ((user2 << (64 - start)) | (user1 << (32 - start))
-                    | (user0 >> start)) & mask;
-        }
+    //load the bits from the registers in to bit 0+ of *val
+    int i;
+    
+    *val = 0LL;
+    for (i = (start + len - 1) / 32; i >= start / 32; i--){
+        *val <<= 32;
+        *val |= *chan->read[i];
     }
+    *val >>= start % 32;
+    // mask to leave only the required bits
+    *val &= (~0ull >> (64 - len));
     return 0;
 }
 
 
 int setbits(hm2_sserial_remote_t *chan, rtapi_u64 *val, int start, int len){
+    //load the bits from *val into the registers
     // Assumes that all registers are zeroed elsewhere as required
-    long long mask0, mask1, mask2;
-    int end = start + len;
-
-    if (end <= 32){
-        mask0 = (~0ull >> (64 - len));
-        *chan->reg_0_write |= (*val  & mask0) << start;
-    } else if (end <= 64){
-        if (start >= 32){
-            mask1 = (~0ull >> (64 - len));
-            *chan->reg_1_write |= (*val & mask1) << (start - 32);
-        } else {
-            mask0 = (~0ull >> (32 + start));
-            mask1 = (~0ull >> (96 - (end))) << (32 - start);
-            *chan->reg_0_write |= (*val & mask0) << start;
-            *chan->reg_1_write |= (*val & mask1) >> (32 - start);
-        }
-    } else {
-        if (start >= 64){
-            mask2 = (~0ull >> (64 - len));
-            *chan->reg_2_write |= (*val  & mask2) << (start - 64);
-        } else if (start >= 32) {
-            mask1 = (~0ull >> start);
-            mask2 = (~0ull >> (128 - (end))) << (64 - start);
-            *chan->reg_1_write |= (*val & mask1) << (start - 32);
-            *chan->reg_2_write |= (*val & mask2) >> (64 - start);
-        } else {
-            mask0 = (~0ull >> (32 + start));
-            mask1 = (0xFFFFFFFFull << (32 - start));
-            mask2 = (~0ull >> (128 - (end))) << (64 - start);
-            *chan->reg_0_write |= (*val & mask0) << start;
-            *chan->reg_1_write = (*val & mask1) >> (32 - start);
-            *chan->reg_2_write |= (*val & mask2) >> (64 - start);
-        }
+    int i;
+    *val <<= start % 32;
+    for (i = start / 32; i <= (start + len - 1) / 32; i++){
+        *chan->write[i] |= (rtapi_u32)*val;
+        *val >>= 32;
     }
-    return end;
+    return start + len;
 }
 
 int hm2_sserial_wait(hostmot2_t *hm2, hm2_sserial_instance_t *inst, long period){
@@ -196,7 +161,7 @@ int hm2_sserial_read_nvram_word(hostmot2_t *hm2,
     buff = 0xEC000000;
     hm2->llio->write(hm2->llio, chan->reg_cs_addr, &buff, sizeof(rtapi_u32));
     buff = 0x01;
-    hm2->llio->write(hm2->llio, chan->reg_0_addr, &buff, sizeof(rtapi_u32));
+    hm2->llio->write(hm2->llio, chan->rw_addr[0], &buff, sizeof(rtapi_u32));
     buff = 0x1000 | (1 << chan->index);
     hm2->llio->write(hm2->llio, chan->command_reg_addr, &buff, sizeof(rtapi_u32));
     if (0 > hm2_sserial_waitfor(hm2, chan->command_reg_addr, 0xFFFFFFFF, 1012)){
@@ -223,13 +188,13 @@ int hm2_sserial_read_nvram_word(hostmot2_t *hm2,
         HM2_ERR("Timeout in sserial_read_nvram_word(4)\n");
         goto fail0;
     }
-    hm2->llio->read(hm2->llio, chan->reg_0_addr, data, sizeof(rtapi_u32));
+    hm2->llio->read(hm2->llio, chan->rw_addr[0], data, sizeof(rtapi_u32));
 
 fail0: // attempt to set back to normal access
     buff = 0xEC000000;
     hm2->llio->write(hm2->llio, chan->reg_cs_addr, &buff, sizeof(rtapi_u32));
     buff = 0x00;
-    hm2->llio->write(hm2->llio, chan->reg_0_addr, &buff, sizeof(rtapi_u32));
+    hm2->llio->write(hm2->llio, chan->rw_addr[0], &buff, sizeof(rtapi_u32));
     buff = 0x1000 | (1 << chan->index);
     hm2->llio->write(hm2->llio, chan->command_reg_addr, &buff, sizeof(rtapi_u32));
     if (0 > hm2_sserial_waitfor(hm2, chan->command_reg_addr, 0xFFFFFFFF, 1014)){
@@ -258,7 +223,7 @@ int check_set_baudrate(hostmot2_t *hm2, hm2_sserial_instance_t *inst){
         baudaddr = getlocal8(hm2, inst, SSLBPCHANNELSTARTLOC) + (c * lbpstride) + 42;
         baudrate = getlocal32(hm2, inst, baudaddr);
         HM2_PRINT("Chan %i baudrate = %i\n", c, baudrate);
-        if (baudrate != hm2->sserial.baudrate) {
+        if (baudrate != (unsigned)hm2->sserial.baudrate) {
             if (setlocal32(hm2, inst, baudaddr, hm2->sserial.baudrate) < 0) {
                 HM2_ERR("Problem setting new baudrate, power-off reset may be needed to"
                         " recover from this.\n");
@@ -331,7 +296,7 @@ int hm2_sserial_get_bytes(hostmot2_t *hm2,
             return -EINVAL;
         }
 
-        hm2->llio->read(hm2->llio, chan->reg_0_addr, &data, sizeof(rtapi_u32));
+        hm2->llio->read(hm2->llio, chan->rw_addr[0], &data, sizeof(rtapi_u32));
         data &= 0x000000FF;
         size--;
         if (size < 0) { // string data
@@ -365,6 +330,7 @@ void config_8i20(hostmot2_t *hm2, hm2_sserial_remote_t *chan){
 }
 
 void config_7i64(hostmot2_t *hm2, hm2_sserial_remote_t *chan){
+    (void)hm2;
     chan->num_modes=0;
     chan->num_confs = sizeof(hm2_7i64_params) / sizeof(hm2_sserial_data_t);
     chan->confs = rtapi_kzalloc(sizeof(hm2_7i64_params), RTAPI_GFP_KERNEL);
@@ -424,8 +390,21 @@ int hm2_sserial_get_param_value(hostmot2_t *hm2,
         case LBP_ENCODER:
             break; // Hard to imagine an encoder not in Process data
         case LBP_FLOAT:
-            r = hm2_sserial_get_bytes(hm2, chan, (void*)&(p->float_written),
-                                      g->ParmAddr, g->DataLength/8);
+            {
+                char buf[HM2_SSERIAL_MAX_DATALENGTH/8];
+                r = hm2_sserial_get_bytes(hm2, chan, &buf[0], g->ParmAddr, g->DataLength/8);
+                if (g->DataLength == sizeof(float) * 8) {
+                    float temp;
+                    memcpy((void*)&temp, &buf[0], sizeof(float));
+                    p->float_written = temp;
+                } else if (g->DataLength == sizeof(double) * 8) {
+                    double temp;
+                    memcpy((void*)&temp, &buf[0], sizeof(double));
+                    p->float_written = temp;
+                } else {
+                    HM2_ERR("sserial get param value: LBP_FLOAT of bit-length %i not handled\n", g->DataLength);
+                }
+            }
             if (set_hal) p->float_param = p->float_written;
             HM2_DBG("LBP_FLOAT %f %f \n", p->float_param, p->float_written);
             break;
@@ -508,7 +487,7 @@ int hm2_sserial_get_globals_list(hostmot2_t *hm2, hm2_sserial_remote_t *chan){
     hm2_sserial_data_t data;
 
     chan->num_globals = 0;
-    hm2->llio->read(hm2->llio, chan->reg_2_addr, &buff, sizeof(rtapi_u32));
+    hm2->llio->read(hm2->llio, chan->rw_addr[2], &buff, sizeof(rtapi_u32));
     gtoc=(buff & 0xffff0000) >> 16;
     if (gtoc == 0){
         if (hm2->sserial.baudrate == 115200) {
@@ -585,7 +564,7 @@ int hm2_sserial_parse_md(hostmot2_t *hm2, int md_index){
     hm2_module_descriptor_t *md = &hm2->md[md_index];
     int i, c;
     int pin = -1;
-    int port_pin, port;
+    int port;
     rtapi_u32 ddr_reg, src_reg, buff;
     int r = -EINVAL;
     int count = 0;
@@ -597,18 +576,27 @@ int hm2_sserial_parse_md(hostmot2_t *hm2, int md_index){
     // some standard sanity checks
     //
 
-    if (hm2_md_is_consistent(hm2, md_index, 0, 5, 0x40, 0x001F)) {
-        HM2_ERR("The bitfile contains Smart Serial modules for a firmware "
-                "revision < rev22. This Driver now requires rev22 or newer "
-                "firmwares\n");
-        return -EINVAL;
-    }
+    switch(md->gtag){
+        case HM2_GTAG_SMARTSERIAL:
+            if (hm2_md_is_consistent(hm2, md_index, 0, 5, 0x40, 0x001F)) {
+                HM2_ERR("The bitfile contains Smart Serial modules for a firmware "
+                        "revision < rev22. This Driver now requires rev22 or newer "
+                        "firmwares\n");
+                return -EINVAL;
+            }
 
-    if (!hm2_md_is_consistent_or_complain(hm2, md_index, 0, 6, 0x40, 0x003C)) {
-        HM2_ERR("inconsistent Module Descriptor!\n");
-        return -EINVAL;
+            if (!hm2_md_is_consistent_or_complain(hm2, md_index, 0, 6, 0x40, 0x003C)) {
+                HM2_ERR("inconsistent Module Descriptor!\n");
+                return -EINVAL;
+            }
+            break;
+        case HM2_GTAG_SMARTSERIALB:
+            if (!hm2_md_is_consistent_or_complain(hm2, md_index, 0, 10, 0x40, 0x03FC)) {
+                HM2_ERR("inconsistent Module Descriptor!\n");
+                return -EINVAL;
+            }
+            break;
     }
-
     if (hm2->sserial.num_instances != 0) {
         HM2_ERR(
                 "found duplicate Module Descriptor for %s (inconsistent firmwar"
@@ -625,10 +613,6 @@ int hm2_sserial_parse_md(hostmot2_t *hm2, int md_index){
                 md->instances
                 );
         return -EINVAL;
-    }
-
-    if (hm2->config.num_sserials == 0) {
-        return 0;
     }
 
     //
@@ -659,15 +643,17 @@ int hm2_sserial_parse_md(hostmot2_t *hm2, int md_index){
     for (port  = 0; port < hm2->ioport.num_instances; port ++) {
         ddr_reg = 0;
         src_reg = 0;
-        for (port_pin = 0 ; port_pin < hm2->idrom.port_width; port_pin ++){
+        for (unsigned port_pin = 0 ; port_pin < hm2->idrom.port_width; port_pin ++){
             pin++;
-            if (hm2->pin[pin].sec_tag == HM2_GTAG_SMARTSERIAL) {
+            if (hm2->pin[pin].sec_tag == HM2_GTAG_SMARTSERIAL
+                || hm2->pin[pin].sec_tag == HM2_GTAG_SMARTSERIALB) {
                 // look for highest-indexed pin to determine number of channels
                 if ((hm2->pin[pin].sec_pin & 0x0F) > chan_counts[hm2->pin[pin].sec_unit]) {
                     chan_counts[hm2->pin[pin].sec_unit] = (hm2->pin[pin].sec_pin & 0x0F);
                 }
                 // check if the channel is enabled
-                HM2_DBG("sec unit = %i, sec pin = %i\n", hm2->pin[pin].sec_unit, hm2->pin[pin].sec_pin & 0x0F);
+                HM2_DBG("port %i sec unit = %i, sec pin = %i mode=%c\n", port, hm2->pin[pin].sec_unit, hm2->pin[pin].sec_pin & 0x0F,
+                               hm2->config.sserial_modes[hm2->pin[pin].sec_unit][(hm2->pin[pin].sec_pin & 0x0F) - 1] );
                 if (hm2->config.sserial_modes[hm2->pin[pin].sec_unit]
                                         [(hm2->pin[pin].sec_pin & 0x0F) - 1] != 'x') {
                     src_reg |= (1 << port_pin);
@@ -684,8 +670,7 @@ int hm2_sserial_parse_md(hostmot2_t *hm2, int md_index){
     }
 
     // Now iterate through the sserial instances, seeing what is on the enabled pins.
-    for (i = 0 ; i < hm2->sserial.num_instances ; i++) {
-
+    for (i = 0 ; i < md->instances ; i++) {
         hm2_sserial_instance_t *inst = &hm2->sserial.instance[count];
         inst->index = i;
         inst->num_channels = chan_counts[i];
@@ -706,11 +691,11 @@ int hm2_sserial_parse_md(hostmot2_t *hm2, int md_index){
         HM2_PRINT("Smart Serial Firmware Version %i\n",buff);
         hm2->sserial.version = buff;
 
-        r = check_set_baudrate(hm2, inst) < 0;
+        r = check_set_baudrate(hm2, inst);
         if (r < 0) goto fail0;
 
         //start up in setup mode
-        r = hm2_sserial_stopstart(hm2, md, inst, 0xF00) < 0;
+        r = hm2_sserial_stopstart(hm2, md, inst, 0xF00);
         if(r < 0) {goto fail0;}
 
         inst->num_remotes = 0;
@@ -722,17 +707,17 @@ int hm2_sserial_parse_md(hostmot2_t *hm2, int md_index){
             addr0 = md->base_address + 3 * md->register_stride
                                     + i * md->instance_stride + c * sizeof(rtapi_u32);
             HM2READ(addr0, user0);
-            HM2_DBG("Inst %i Chan %i User0 = %x\n", i, c, user0);
+            HM2_DBG("Inst %i Chan %i Addr %x User0 = %x\n", i, c, addr0, user0);
 
             addr1 = md->base_address + 4 * md->register_stride
                                     + i * md->instance_stride + c * sizeof(rtapi_u32);
             HM2READ(addr1, user1);
-            HM2_DBG("Inst %i Chan %i User1 = %x\n", i, c, user1);
+            HM2_DBG("Inst %i Chan %i Addr %x User1 = %x\n", i, c, addr1, user1);
 
             addr2 = md->base_address + 5 * md->register_stride
             + i * md->instance_stride + c * sizeof(rtapi_u32);
             HM2READ(addr2, user2);
-            HM2_DBG("Inst %i Chan %i User2 = %x\n", i, c, user2);
+            HM2_DBG("Inst %i Chan %i Addr %x User2 = %x\n", i, c, addr2, user2);
 
             if (hm2->sserial.baudrate == 115200
                 && hm2->config.sserial_modes[i][c] != 'x') { //setup mode
@@ -788,9 +773,12 @@ int hm2_sserial_parse_md(hostmot2_t *hm2, int md_index){
                      || hm2->config.sserial_modes[i][c] == 'x'){
                 for (pin = 0 ; pin < hm2->num_pins ; pin++){
                     if (hm2->pin[pin].sec_tag == HM2_GTAG_SMARTSERIAL
-                        && (hm2->pin[pin].sec_pin & 0x0F) - 1  == c
+                     || hm2->pin[pin].sec_tag == HM2_GTAG_SMARTSERIALB){
+                        if((hm2->pin[pin].sec_pin & 0x0F) - 1  == c
                         && hm2->pin[pin].sec_unit == i){
-                        hm2->pin[pin].sec_tag = 0;
+                            hm2->pin[pin].sec_tag = 0;
+                            HM2_DBG("Masking pin %i\n", pin);
+                        }
                     }
                 }
             }
@@ -979,7 +967,7 @@ int hm2_sserial_setup_channel(hostmot2_t *hm2, hm2_sserial_instance_t *inst, int
 int hm2_sserial_setup_remotes(hostmot2_t *hm2,
                               hm2_sserial_instance_t *inst,
                               hm2_module_descriptor_t *md) {
-    int c, r;
+    int c, r, i;
     int buff;
 
     inst->remotes =
@@ -1003,22 +991,19 @@ int hm2_sserial_setup_remotes(hostmot2_t *hm2,
             chan->reg_cs_addr = md->base_address + 2 * md->register_stride
             + inst->index * md->instance_stride + c * sizeof(rtapi_u32);
             HM2_DBG("reg_cs_addr = %x\n", chan->reg_cs_addr);
-            chan->reg_0_addr = md->base_address + 3 * md->register_stride
-            + inst->index * md->instance_stride + c * sizeof(rtapi_u32);
-            HM2_DBG("reg_0_addr = %x\n", chan->reg_0_addr);
-            chan->reg_1_addr = md->base_address + 4 * md->register_stride
-            + inst->index * md->instance_stride + c * sizeof(rtapi_u32);
-            HM2_DBG("reg_1_addr = %x\n", chan->reg_1_addr);
-            chan->reg_2_addr = md->base_address + 5 * md->register_stride
-            + inst->index * md->instance_stride + c * sizeof(rtapi_u32);
-            HM2_DBG("reg_2_addr = %x\n", chan->reg_2_addr);
-
+            // Assume that all process data registers are in use for now. 
+            for (i = 0; i < HM2_SSERIAL_NUMREGS; i++){
+                chan->rw_addr[i] = md->base_address + (3 + i ) * md->register_stride
+                + inst->index * md->instance_stride + c * sizeof(rtapi_u32);
+                HM2_DBG("rw_addr[%i] = %x\n", i, chan->rw_addr[i]);
+            }
+            
             // Get the board ID and name before it is over-written by DoIts
-            hm2->llio->read(hm2->llio, chan->reg_0_addr,
+            hm2->llio->read(hm2->llio, chan->rw_addr[0],
                             &buff, sizeof(rtapi_u32));
             chan->serialnumber = buff;
             HM2_DBG("BoardSerial %08x\n", chan->serialnumber);
-            hm2->llio->read(hm2->llio, chan->reg_1_addr, chan->raw_name, sizeof(rtapi_u32));
+            hm2->llio->read(hm2->llio, chan->rw_addr[1], chan->raw_name, sizeof(rtapi_u32));
             chan->raw_name[1] |= 0x20; ///lower case
             if (hm2->use_serial_numbers){
                 rtapi_snprintf(chan->name, sizeof(chan->name),
@@ -1070,7 +1055,7 @@ int hm2_sserial_read_configs(hostmot2_t *hm2,  hm2_sserial_remote_t *chan){
     int ptoc, addr, buff, c, m;
     unsigned char rectype;
 
-    hm2->llio->read(hm2->llio, chan->reg_2_addr, &buff, sizeof(rtapi_u32));
+    hm2->llio->read(hm2->llio, chan->rw_addr[2], &buff, sizeof(rtapi_u32));
     ptoc=(buff & 0xffff);
     if (ptoc == 0) {return chan->num_confs;} // Old 8i20 or 7i64
 
@@ -1159,6 +1144,16 @@ int hm2_sserial_create_pins(hostmot2_t *hm2, hm2_sserial_remote_t *chan){
             HM2_ERR("Invalid Pin direction (%x). Aborting\n",
                     chan->confs[i].DataDir);
             return -EINVAL;
+        }
+
+        chan->num_read_regs = ceil(chan->num_read_bits / 32.0);
+        chan->num_write_regs = ceil(chan->num_write_bits / 32.0);
+        if (chan->num_read_regs >  HM2_SSERIAL_NUMREGS ||
+            chan->num_write_regs > HM2_SSERIAL_NUMREGS) {
+            HM2_ERR("Data width, %i in / %i out bits, exceeds the supported "
+                    "number of smart-serial 32-bit registers (%i)\n",
+                     chan->num_read_bits, chan->num_write_bits, HM2_SSERIAL_NUMREGS);
+            return -EOVERFLOW;
         }
 
         if (chan->confs[i].Flags & 0x01){
@@ -1450,10 +1445,13 @@ int hm2_sserial_create_pins(hostmot2_t *hm2, hm2_sserial_remote_t *chan){
 
 int hm2_sserial_register_tram(hostmot2_t *hm2, hm2_sserial_remote_t *chan){
 
-    int r = 0;
+    int r = 0, i = 0;
 
-    HM2_DBG("%s read-bits = %i, write-bits = %i\n", chan->name,
-            chan->num_read_bits, chan->num_write_bits);
+    HM2_DBG("%s read-bits = %i, write-bits = %i\n"
+            "read-regs = %i, write-regs = %i\n",
+            chan->name,
+            chan->num_read_bits, chan->num_write_bits,
+            chan->num_read_regs, chan->num_write_regs);
 
     r = hm2_register_tram_read_region(hm2, chan->reg_cs_addr, sizeof(rtapi_u32),
                                       &chan->reg_cs_read);
@@ -1461,81 +1459,33 @@ int hm2_sserial_register_tram(hostmot2_t *hm2, hm2_sserial_remote_t *chan){
                          "register (%d)\n", r);
         goto fail1;
     }
-    if (chan->num_read_bits > 0){
-        r = hm2_register_tram_read_region(hm2, chan->reg_0_addr, sizeof(rtapi_u32),
-                                          &chan->reg_0_read);
+    for (i = 0; i < chan->num_read_regs; i++){
+        r = hm2_register_tram_read_region(hm2, chan->rw_addr[i], sizeof(rtapi_u32),
+                                          &chan->read[i]);
         if (r < 0) { HM2_ERR("error registering tram read region for sserial "
-                             "interface 0 register (%d)\n", r);
+                             "interface %i register (%d)\n" , i, r);
             goto fail1;
         }
-    } else {
-        chan->reg_0_read = NULL;
-    }
-
-    if (chan->num_read_bits > 32){
-        r = hm2_register_tram_read_region(hm2, chan->reg_1_addr, sizeof(rtapi_u32),
-                                          &chan->reg_1_read);
-        if (r < 0) { HM2_ERR("error registering tram read region for sserial "
-                             "interface 1 register (%d)\n", r);
-            goto fail1;
-        }
-    } else {
-        chan->reg_1_read = NULL;
-    }
-
-    if (chan->num_read_bits > 64){
-        r = hm2_register_tram_read_region(hm2, chan->reg_2_addr, sizeof(rtapi_u32),
-                                          &chan->reg_2_read);
-        if (r < 0) { HM2_ERR("error registering tram read region for sserial "
-                             "interface 2 register (%d)\n", r);
-            goto fail1;
-        }
-    } else {
-        chan->reg_2_read = NULL;
     }
 
     // Register the TRAM WRITE
 
     r = hm2_register_tram_write_region(hm2, chan->reg_cs_addr, sizeof(rtapi_u32),
                                        &(chan->reg_cs_write));
-    if (r < 0) {HM2_ERR("error registering tram write region for sserial"
+    if (r < 0) { HM2_ERR("error registering tram write region for sserial"
                         "interface cs register (%d)\n", r);
         goto fail1;
     }
-
-    if (chan->num_write_bits > 0){
-        r = hm2_register_tram_write_region(hm2, chan->reg_0_addr, sizeof(rtapi_u32),
-                                           &(chan->reg_0_write));
-        if (r < 0) {HM2_ERR("error registering tram write region for sserial"
-                            "interface 0 register (%d)\n", r);
+    
+    for (i = 0; i < chan->num_write_regs; i++) {
+        r = hm2_register_tram_write_region(hm2, chan->rw_addr[i], sizeof(rtapi_u32),
+                                          &chan->write[i]);
+        if (r < 0) { HM2_ERR("error registering tram read region for sserial "
+                             "interface %i register (%d)\n" , i, r);
             goto fail1;
         }
-    } else {
-        chan->reg_0_write = NULL;
     }
-
-    if (chan->num_write_bits > 32){
-        r = hm2_register_tram_write_region(hm2, chan->reg_1_addr, sizeof(rtapi_u32),
-                                           &(chan->reg_1_write));
-        if (r < 0) {HM2_ERR("error registering tram write region for sserial"
-                            "interface 1 register (%d)\n", r);
-            goto fail1;
-        }
-    } else {
-        chan->reg_1_write = NULL;
-    }
-
-    if (chan->num_write_bits > 64){
-        r = hm2_register_tram_write_region(hm2, chan->reg_2_addr, sizeof(rtapi_u32),
-                                           &(chan->reg_2_write));
-        if (r < 0) {HM2_ERR("error registering tram write region for sserial"
-                            "interface 2 register (%d)\n", r);
-            goto fail1;
-        }
-    } else {
-        chan->reg_2_write = NULL;
-    }
-
+    
     return 0;
 
 fail1:
@@ -1554,6 +1504,7 @@ fail1:
             inst->r_index = 0;
             inst->g_index = 0;
             *inst->state2 = 1;
+            /* Fallthrough */
         case 1:
             if (inst->num_remotes == 0) return 0;
             r = &(inst->remotes[inst->r_index]);
@@ -1587,12 +1538,13 @@ fail1:
                         case LBP_FLOAT:
                         case LBP_NONVOL_FLOAT:
                             // comparing floats that might have different sizes is not trivial
-                            // this does a bitwise comparision of as many mantissa bits as might
+                            // this does a bitwise comparison of as many mantissa bits as might
                             // be expected to have been sent by the sserial remote
                             switch (g->DataLength){
                                 // ( double significand - variable type significand)
                                 default:
-                                HM2_ERR("Non IEEE float type parameter\n");
+                                HM2_ERR("Non IEEE float type parameter of length %i\n", g->DataLength);
+                                /* Fallthrough */
                                 case 8:
                                     shift = (52 -  4); break; // 1.3.4 minifloat, if we ever add them
                                 case 16:
@@ -1602,7 +1554,7 @@ fail1:
                                 case 64:
                                     shift = 0;
                                 }
-                            if (abs(((int)(p->s64_param) - (int)(p->s64_written)) >> shift) > 2) break;
+                            if (xlabs((p->s64_param - p->s64_written) >> shift) > 2) break;
                             *inst->state2 = 2; // increment indices
                             return *inst->state2;
                         default:
@@ -1630,7 +1582,7 @@ fail1:
                         || p->type == LBP_NONVOL_UNSIGNED
                         || p->type == LBP_NONVOL_SIGNED){
                         *r->reg_cs_write = LBPNONVOL_flag + LBPWRITE;
-                        *r->reg_0_write = LBPNONVOLEEPROM;
+                        *r->write[0] = LBPNONVOLEEPROM;
                         *inst->command_reg_write = 0x1000 | (1 << r->index); // doit command
                         inst->timer = 20000000;
                         *inst->state3 = 3;
@@ -1652,20 +1604,20 @@ fail1:
                     switch (p->type){
                         case LBP_SIGNED:
                         case LBP_NONVOL_SIGNED:
-                            *r->reg_0_write = (rtapi_u32) p->s32_param;
+                            *r->write[0] = (rtapi_u32) p->s32_param;
                             break;
                         case LBP_UNSIGNED:
                         case LBP_NONVOL_UNSIGNED:
-                            *r->reg_0_write = p->u32_param;
+                            *r->write[0] = p->u32_param;
                             break;
                         case LBP_FLOAT:
                         case LBP_NONVOL_FLOAT:
                             if (g->DataLength == sizeof(float) * 8 ){
                                 float temp = p->float_param;
-                                memcpy(r->reg_0_write, &temp, sizeof(float));    // Data Value
+                                memcpy(r->write[0], &temp, sizeof(float));    // Data Value
                             } else if (g->DataLength == sizeof(double) * 8){
                                 double temp = p->float_param;
-                                memcpy(r->reg_0_write, &temp, sizeof(double));
+                                memcpy(r->write[0], &temp, sizeof(double));
                             } else {
                                 HM2_ERR("sserial write: LBP_FLOAT of bit-length %i not handled\n", g->DataLength);
                                 p->type= LBP_PAD; // only warn once, then ignore
@@ -1721,7 +1673,7 @@ fail1:
                         || p->type == LBP_NONVOL_UNSIGNED
                         || p->type == LBP_NONVOL_SIGNED){
                         *r->reg_cs_write = LBPNONVOL_flag + LBPWRITE;
-                        *r->reg_0_write = LBPNONVOLCLEAR;
+                        *r->write[0] = LBPNONVOLCLEAR;
                         *inst->command_reg_write = 0x1000 | (1 << r->index); // doit command
                         inst->timer = 0x2000000;
                         *inst->state3 = 7;
@@ -1761,9 +1713,9 @@ fail1:
         break;
     case 2:
         *inst->state2 = 1;
-        if (++inst->g_index >= inst->remotes[inst->r_index].num_globals){
+        if ((int)++inst->g_index >= inst->remotes[inst->r_index].num_globals){
             inst->g_index = 0;
-            if (++inst->r_index >= inst->num_remotes){//checked them all
+            if ((int)++inst->r_index >= inst->num_remotes){//checked them all
                 *inst->state2 = 0;
             }
         }
@@ -1773,7 +1725,7 @@ fail1:
 }
 
 void hm2_sserial_write_pins(hostmot2_t *hm2, hm2_sserial_instance_t *inst){
-    int b, p, r;
+    int b, p, r, i;
     int bitcount;
     rtapi_u64 buff;
     double val;
@@ -1839,9 +1791,9 @@ void hm2_sserial_write_pins(hostmot2_t *hm2, hm2_sserial_instance_t *inst){
         if (*inst->data_reg_read & (1 << chan->index)) continue;
 
         bitcount = 0;
-        if (chan->reg_0_write) *chan->reg_0_write = 0;
-        if (chan->reg_1_write) *chan->reg_1_write = 0;
-        if (chan->reg_2_write) *chan->reg_2_write = 0;
+        for (i = 0; i < chan->num_write_regs; i++){
+            *chan->write[i] = 0;
+        }
         for (p = 0 ; p < chan->num_confs ; p++){
             hm2_sserial_data_t *conf = &chan->confs[p];
             hm2_sserial_pins_t *pin = &chan->pins[p];
@@ -2040,7 +1992,7 @@ int hm2_sserial_read_pins(hm2_sserial_remote_t *chan){
                     break;
                 }
                 buff = buff_store;
-                /* no break */
+                /* Fallthrough */
             case LBP_ENCODER:
             {
                 int bitlength;
@@ -2085,7 +2037,7 @@ int hm2_sserial_read_pins(hm2_sserial_remote_t *chan){
                 if (*pin->boolean && ppr > 0){ // index-enable set
                     rtapi_div_s64_rem(previous, ppr, &rem1);
                     rtapi_div_s64_rem(pin->accum, ppr, &rem2);
-                    if (abs(rem1 - rem2) > ppr / 2
+                    if ((unsigned)abs(rem1 - rem2) > ppr / 2
                             || (rem1 >= 0 && rem2 < 0)
                             || (rem1 < 0 && rem2 >= 0)){
                         if (pin->accum > previous){
@@ -2142,6 +2094,7 @@ int hm2_sserial_read_pins(hm2_sserial_remote_t *chan){
 }
 
 void hm2_sserial_process_tram_read(hostmot2_t *hm2, long period){
+    (void)period;
     int i, c;
     for (i = 0 ; i < hm2->sserial.num_instances ; i++){
         hm2_sserial_instance_t *inst = &hm2->sserial.instance[i];
@@ -2233,8 +2186,8 @@ void hm2_sserial_setmode(hostmot2_t *hm2, hm2_sserial_instance_t *inst){
 // these are indicated when bit 13 (communication error) is set
 // after a doit command.  Further decoding of communication faults
 // should not be done unless bit 13 is set after a doit.  (but note
-// that for sserial firmware version <= 43, these bits are unintentially
-// sticky and are not reset after a doit)
+// that for sserial firmware version <= 43, these bits are
+// unintentionally sticky and are not reset after a doit)
 //
 // If bit 13 is set, bits 0 through 5 (local communication faults)
 // should be decoded and reported if they meet the inc/dec criteria
@@ -2309,6 +2262,7 @@ int hm2_sserial_check_remote_errors(hostmot2_t *hm2, hm2_sserial_instance_t *ins
 }
 
 void hm2_sserial_force_write(hostmot2_t *hm2){
+    (void)hm2;
     // there's nothing to do here, because hm2_sserial_prepare_tram_write takes
     // charge of recovering after communication error.
 }
@@ -2324,17 +2278,15 @@ void hm2_sserial_cleanup(hostmot2_t *hm2){
                          &buff,
                          sizeof(rtapi_u32));
         if (hm2->sserial.instance[i].remotes != NULL){
-            if (hm2->sserial.instance[i].remotes){
-                for (r = 0 ; r < hm2->sserial.instance[i].num_remotes; r++){
-                    if (hm2->sserial.instance[i].remotes[r].num_confs > 0){
-                        rtapi_kfree(hm2->sserial.instance[i].remotes[r].confs);
-                    };
-                    if (hm2->sserial.instance[i].remotes[r].num_modes > 0){
-                        rtapi_kfree(hm2->sserial.instance[i].remotes[r].modes);
-                    }
+            for (r = 0 ; r < hm2->sserial.instance[i].num_remotes; r++){
+                if (hm2->sserial.instance[i].remotes[r].num_confs > 0){
+                    rtapi_kfree(hm2->sserial.instance[i].remotes[r].confs);
+                };
+                if (hm2->sserial.instance[i].remotes[r].num_modes > 0){
+                    rtapi_kfree(hm2->sserial.instance[i].remotes[r].modes);
                 }
-                rtapi_kfree(hm2->sserial.instance[i].remotes);
             }
+            rtapi_kfree(hm2->sserial.instance[i].remotes);
         }
 
     }

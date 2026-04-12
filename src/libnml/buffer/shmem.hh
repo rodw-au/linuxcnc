@@ -19,19 +19,12 @@
 #ifndef SHMEM_HH
 #define SHMEM_HH
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 #include <stdio.h>		/* NULL */
 #include <stddef.h>		/* size_t */
 #include <sys/types.h>		/* key_t */
 
-#ifdef __cplusplus
-}
-#endif
-#include "cms.hh"		/* class CMS */
-#include "shm.hh"		/* class RCS_SHAREDMEM */
+#include "libnml/cms/cms.hh"		/* class CMS */
+#include "libnml/os_intf/shm.hh"		/* class RCS_SHAREDMEM */
 #include "memsem.hh"		/* struct mem_access_object */
 
 class SHMEM:public CMS {
@@ -46,7 +39,6 @@ class SHMEM:public CMS {
   private:
 
     /* data buffer stuff */
-    int fast_mode;
     int open();			/* get shared mem and sem */
     int close();		/* detach from shared mem and sem */
     key_t key;			/* key for shared mem and sem */

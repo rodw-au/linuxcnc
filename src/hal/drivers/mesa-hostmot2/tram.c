@@ -20,13 +20,13 @@
 #include <rtapi_slab.h>
 #include <rtapi_list.h>
 
-#include "rtapi.h"
-#include "rtapi_string.h"
-#include "rtapi_math.h"
+#include <rtapi.h>
+#include <rtapi_string.h>
+#include <rtapi_math.h>
 
-#include "hal.h"
+#include <hal.h>
 
-#include "hal/drivers/mesa-hostmot2/hostmot2.h"
+#include "hostmot2.h"
 
 
 
@@ -58,6 +58,8 @@ int hm2_register_tram_read_region(hostmot2_t *hm2, rtapi_u16 addr, rtapi_u16 siz
 
     rtapi_list_add_tail(&tram_entry->list, &hm2->tram_read_entries);
 
+    // Not a memory leak. The 'tram_entry' is part of the list.
+    // cppcheck-suppress memleak
     return 0;
 }
 
@@ -77,6 +79,8 @@ int hm2_register_tram_write_region(hostmot2_t *hm2, rtapi_u16 addr, rtapi_u16 si
 
     rtapi_list_add_tail(&tram_entry->list, &hm2->tram_write_entries);
 
+    // Not a memory leak. The 'tram_entry' is part of the list.
+    // cppcheck-suppress memleak
     return 0;
 }
 
@@ -165,7 +169,7 @@ int hm2_tram_read(hostmot2_t *hm2) {
 int hm2_queue_read(hostmot2_t *hm2) {
     if (!hm2->llio->send_queued_reads) return 0;
     if (!hm2->llio->send_queued_reads(hm2->llio)) {
-        HM2_ERR("error finishing read! iter=%u)\n",
+        HM2_ERR("error queuing read! iter=%u)\n",
             tram_read_iteration);
         return -EIO;
     }

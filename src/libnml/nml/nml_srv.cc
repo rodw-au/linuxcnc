@@ -12,33 +12,27 @@
 * Last change: 
 ********************************************************************/
 
-#ifdef __cplusplus
-extern "C" {
-#endif
+#include <string.h>		// memcpy()
 
-#include <string.h>		/* memcpy() */
-
-#include <signal.h>		/* kill() */
+#include <signal.h>		// kill()
 #include <sys/types.h>
-#include <unistd.h>		/* getpid() */
-#include <sys/wait.h>		/* waitpid() */
-#include <stdlib.h>		/* atexit() */
+#include <unistd.h>		// getpid()
+#include <sys/wait.h>		// waitpid()
+#include <stdlib.h>		// atexit()
 
-#ifdef __cplusplus
-}
-#endif
+#include <rtapi_string.h>	// rtapi_strlcpy()
 #include "nml.hh"
 #include "nmlmsg.hh"
-#include "cms.hh"
+#include "libnml/cms/cms.hh"
 #include "nml_srv.hh"
-#include "rem_msg.hh"		/* struct REMOTE_READ_REQUEST, */
-#include "rcs_print.hh"		/* rcs_print_error() */
-#include "timer.hh"		// esleep()
-#include "rcs_exit.hh"		// rcs_exit
-#include "linklist.hh"
-#include "physmem.hh"
-#include "cmsdiag.hh"
-#include "cmd_msg.hh" // layering violation ahoy
+#include "libnml/buffer/rem_msg.hh"		// struct REMOTE_READ_REQUEST
+#include "libnml/rcs/rcs_print.hh"		// rcs_print_error()
+#include "libnml/os_intf/timer.hh"		// esleep()
+#include "libnml/rcs/rcs_exit.hh"		// rcs_exit
+#include "libnml/linklist/linklist.hh"
+#include "libnml/buffer/physmem.hh"
+#include "libnml/cms/cmsdiag.hh"
+#include "cmd_msg.hh"		// layering violation ahoy
 NML_SERVER::NML_SERVER(NML * _nml, int _set_to_master):CMS_SERVER()
 {
     NML_SERVER_LOCAL_PORT *new_local_port = NULL;
@@ -57,20 +51,19 @@ NML_SERVER::NML_SERVER(NML * _nml, int _set_to_master):CMS_SERVER()
 		    if (NULL != new_nml) {
 			new_local_port = new NML_SERVER_LOCAL_PORT(new_nml);
 			add_local_port(new_local_port);
+		        new_local_port->local_channel_reused = 1;
 		    }
-		    new_local_port->local_channel_reused = 1;
 		} else {
 		    new_nml = new NML(_nml, 1, -1);
 		    if (NULL != new_nml) {
 			new_local_port = new NML_SERVER_LOCAL_PORT(new_nml);
 			add_local_port(new_local_port);
+		        new_local_port->local_channel_reused = 0;
 		    }
-		    new_local_port->local_channel_reused = 0;
 		}
 	    } else {
 		rcs_print_error
 		    ("NML_SERVER:(ERROR) ProcessType was REMOTE.\n");
-		_nml = (NML *) NULL;
 	    }
 	} else {
 	    rcs_print_error("NML_SERVER:(ERROR) cms was NULL.\n");
@@ -108,9 +101,9 @@ void NML_SERVER::delete_from_list()
     }
 }
 
-NML_SERVER_LOCAL_PORT::NML_SERVER_LOCAL_PORT(NML * _nml):CMS_SERVER_LOCAL_PORT((CMS
-	*)
-    NULL)
+NML_SERVER_LOCAL_PORT::NML_SERVER_LOCAL_PORT(NML * _nml)
+  : CMS_SERVER_LOCAL_PORT((CMS *)NULL),
+    batch_list_id(0)
 {
     local_channel_reused = 1;
     nml = _nml;
@@ -127,7 +120,7 @@ NML_SERVER_LOCAL_PORT::~NML_SERVER_LOCAL_PORT()
     if (NULL != nml && !local_channel_reused) {
 	delete nml;
     }
-    nml = (NML *) NULL;
+    nml = NULL;
     cms = (CMS *) NULL;
 }
 
@@ -191,10 +184,10 @@ REMOTE_READ_REPLY *NML_SERVER_LOCAL_PORT::blocking_read(REMOTE_READ_REQUEST *
     double orig_bytes_moved = 0.0;
 
     REMOTE_BLOCKING_READ_REQUEST *breq =
-	(REMOTE_BLOCKING_READ_REQUEST *) _req;
+	reinterpret_cast<REMOTE_BLOCKING_READ_REQUEST *>(_req);
     breq->_nml = new NML(nml, 1, -1);
 
-    NML *nmlcopy = (NML *) breq->_nml;
+    NML *nmlcopy = breq->_nml;
     if (NULL == nmlcopy) {
 	rcs_print_error("NMLserver:blocking_read: NML object is NULL.\n");
 	return ((REMOTE_READ_REPLY *) NULL);
@@ -252,8 +245,8 @@ REMOTE_READ_REPLY *NML_SERVER_LOCAL_PORT::blocking_read(REMOTE_READ_REQUEST *
 	    orig_bytes_moved);
 	nml->cms->first_diag_store = cmscopy->first_diag_store;
     }
-    breq->_nml = NULL;
-    delete nmlcopy;
+    delete breq->_nml;
+    breq->_nml=nmlcopy=NULL;
 
     /* Reply structure contains the latest shared memory info-- now return it 
        to cms_dispatch for return to caller */
@@ -283,7 +276,7 @@ REMOTE_WRITE_REPLY *NML_SERVER_LOCAL_PORT::writer(REMOTE_WRITE_REQUEST * _req)
     cms->header.in_buffer_size = _req->size;
     temp->size = _req->size;
     int *serial_number = cms->serial
-	? &(((RCS_CMD_MSG*)temp)->serial_number)
+	? &(reinterpret_cast<RCS_CMD_MSG*>(temp)->serial_number)
 	: NULL;
 
     switch (_req->access_type) {
@@ -321,8 +314,8 @@ set_diag_info(REMOTE_SET_DIAG_INFO_REQUEST * _req)
 	orig_info = new CMS_DIAG_PROC_INFO();
 	*orig_info = *dpi;
     }
-    strncpy(dpi->name, _req->process_name, 16);
-    strncpy(dpi->host_sysinfo, _req->host_sysinfo, 32);
+    rtapi_strlcpy(dpi->name, _req->process_name, 16);
+    rtapi_strlcpy(dpi->host_sysinfo, _req->host_sysinfo, 32);
     if (cms->total_connections > _req->c_num && _req->c_num >= 0) {
 	cms->connection_number = _req->c_num;
     }
@@ -336,7 +329,7 @@ set_diag_info(REMOTE_SET_DIAG_INFO_REQUEST * _req)
 }
 
 REMOTE_GET_DIAG_INFO_REPLY *NML_SERVER_LOCAL_PORT::
-get_diag_info(REMOTE_GET_DIAG_INFO_REQUEST * _req)
+get_diag_info(REMOTE_GET_DIAG_INFO_REQUEST * /*_req*/)
 {
     get_diag_info_reply.cdi = cms->get_diagnostics_info();
     get_diag_info_reply.status = cms->status;
@@ -344,7 +337,7 @@ get_diag_info(REMOTE_GET_DIAG_INFO_REQUEST * _req)
 }
 
 REMOTE_GET_MSG_COUNT_REPLY *NML_SERVER_LOCAL_PORT::
-get_msg_count(REMOTE_GET_DIAG_INFO_REQUEST * _req)
+get_msg_count(REMOTE_GET_DIAG_INFO_REQUEST * /*_req*/)
 {
     return (NULL);
 }

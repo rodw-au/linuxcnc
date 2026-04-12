@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
 ## image-to-gcode is free software; you can redistribute it and/or modify
 ## it under the terms of the GNU General Public License as published by the
@@ -16,18 +16,14 @@
 ## image-to-gcode.py is Copyright (C) 2006 Jeff Epler
 ## jepler@unpy.net
 
-from __future__ import print_function
 import sys, os
 BASE = os.path.abspath(os.path.join(os.path.dirname(sys.argv[0]), ".."))
 sys.path.insert(0, os.path.join(BASE, "lib", "python"))
 
 import gettext
-if sys.version_info[0] == 3:
-    gettext.install("linuxcnc", localedir=os.path.join(BASE, "share", "locale"))
-    def cmp(a, b):
-        return (a > b) - (a < b) 
-else:
-    gettext.install("linuxcnc", localedir=os.path.join(BASE, "share", "locale"), unicode=True)
+gettext.install("linuxcnc", localedir=os.path.join(BASE, "share", "locale"))
+def cmp(a, b):
+    return (a > b) - (a < b)
 
 try:
     from PIL import Image
@@ -500,10 +496,7 @@ class ArcEntryCut:
             conv.g.set_feed(conv.feed)
 
 def ui(im, nim, im_name):
-    if sys.version_info[0] == 3:
-        import tkinter
-    else:
-        import Tkinter as tkinter
+    import tkinter
 
     try:
         from PIL import ImageTk
@@ -518,15 +511,15 @@ def ui(im, nim, im_name):
     app.tk.call("source", os.path.join(BASE, "share", "axis", "tcl", "combobox.tcl"))
 
     name = os.path.basename(im_name)
-    app.wm_title(_("%s: Image to gcode") % name)
-    app.wm_iconname(_("Image to gcode"))
+    app.wm_title(_("%s: Image to G-code") % name)
+    app.wm_iconname(_("Image to G-code"))
     w, h = im.size
     r1 = w / 300.
     r2 = h / 300.
     nw = int(w / max(r1, r2))
     nh = int(h / max(r1, r2))
 
-    ui_image = im.resize((nw,nh), Image.ANTIALIAS)
+    ui_image = im.resize((nw,nh), Image.LANCZOS)
     ui_image = ImageTk.PhotoImage(ui_image, master = app)
     i = tkinter.Label(app, image=ui_image, compound="top",
         text=_("Image size: %(w)d x %(h)d pixels\n"
@@ -554,9 +547,9 @@ def ui(im, nim, im_name):
         if event.char in "0123456789.": return
         return "break"
         
-    validate_float    = "expr {![regexp {^-?([0-9]+(\.[0-9]*)?|\.[0-9]+|)$} %P]}"
+    validate_float    = r"expr {![regexp {^-?([0-9]+(\.[0-9]*)?|\.[0-9]+|)$} %P]}"
     validate_int      = "expr {![regexp {^-?([0-9]+|)$} %P]}"
-    validate_posfloat = "expr {![regexp {^?([0-9]+(\.[0-9]*)?|\.[0-9]+|)$} %P]}"
+    validate_posfloat = r"expr {![regexp {^?([0-9]+(\.[0-9]*)?|\.[0-9]+|)$} %P]}"
     validate_posint   = "expr {![regexp {^([0-9]+|)$} %P]}"
     def floatentry(f, v):
         var = tkinter.DoubleVar(f)
@@ -761,12 +754,8 @@ def main():
     if len(sys.argv) > 1:
         im_name = sys.argv[1]
     else:
-        if sys.version_info[0] == 3:
-            import tkinter
-            import tkinter.filedialog as tkFileDialog
-        else:
-            import Tkinter as tkinter
-            import tkFileDialog
+        import tkinter
+        import tkinter.filedialog as tkFileDialog
 
         im_name = tkFileDialog.askopenfilename(defaultextension=".png",
             filetypes = (
@@ -780,7 +769,7 @@ def main():
     im = im.convert("L") #grayscale
     w, h = im.size
 
-    nim = numpy.fromstring(tobytes(im), dtype=numpy.uint8).reshape((h, w)).astype(numpy.float32)
+    nim = numpy.frombuffer(tobytes(im), dtype=numpy.uint8).reshape((h, w)).astype(numpy.float32)
     options = ui(im, nim, im_name)
 
     step = options['pixelstep']

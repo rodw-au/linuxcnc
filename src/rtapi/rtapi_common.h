@@ -1,5 +1,5 @@
-#ifndef RTAPI_COMMON_H
-#define RTAPI_COMMON_H
+#ifndef __LINUXCNC_RTAPI_COMMON_H
+#define __LINUXCNC_RTAPI_COMMON_H
 
 /** RTAPI is a library providing a uniform API for several real time
   operating systems.  As of ver 2.0, RTLinux and RTAI are supported.
@@ -88,7 +88,7 @@
    programs don't match, that's bad.  So we have revision checking.
    Whenever a module or program is loaded, the rev_code is checked
    against the code in the shared memory area.  If they don't match,
-   the rtapi_init() call will faill.
+   the rtapi_init() call will fail.
 */
 static unsigned int rev_code = 1;  // increment this whenever you change the data structures
 

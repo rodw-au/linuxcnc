@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 #
 # QTVcp Widget
 # Copyright (c) 2019 Chris Morley
@@ -14,28 +14,26 @@
 # GNU General Public License for more details.
 ###############################################################################
 
-import hal
-
-from PyQt5.QtWidgets import QWidget, QToolButton, QMenu, QAction
-from PyQt5.QtCore import pyqtProperty
-from PyQt5.QtGui import QIcon
+from qtpy.QtWidgets import QToolButton, QMenu, QAction
+from qtpy.QtCore import Property
+from qtpy.QtGui import QIcon
 
 from qtvcp.widgets.widget_baseclass import _HalWidgetBase
 from qtvcp.core import Status, Action, Info
 from qtvcp import logger
 
 # Instiniate the libraries with global reference
-# STATUS gives us status messages from linuxcnc
+# STATUS gives us status messages from LinuxCNC
 # AUX_PRGM holds helper program loader
-# INI holds ini details
-# ACTION gives commands to linuxcnc
+# INI holds INI details
+# ACTION gives commands to LinuxCNC
 # LOG is for running code logging
 STATUS = Status()
 INFO = Info()
 ACTION = Action()
 LOG = logger.getLogger(__name__)
-# Set the log level for this module
-LOG.setLevel(logger.DEBUG) # One of DEBUG, INFO, WARNING, ERROR, CRITICAL
+# Force the log level for this module
+#LOG.setLevel(logger.DEBUG) # One of DEBUG, INFO, WARNING, ERROR, CRITICAL
 
 class OffsetToolButton(QToolButton, _HalWidgetBase):
     def __init__(self, parent=None):
@@ -46,7 +44,7 @@ class OffsetToolButton(QToolButton, _HalWidgetBase):
         self.dialog_code = 'CALCULATOR'
         self.display_units_mm = 0
 
-        self.settingMenu = QMenu()
+        self.settingMenu = QMenu(self)
         self.setMenu(self.settingMenu)
 
         Button = QAction(QIcon('exit24.png'), 'Set Current Tool Position', self)
@@ -102,10 +100,10 @@ class OffsetToolButton(QToolButton, _HalWidgetBase):
                 if adjust:
                     num = self._last - num
                 ACTION.SET_DIRECT_TOOL_OFFSET(axis,num)
-                STATUS.emit('update-machine-log', 'Set Direct tool offset of Axis {}: {} to {}'.format(axis, self._last, num), 'TIME')
+                STATUS.emit('update-machine-log', 'Set Direct tool offset of Axis {}: {} to {}'.format(axis, self._last, num), 'TIME,SUCCESS')
             else:
                 ACTION.SET_TOOL_OFFSET(axis,num,fixture)
-                STATUS.emit('update-machine-log', 'Adjust Tool offset of Axis {}, {} to {}'.format(axis, self._last, num), 'TIME')
+                STATUS.emit('update-machine-log', 'Adjust Tool offset of Axis {}, {} to {}'.format(axis, self._last, num), 'TIME,SUCCESS')
 
     def zeroOffset(self):
         axis, tool, now = self._get_current_info(self._axis)
@@ -113,7 +111,7 @@ class OffsetToolButton(QToolButton, _HalWidgetBase):
             self._last = now
             fixture = False
             ACTION.SET_TOOL_OFFSET(axis, 0, fixture)
-            STATUS.emit('update-machine-log', 'Zeroed Tool Offset {} of Tool {}'.format(axis, tool), 'TIME')
+            STATUS.emit('update-machine-log', 'Zeroed Tool Offset {} of Tool {}'.format(axis, tool), 'TIME,SUCCESS')
 
     def setOffset(self):
         axis, tool, now = self._get_current_info(self._axis)
@@ -147,7 +145,7 @@ class OffsetToolButton(QToolButton, _HalWidgetBase):
         if axis:
             fixture = False
             ACTION.SET_DIRECT_TOOL_OFFSET(axis, self._last)
-            STATUS.emit('update-machine-log', 'Reset Tool {}  Offset To Last {}'.format(tool, self._last), 'TIME')
+            STATUS.emit('update-machine-log', 'Reset Tool {}  Offset To Last {}'.format(tool, self._last), 'TIME,SUCCESS')
             self._last = now
 
     def _get_current_info(self, axis):
@@ -171,18 +169,28 @@ class OffsetToolButton(QToolButton, _HalWidgetBase):
 
     #########################################################################
     # This is how designer can interact with our widget properties.
-    # designer will show the pyqtProperty properties in the editor
+    # designer will show the Property properties in the editor
     # it will use the get set and reset calls to do those actions
     #
     ########################################################################
+
+    def set_axis(self, data):
+        if data.upper() in('X','Y','Z','A','B','C','U','V','W'):
+            self._axis = str(data.upper())
+    def get_axis(self):
+        return self._axis
+    def reset_axis(self):
+        self._axis = ''
+    axis_letter = Property(str, get_axis, set_axis, reset_axis)
+
 
     def set_dialog_code(self, data):
         self.dialog_code = data
     def get_dialog_code(self):
         return self.dialog_code
     def reset_dialog_code(self):
-        self.dialog_code = 'ENTRY'
-    dialog_code_string = pyqtProperty(str, get_dialog_code, set_dialog_code, reset_dialog_code)
+        self.dialog_code = 'CALCULATOR'
+    dialog_code_string = Property(str, get_dialog_code, set_dialog_code, reset_dialog_code)
 
     def __getitem__(self, item):
         return getattr(self, item)
@@ -192,7 +200,7 @@ class OffsetToolButton(QToolButton, _HalWidgetBase):
 # for testing without editor:
 def main():
     import sys
-    from PyQt5.QtWidgets import QApplication
+    from qtpy.QtWidgets import QApplication
     app = QApplication(sys.argv)
     widget = OffsetToolButton()
     widget.show()

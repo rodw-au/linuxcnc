@@ -1,4 +1,4 @@
-#!/usr/bin/python2.7
+#!/usr/bin/env python3
 # qtvcp
 #
 # Copyright (c) 2018  Chris Morley <chrisinnanaimo@hotmail.com>
@@ -16,14 +16,13 @@
 #################################################################################
 
 import os
-import sys
 
-from PyQt5.QtCore import pyqtSignal, pyqtProperty, QVariant
-from PyQt5.QtWidgets import QLabel
-from PyQt5.QtGui import QPixmap
+from qtpy.QtCore import Signal, Property, QVariant
+from qtpy.QtWidgets import QLabel
+from qtpy.QtGui import QPixmap
 
 from qtvcp.widgets.widget_baseclass import _HalWidgetBase
-from qtvcp.core import Status, Info
+from qtvcp.core import Status, Info, Tool, Path
 from qtvcp import logger
 
 # Instantiate the libraries with global reference
@@ -31,26 +30,28 @@ from qtvcp import logger
 # LOG is for running code logging
 STATUS = Status()
 INFO = Info()
+TOOL = Tool()
+PATH = Path()
 LOG = logger.getLogger(__name__)
 
-# Set the log level for this module
+# Force the log level for this module
 # LOG.setLevel(logger.INFO) # One of DEBUG, INFO, WARNING, ERROR, CRITICAL
 
-if INFO.IMAGE_PATH is not None:
-    DEFAULTIMAGE = (os.path.join(INFO.IMAGE_PATH,'applet-critical.png')) or ''
+if PATH.IMAGEDIR is not None:
+    DEFAULTIMAGE = (os.path.join(PATH.IMAGEDIR,'applet-critical.png')) or ''
 else:
-    INFO.IMAGE_PATH = ''
     DEFAULTIMAGE = ''
 
 class ImageSwitcher(QLabel, _HalWidgetBase):
-    widgetChanged = pyqtSignal(int)
+    widgetChanged = Signal(int)
 
     def __init__(self, parent=None):
         super(ImageSwitcher, self).__init__(parent)
         self._defaultImage = DEFAULTIMAGE
         self._imagePath = [DEFAULTIMAGE]
         self._current_number = 0
-        self.setScaledContents(True)
+        #self.setScaledContents(True)
+        self.defaultPixmap = QPixmap()
 
     def _hal_init(self):
         self.show_image_by_number(self._current_number)
@@ -60,22 +61,43 @@ class ImageSwitcher(QLabel, _HalWidgetBase):
 
     # Show the widgets based on a reference number
     def show_image_by_number(self, number):
-        #print self.objectName(),len(self._imagePath),number
+        #print (self.objectName(),len(self._imagePath),number)
         try:
-            if self._imagePath[number].upper() == 'NONE':
-                return
+            # outside limits or list
             if number <0 or number > len(self._imagePath)-1:
                 LOG.debug('Path reference number out of range: {}'.format(number))
+                self.setPixmap(self.defaultPixmap)
                 return
-            path = os.path.expanduser(self._imagePath[number])
+            # specifically ask for None
+            if self._imagePath[number].upper() == 'NONE':
+                self.setPixmap(QPixmap())
+                return
+            # specifically ask for Default image
+            if self._imagePath[number].upper() == 'DEFAULT':
+                self.setPixmap(self.defaultPixmap)
+                return
+            # resources file images.
+            if ':/' in self._imagePath[number]:
+                path = self._imagePath[number]
+                pixmap = QPixmap(path)
+                # no valid image
+                if pixmap.isNull():
+                    self.setPixmap(self.defaultPixmap)
+                    return
+                self.setPixmap(pixmap)
+                return
+            else:
+                path = os.path.expanduser(self._imagePath[number])
         except Exception as e:
             LOG.error('Path reference number: {}'.format(e))
-            path = os.path.expanduser(self._defaultImage)
+            self.setPixmap(self.defaultPixmap)
+            return
+            path = os.path.expanduser(self.defaultPixmap)
         #print 'requested:',number,self._imagePath[number]
-        # if path doesn't exisit try referencing
+        # if path doesn't exist try referencing
         # from the built in image folder
         if not os.path.exists(path):
-            path = os.path.join(INFO.IMAGE_PATH, path)
+            path = os.path.join(PATH.IMAGEDIR, path)
             if not os.path.exists(path):
                 LOG.debug('No Path: {}'.format(path))
         pixmap = QPixmap(path)
@@ -85,15 +107,13 @@ class ImageSwitcher(QLabel, _HalWidgetBase):
         self._defaultImage = path
 
     def set_image_number(self, data):
-        if data <0: data = 0
-        if data > len(self._imagePath)-1: data = len(self._imagePath)-1
         self._current_number = data
         self.show_image_by_number(data)
     def get_image_number(self):
         return self._current_number
     def reset_image_number(self):
         self._current_number = 0
-    image_number = pyqtProperty(int, get_image_number, set_image_number, reset_image_number)
+    image_number = Property(int, get_image_number, set_image_number, reset_image_number)
 
     def set_image_l(self, data):
         self._imagePath = data
@@ -101,7 +121,17 @@ class ImageSwitcher(QLabel, _HalWidgetBase):
         return self._imagePath
     def reset_image_l(self):
         self._imagePath = [self._defaultImage]
-    image_list = pyqtProperty(QVariant.typeToName(QVariant.StringList), get_image_l, set_image_l, reset_image_l)
+    image_list = Property(QVariant.typeToName(QVariant.StringList), get_image_l, set_image_l, reset_image_l)
+
+    def setImagePath(self, data):
+        self.defaultPixmap = data
+    def getImagePath(self):
+        return self.defaultPixmap
+    def resetImagePath(self):
+        self.defaultPixmap
+
+    image_default = Property(QPixmap, getImagePath, setImagePath, resetImagePath)
+
 
     ##############################
     # required class boiler code #
@@ -118,13 +148,20 @@ class StatusImageSwitcher(ImageSwitcher):
 
     def __init__(self, parent=None):
         super(StatusImageSwitcher, self).__init__(parent)
-        self._imagePath = [os.path.join(INFO.IMAGE_PATH,'applet-critical.png'),
-                    os.path.join(INFO.IMAGE_PATH,'spindle_ccw.gif'),
-                    os.path.join(INFO.IMAGE_PATH,'spindle_cw.gif')]
+        self._imagePath = [os.path.join(PATH.IMAGEDIR,'applet-critical.png'),
+                    os.path.join(PATH.IMAGEDIR,'spindle_ccw.gif'),
+                    os.path.join(PATH.IMAGEDIR,'spindle_cw.gif')]
         self.spindle = True
         self.all_homed = False
         self.axis_homed = False
         self.hard_limits = False
+        self.machine_state = False
+        self.command_state = False
+        self.feedmode_state = False
+        self.spindlemode_state = False
+        self.toolnumber_state = False
+        self.tool_orientation_state = False
+
         self._last_limit = []
         self.axis = 'X'
         for i in range(0,len(INFO.AVAILABLE_JOINTS)):
@@ -132,7 +169,7 @@ class StatusImageSwitcher(ImageSwitcher):
 
     def _hal_init(self):
         if self.spindle:
-            STATUS.connect('spindle-control-changed', lambda w, b, d: self.switch_on_spindle(b,d))
+            STATUS.connect('spindle-control-changed', lambda w, a, b, c, d: self.switch_on_spindle(b,c,d))
         elif self.all_homed:
             STATUS.connect('not-all-homed', lambda w, data: self.switch_on_homed(0))
             STATUS.connect('all-homed', lambda w: self.switch_on_homed(1))
@@ -141,20 +178,54 @@ class StatusImageSwitcher(ImageSwitcher):
             STATUS.connect('homed', lambda w, data: self.switch_on_axis_homed(data))
         elif self.hard_limits:
             STATUS.connect('hard-limits-tripped', lambda w, data, group: self.switch_on_hard_limits(data, group))
+        elif self.machine_state:
+            STATUS.connect('state-estop', lambda w: self.switch_on_machine_state(0))
+            STATUS.connect('interp-run', lambda w: self.switch_on_machine_state(1))
+            STATUS.connect('interp-idle', lambda w: self.switch_on_machine_state(2))
+            STATUS.connect('interp-paused', lambda w: self.switch_on_machine_state(3))
+            STATUS.connect('interp-waiting', lambda w: self.switch_on_machine_state(4))
+            STATUS.connect('interp-reading', lambda w: self.switch_on_machine_state(5))
+        elif self.command_state:
+            STATUS.connect('command-running', lambda w: self.switch_on_command_state(0))
+            STATUS.connect('command-stopped', lambda w: self.switch_on_command_state(1))
+            STATUS.connect('command-error', lambda w: self.switch_on_command_state(2))
+        elif self.feedmode_state:
+            STATUS.connect('fpm-mode', lambda w, d: self.switch_on_feedmode_state(0, d))
+            STATUS.connect('fpr-mode', lambda w, d: self.switch_on_feedmode_state(1,d))
+            STATUS.connect('itime-mode', lambda w, d: self.switch_on_feedmode_state(2,d))
+        elif self.spindlemode_state:
+            STATUS.connect('rpm-mode', lambda w, d: self.switch_on_spindlemode_state(0, d))
+            STATUS.connect('css-mode', lambda w, d: self.switch_on_spindlemode_state(1, d))
+        elif self.toolnumber_state:
+            STATUS.connect('tool-in-spindle-changed', lambda w, d:self.switch_on_toolnumber_state(d))
+        elif self.tool_orientation_state:
+            STATUS.connect('tool-info-changed', lambda w, d:self.switch_on_toolinfo_state(d, TOOL.ORIENTATION))
+
 
     def _designerInit(self):
         self.show_image_by_number(0)
 
-    def switch_on_spindle(self, b, data):
-        if data <0: data= 2
-        self.set_image_number(data)
+    # M5 disabled = image 0
+    # M3 at speed = image 1
+    # M4 at speed = image 2
+    # M3 accelerating = image 3
+    # M4 accelerating = image 4
+    def switch_on_spindle(self, on, speed, up):
+        if not on:
+            num = 0
+        elif not up:
+            if speed<0: num = 4
+            else: num = 3
+        elif speed <0: num = 2
+        else: num = 1
+        self.set_image_number(num)
 
     def switch_on_homed(self, data):
         if not data <0:
             self.set_image_number(data)
 
     def switch_on_axis_homed(self, num):
-        data = INFO.GET_NAME_FROM_JOINT[int(num)] 
+        data = INFO.GET_NAME_FROM_JOINT[int(num)]
         if data == self.axis:
             self.set_image_number(1)
 
@@ -171,7 +242,7 @@ class StatusImageSwitcher(ImageSwitcher):
             #print 'bool images'
             self.set_image_number(1)
         elif (len(self._imagePath)-1) == (len(INFO.AVAILABLE_JOINTS)):
-            #print 'per joint limts images', self._last_limit, group
+            #print 'per joint limits images', self._last_limit, group
             for i in range(0,len(INFO.AVAILABLE_JOINTS)):
                 if group[i] == self._last_limit[i]:
                     pass
@@ -182,19 +253,47 @@ class StatusImageSwitcher(ImageSwitcher):
                     break
         elif (len(self._imagePath)-1) == (len(INFO.AVAILABLE_JOINTS) * 2):
             pass
-            #print 'per joint and per end limts images'
+            #print 'per joint and per end limits images'
         self._last_limit = group
+
+    def switch_on_machine_state(self, state):
+        self.set_image_number(state)
+
+    def switch_on_command_state(self, state):
+        self.set_image_number(state)
+
+    def switch_on_feedmode_state(self, mode, state):
+        if state:
+            self.set_image_number(mode)
+
+    def switch_on_spindlemode_state(self, mode, state):
+        if state:
+            self.set_image_number(mode)
+
+    def switch_on_toolnumber_state(self, number):
+        self.set_image_number(number)
+
+    def switch_on_toolinfo_state(self, tool_entry, index):
+        toolnum = tool_entry[0]
+        tool_table_line = TOOL.GET_TOOL_INFO(toolnum)
+        try:
+            self.set_image_number(tool_table_line[index])
+        except Exception as e:
+            LOG.warning('Problem with tool file info')
 
     #########################################################################
     # This is how designer can interact with our widget properties.
-    # designer will show the pyqtProperty properties in the editor
+    # designer will show the Property properties in the editor
     # it will use the get set and reset calls to do those actions
     #
     # _toggle_properties makes it so we can only select one option
     ########################################################################
 
     def _toggle_properties(self, picked):
-        data = ('spindle','all_homed', 'axis_homed','hard_limits' )
+        data = ('spindle','all_homed', 'axis_homed','hard_limits',
+                'machine_state', 'command_state', 'feedmode_state',
+                'spindlemode_state', 'tool_orientation_state',
+                'toolnumber_state' )
 
         for i in data:
             if not i == picked:
@@ -211,7 +310,7 @@ class StatusImageSwitcher(ImageSwitcher):
         return self.spindle
     def reset_spindle(self):
         self.spindle = False
-    watch_spindle = pyqtProperty(bool, get_spindle, set_spindle, reset_spindle)
+    watch_spindle = Property(bool, get_spindle, set_spindle, reset_spindle)
 
     # machine_homed status
     def set_homed(self, data):
@@ -222,7 +321,7 @@ class StatusImageSwitcher(ImageSwitcher):
         return self.all_homed
     def reset_homed(self):
         self.all_homed = False
-    watch_all_homed = pyqtProperty(bool, get_homed, set_homed, reset_homed)
+    watch_all_homed = Property(bool, get_homed, set_homed, reset_homed)
 
     # machine_axis_homed status
     def set_axis_homed(self, data):
@@ -233,7 +332,7 @@ class StatusImageSwitcher(ImageSwitcher):
         return self.axis_homed
     def reset_axis_homed(self):
         self.axis_homed = False
-    watch_axis_homed = pyqtProperty(bool, get_axis_homed, set_axis_homed, reset_axis_homed)
+    watch_axis_homed = Property(bool, get_axis_homed, set_axis_homed, reset_axis_homed)
 
 
     # machine_limits status
@@ -245,7 +344,78 @@ class StatusImageSwitcher(ImageSwitcher):
         return self.hard_limits
     def reset_limits(self):
         self.hard_limits = False
-    watch_hard_limits = pyqtProperty(bool, get_limits, set_limits, reset_limits)
+    watch_hard_limits = Property(bool, get_limits, set_limits, reset_limits)
+
+    # machine_state status
+    def set_machine_state(self, data):
+        self.machine_state = data
+        if data:
+            self._toggle_properties('machine_state')
+    def get_machine_state(self):
+        return self.machine_state
+    def reset_machine_state(self):
+        self.machine_state = False
+    watch_machine_state = Property(bool, get_machine_state, set_machine_state,
+                                                      reset_machine_state)
+
+    # command_state status
+    def set_command_state(self, data):
+        self.command_state = data
+        if data:
+            self._toggle_properties('command_state')
+    def get_command_state(self):
+        return self.command_state
+    def reset_command_state(self):
+        self.command_state = False
+    watch_command_state = Property(bool, get_command_state, set_command_state,
+                                                      reset_command_state)
+
+    # feedmode_state status
+    def set_feedmode_state(self, data):
+        self.feedmode_state = data
+        if data:
+            self._toggle_properties('feedmode_state')
+    def get_feedmode_state(self):
+        return self.feedmode_state
+    def reset_feedmode_state(self):
+        self.feedmode_state = False
+    watch_feedmode_state = Property(bool, get_feedmode_state, set_feedmode_state,
+                                                      reset_feedmode_state)
+    # spindlemode_state status
+    def set_spindlemode_state(self, data):
+        self.spindlemode_state = data
+        if data:
+            self._toggle_properties('spindlemode_state')
+    def get_spindlemode_state(self):
+        return self.spindlemode_state
+    def reset_spindlemode_state(self):
+        self.spindlemode_state = False
+    watch_spindlemode_state = Property(bool, get_spindlemode_state, set_spindlemode_state,
+                                                      reset_spindlemode_state)
+
+    # toolnumber_state status
+    def set_toolnumber_state(self, data):
+        self.toolnumber_state = data
+        if data:
+            self._toggle_properties('toolnumber_state')
+    def get_toolnumber_state(self):
+        return self.toolnumber_state
+    def reset_toolnumber_state(self):
+        self.toolnumber_state = False
+    watch_toolnumber_state = Property(bool, get_toolnumber_state, set_toolnumber_state,
+                                                      reset_toolnumber_state)
+
+    # tool_orientation_state status
+    def set_tool_orientation_state(self, data):
+        self.tool_orientation_state = data
+        if data:
+            self._toggle_properties('tool_orientation_state')
+    def get_tool_orientation_state(self):
+        return self.tool_orientation_state
+    def reset_tool_orientation_state(self):
+        self.tool_orientation_state = False
+    watch_tool_orientation_state = Property(bool, get_tool_orientation_state, set_tool_orientation_state,
+                                                      reset_tool_orientation_state)
 
     def set_axis(self, data):
         if data.upper() in('X','Y','Z','A','B','C','U','V','W'):
@@ -254,7 +424,7 @@ class StatusImageSwitcher(ImageSwitcher):
         return self.axis
     def reset_axis(self):
         self.axis = 'X'
-    axis_letter = pyqtProperty(str, get_axis, set_axis, reset_axis)
+    axis_letter = Property(str, get_axis, set_axis, reset_axis)
 
     ##############################
     # required class boiler code #
@@ -270,7 +440,7 @@ class StatusImageSwitcher(ImageSwitcher):
 # for testing without editor:
 def main():
     import sys
-    from PyQt5.QtWidgets import QApplication
+    from qtpy.QtWidgets import QApplication
     app = QApplication(sys.argv)
     widget = ImageSwitcher()
     widget._hal_init()

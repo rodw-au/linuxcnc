@@ -38,9 +38,12 @@
 //
 
 
-#include "kinematics.h"
-#include "rtapi_math.h"
-#include "gotypes.h"
+#include <rtapi.h>
+#include <rtapi_app.h>
+#include <rtapi_math.h>
+#include <hal.h>
+#include <gotypes.h>
+#include <kinematics.h>
 
 
 //
@@ -79,6 +82,8 @@ int kinematicsForward(
     const KINEMATICS_FORWARD_FLAGS *fflags,
     KINEMATICS_INVERSE_FLAGS *iflags
 ) {
+    (void)fflags;
+    (void)iflags;
     EmcPose j1_vector;  // the vector from j0 ("base") to joint 1 ("shoulder", end of link 0)
     EmcPose j2_vector;  // the vector from j1 ("shoulder") to  joint 2 ("elbow", end of link 1)
     EmcPose j3_vector;  // the vector from j2 ("elbow") to joint 3 ("wrist", end of link 2)
@@ -96,7 +101,7 @@ int kinematicsForward(
     j2_vector.tran.z = L1_LENGTH * sin(TO_RAD * joints[1]);
     // rtapi_print("fwd: j2=(%f, %f, %f)\n", j2_vector.tran.x, j2_vector.tran.y, j2_vector.tran.z);
 
-    // Link 2 connectes j2 (elbow) to j3 (wrist).
+    // Link 2 connects j2 (elbow) to j3 (wrist).
     // J3 is the controlled point.
     r = L2_LENGTH * cos(TO_RAD * joints[2]);
     j3_vector.tran.x = r * cos(TO_RAD * joints[0]);
@@ -136,6 +141,8 @@ int kinematicsInverse(
     const KINEMATICS_INVERSE_FLAGS *iflags,
     KINEMATICS_FORWARD_FLAGS *fflags
 ) {
+    (void)iflags;
+    (void)fflags;
     // EmcPose j1_cart;
     double distance_to_cp, distance_to_center;
     double r_j1, z_j1;   // (r_j1, z_j1) is the location of J1 in the RZ plane
@@ -292,11 +299,7 @@ KINEMATICS_TYPE kinematicsType(void) {
     return KINEMATICS_BOTH;
 }
 
-
-#include "rtapi.h"
-#include "rtapi_app.h"
-#include "hal.h"
-
+KINS_NOT_SWITCHABLE
 EXPORT_SYMBOL(kinematicsType);
 EXPORT_SYMBOL(kinematicsForward);
 EXPORT_SYMBOL(kinematicsInverse);

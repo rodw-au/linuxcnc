@@ -1,4 +1,9 @@
-//    Copyright 2006-2014, various authors
+// Description:  uspace_common.h
+//              Shared methods used by various uspace modules.  Only
+//              included once in any module to avoid conflicting
+//              definitions.
+//
+//    Copyright 2006-2021, various authors
 //
 //    This program is free software; you can redistribute it and/or modify
 //    it under the terms of the GNU General Public License as published by
@@ -24,7 +29,7 @@
 
 #include <rtapi_errno.h>
 #include <rtapi_mutex.h>
-static int msg_level = RTAPI_MSG_ERR;	/* message printing level */
+static msg_level_t msg_level = RTAPI_MSG_ERR;	/* message printing level */
 
 #include <sys/ipc.h>		/* IPC_* */
 #include <sys/shm.h>		/* shmget() */
@@ -50,33 +55,43 @@ typedef struct {
 
 #define SHMEM_MAGIC   25453	/* random numbers used as signatures */
 
-static rtapi_shmem_handle shmem_array[MAX_SHM] = {{0},};
+static rtapi_shmem_handle shmem_array[MAX_SHM];
 
 int rtapi_shmem_new(int key, int module_id, unsigned long int size)
 {
 #ifdef RTAPI
   WITH_ROOT;
 #endif
+  (void)module_id;
   rtapi_shmem_handle *shmem;
   int i;
 
-  for(i=0 ; i < MAX_SHM; i++) {
-    if(shmem_array[i].magic == SHMEM_MAGIC && shmem_array[i].key == key) {
-      shmem_array[i].count ++;
-      return i;
+  for (i=0,shmem=0 ; i < MAX_SHM; i++) {
+    if(shmem_array[i].magic == SHMEM_MAGIC) {
+      if (shmem_array[i].key == key) {
+        shmem_array[i].count ++;
+        return i;
+      }
     }
-    if(shmem_array[i].magic != SHMEM_MAGIC) break;
+    else if (!shmem) {
+      shmem = &shmem_array[i];
+    }
   }
-  if(i == MAX_SHM)
-  {
+  if (!shmem) {
     rtapi_print_msg(RTAPI_MSG_ERR, "rtapi_shmem_new failed due to MAX_SHM\n");
     return -ENOMEM;
   }
-  shmem = &shmem_array[i];
 
   /* now get shared memory block from OS */
+  int shmget_retries = 5;
+shmget_again:
   shmem->id = shmget((key_t) key, (int) size, IPC_CREAT | 0600);
   if (shmem->id == -1) {
+      // See below for explanation of why retry against -EPERM here
+      if(shmget_retries-- && errno == -EPERM) {
+          sched_yield();
+          goto shmget_again;
+      }
     rtapi_print_msg(RTAPI_MSG_ERR, "rtapi_shmem_new failed due to shmget(key=0x%08x): %s\n", key, strerror(errno));
     return -errno;
   }
@@ -86,6 +101,18 @@ int rtapi_shmem_new(int key, int module_id, unsigned long int size)
   if(res < 0) perror("shmctl IPC_STAT");
 
 #ifdef RTAPI
+  /* At present, setuid rtapi_app runs with geteuid() == 0 at all times but the
+   * fsuid is ruid except when WITH_ROOT when it's 0.
+   *
+   * Filesystem operations such as creat() respect the fsuid, but as shmget is
+   * not a filesystem operation, it does not respect the fsuid. So, if
+   * rtapi_app has created the segment in question, its owning uid is root.
+   * Changing the permission here is racy, but it is the best alternative
+   * currently available.
+   *
+   * The race causes a low probability (<1/1000 in testing in a VM) chance of
+   * linuxcnc/halrun to fail to start
+   */
   /* ensure the segment is owned by user, not root */
   if(geteuid() == 0) {
     stat.shm_perm.uid = ruid;
@@ -132,7 +159,7 @@ int rtapi_shmem_new(int key, int module_id, unsigned long int size)
   shmem->count = 1;
 
   /* return handle to the caller */
-  return i;
+  return shmem - shmem_array;
 }
 
 
@@ -159,6 +186,7 @@ int rtapi_shmem_delete(int handle, int module_id)
   struct shmid_ds d;
   int r1, r2;
   rtapi_shmem_handle *shmem;
+  (void)module_id;
 
   if(handle < 0 || handle >= MAX_SHM)
     return -EINVAL;
@@ -249,7 +277,7 @@ int rtapi_vsnprintf(char *buffer, unsigned long int size, const char *fmt,
 }
 
 int rtapi_set_msg_level(int level) {
-    msg_level = level;
+    msg_level = (msg_level_t)level;
     return 0;
 }
 
@@ -281,8 +309,9 @@ typedef struct {
 static         int  uuid_mem_id = 0;
 int rtapi_init(const char *modname)
 {
+    (void)modname;
     static uuid_data_t* uuid_data   = 0;
-    const static   int  uuid_id     = 0;
+    static const   int  uuid_id     = 0;
 
     static char* uuid_shmem_base = 0;
     int retval,id;
@@ -325,8 +354,7 @@ static int _rtapi_is_realtime = -1;
 #ifdef __linux__
 static int detect_preempt_rt() {
     struct utsname u;
-    int crit1, crit2 = 0;
-    FILE *fd;
+    int crit1 = 0;
 
     uname(&u);
     crit1 = strcasestr (u.version, "PREEMPT RT") != 0;
@@ -334,13 +362,7 @@ static int detect_preempt_rt() {
     //"PREEMPT_RT" is used in the version string instead of "PREEMPT RT" starting with kernel version 5.4
     crit1 = crit1 || (strcasestr(u.version, "PREEMPT_RT") != 0);
 
-    if ((fd = fopen("/sys/kernel/realtime","r")) != NULL) {
-        int flag;
-        crit2 = ((fscanf(fd, "%d", &flag) == 1) && (flag == 1));
-        fclose(fd);
-    }
-
-    return crit1 && crit2;
+    return crit1;
 }
 #else
 static int detect_preempt_rt() {
@@ -360,15 +382,27 @@ static int detect_rtai() {
 #endif
 #ifdef USPACE_XENOMAI
 static int detect_xenomai() {
-    struct utsname u;
-    uname(&u);
-    return strcasestr (u.release, "-xenomai") != 0;
+    struct stat sb;
+    //Running xenomai has /proc/xenomai
+    return stat("/proc/xenomai", &sb) == 0;
 }
 #else
 static int detect_xenomai() {
     return 0;
 }
 #endif
+#ifdef USPACE_XENOMAI_EVL
+static int detect_xenomai_evl() {
+    struct stat sb;
+    //Running xenomai evl has /dev/evl but no /proc/xenomai
+    return stat("/dev/evl", &sb) == 0;
+}
+#else
+static int detect_xenomai_evl() {
+    return 0;
+}
+#endif
+
 static int detect_env_override() {
     char *p = getenv("LINUXCNC_FORCE_REALTIME");
     return p != NULL && atoi(p) != 0;
@@ -379,7 +413,7 @@ static int detect_realtime() {
     if ((stat(EMC2_BIN_DIR "/rtapi_app", &st) < 0)
             || st.st_uid != 0 || !(st.st_mode & S_ISUID))
         return 0;
-    return detect_env_override() || detect_preempt_rt() || detect_rtai() || detect_xenomai();
+    return detect_env_override() || detect_preempt_rt() || detect_rtai() || detect_xenomai() || detect_xenomai_evl();
 }
 
 int rtapi_is_realtime() {
@@ -396,6 +430,7 @@ static int rtapi_clock_nanosleep(clockid_t clock_id, int flags,
         const struct timespec *prequest, struct timespec *remain,
         const struct timespec *pnow)
 {
+    (void)pnow;
 #if defined(HAVE_CLOCK_NANOSLEEP)
     return clock_nanosleep(clock_id, flags, prequest, remain);
 #else

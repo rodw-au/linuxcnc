@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 # Qtvcp widget
 #
 # Copyright (c) 2017  Chris Morley <chrisinnanaimo@hotmail.com>
@@ -13,14 +13,14 @@
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 # GNU General Public License for more details.
 
-# This is an extention of action buttons to show a round button image.
-# Action buttons are used to control linuxcnc behaivor by pressing.
+# This is an extension of action buttons to show a round button image.
+# Action buttons are used to control linuxcnc behavior by pressing.
 # By making the button 'checkable' in the designer editor,
-# the buton will toggle.
+# the button will toggle.
 # In the designer editor, it is possible to select what the button will do.
 ###############################################################################
 
-from PyQt5 import QtGui, QtCore
+from qtpy import QtGui, QtCore
 
 from qtvcp.widgets.action_button import ActionButton
 
@@ -55,7 +55,7 @@ class RoundButton(ActionButton):
 
     #########################################################################
     # This is how designer can interact with our widget properties.
-    # designer will show the pyqtProperty properties in the editor
+    # designer will show the Property properties in the editor
     # it will use the get set and reset calls to do those actions
     #########################################################################
 
@@ -73,13 +73,13 @@ class RoundButton(ActionButton):
     def resetFalseImagePath(self):
         self.false_pixmap
 
-    image_path = QtCore.pyqtProperty(QtGui.QPixmap, getImagePath, setImagePath, resetImagePath)
-    false_image_path = QtCore.pyqtProperty(QtGui.QPixmap, getFalseImagePath, setFalseImagePath, resetFalseImagePath)
+    image_path = QtCore.Property(QtGui.QPixmap, getImagePath, setImagePath, resetImagePath)
+    false_image_path = QtCore.Property(QtGui.QPixmap, getFalseImagePath, setFalseImagePath, resetFalseImagePath)
 
 # for testing without editor:
 def main():
     import sys
-    from PyQt5.QtWidgets import QApplication
+    from qtpy.QtWidgets import QApplication
     app = QApplication(sys.argv)
     widget = RoundButton()
     widget.show()

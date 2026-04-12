@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 #
 # QTVcp Widget - MDI history widget
 # Copyright (c) 2017 Chris Morley
@@ -15,9 +15,9 @@
 ###############################################################################
 import os
 
-from PyQt5.QtWidgets import QPlainTextEdit, QWidget, QVBoxLayout, QListView
-from PyQt5.QtCore import pyqtProperty, QSize, QModelIndex, QItemSelectionModel, QItemSelection, QPoint
-from PyQt5.QtGui import QStandardItemModel, QStandardItem
+from qtpy.QtWidgets import QWidget, QVBoxLayout, QListView
+from qtpy.QtCore import Property, QSize, QModelIndex, QItemSelectionModel, QItemSelection, QPoint
+from qtpy.QtGui import QStandardItemModel, QStandardItem
 
 from qtvcp.widgets.widget_baseclass import _HalWidgetBase
 from qtvcp.widgets.mdi_line import MDILine
@@ -39,8 +39,8 @@ LOG = logger.getLogger(__name__)
 class MDIHistory(QWidget, _HalWidgetBase):
     def __init__(self, parent=None):
         super(MDIHistory, self).__init__(parent)
-        self.setMinimumSize(QSize(200, 150))    
-        self.setWindowTitle("PyQt5 editor test example") 
+        self.setMinimumSize(QSize(200, 150))
+        self.setWindowTitle("PyQt5 editor test example")
 
         lay = QVBoxLayout()
         lay.setContentsMargins(0,0,0,0)
@@ -71,7 +71,6 @@ class MDIHistory(QWidget, _HalWidgetBase):
             open(self.fp, 'a+')
             LOG.debug('MDI History file created: {}'.format(self.fp))
         self.reload()
-        self.select_row('last')
 
     def _hal_init(self):
         STATUS.connect('state-off', lambda w: self.setEnabled(False))
@@ -85,24 +84,29 @@ class MDIHistory(QWidget, _HalWidgetBase):
     def reload(self, w=None ):
         self.model.clear()
         try:
+            self.rows = 0
             with open(self.fp,'r') as inputfile:
                 for line in inputfile:
                     line = line.rstrip('\n')
                     item = QStandardItem(line)
                     self.model.appendRow(item)
+                    self.rows += 1
+            if isinstance(self.sender(), QListView):
+                self.select_row('down')
+            else:
+                self.row = self.rows
             self.list.setModel(self.model)
-            self.list.scrollToBottom()
-            if self.MDILine.hasFocus():
-                self.select_row('last')
+            if self.row == self.rows:
+                self.list.scrollToBottom()
+                self.MDILine.setText('')
         except:
-            LOG.debug('File path is not valid: {}'.format(fp))
+            LOG.debug('File path is not valid: {}'.format(self.fp))
 
     def selectionChanged(self,old, new):
         cmd = self.getSelected()
         self.MDILine.setText(cmd)
         selectionModel = self.list.selectionModel()
-        if selectionModel.hasSelection():
-            self.row = selectionModel.currentIndex().row()
+        self.row = selectionModel.currentIndex().row()
 
     def getSelected(self):
         selected_indexes = self.list.selectedIndexes()
@@ -116,7 +120,6 @@ class MDIHistory(QWidget, _HalWidgetBase):
         cmd = self.getSelected()
         self.MDILine.setText(cmd)
         self.MDILine.submit()
-        self.select_row('down')
 
     def run_command(self):
         self.MDILine.submit()
@@ -129,6 +132,8 @@ class MDIHistory(QWidget, _HalWidgetBase):
         self.rows = self.model.rowCount(parent) - 1
         if style == 'last':
             self.row = self.rows
+        elif style == 'first':
+            self.row = 0
         elif style == 'up':
             if self.row > 0:
                 self.row -= 1
@@ -156,7 +161,7 @@ class MDIHistory(QWidget, _HalWidgetBase):
 
     #########################################################################
     # This is how designer can interact with our widget properties.
-    # designer will show the pyqtProperty properties in the editor
+    # designer will show the Property properties in the editor
     # it will use the get set and reset calls to do those actions
     #########################################################################
 
@@ -168,13 +173,13 @@ class MDIHistory(QWidget, _HalWidgetBase):
         self.MDILine.soft_keyboard = False
 
     # designer will show these properties in this order:
-    soft_keyboard_option = pyqtProperty(bool, get_soft_keyboard, set_soft_keyboard, reset_soft_keyboard)
+    soft_keyboard_option = Property(bool, get_soft_keyboard, set_soft_keyboard, reset_soft_keyboard)
 
 
 if __name__ == "__main__":
-    from PyQt5.QtWidgets import *
-    from PyQt5.QtCore import *
-    from PyQt5.QtGui import *
+    from qtpy.QtWidgets import *
+    from qtpy.QtCore import *
+    from qtpy.QtGui import *
     import sys
 
     app = QApplication(sys.argv)

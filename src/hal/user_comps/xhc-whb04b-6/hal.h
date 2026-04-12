@@ -17,7 +17,8 @@
    02111-1307 USA.
  */
 
-#pragma once
+#ifndef __XHC_WHB04B_6_HAL_H
+#define __XHC_WHB04B_6_HAL_H
 
 // local includes
 #include "pendant-types.h"
@@ -98,8 +99,6 @@ public:
         hal_bit_t  * floodIsOn{nullptr};
         //! to be connected to \ref halui.mist.is-on
         hal_bit_t  * mistIsOn{nullptr};
-        //! to be connected to \ref halui.lube.is-on
-        hal_bit_t  * lubeIsOn{nullptr};
 
         //! to be connected to \ref halui.axis.x.pos-feedback
         hal_float_t* axisXPosition{nullptr};
@@ -158,6 +157,19 @@ public:
         //! to be connected to \ref halui.mode.is-teleop
         hal_bit_t* isModeTeleop{nullptr};
 
+
+        // If axis is not homed we need to ask Teleop mode but we need to bypass that if machine is homed
+        // https://forum.linuxcnc.org/49-basic-configuration/40581-how-to-configure-a-xhc-whb04b-pendant
+        hal_bit_t* JointXisHomed{nullptr};
+        hal_bit_t* JointYisHomed{nullptr};
+        hal_bit_t* JointZisHomed{nullptr};
+        hal_bit_t* JointAisHomed{nullptr};
+        hal_bit_t* JointBisHomed{nullptr};
+        hal_bit_t* JointCisHomed{nullptr};
+
+
+
+
         //! to be connected to \ref halui.machine.is-on
         hal_bit_t* isMachineOn{nullptr};
 
@@ -178,11 +190,6 @@ public:
         hal_bit_t  * mistStop{nullptr};
         //! to be connected to \ref halui.mist.on
         hal_bit_t  * mistStart{nullptr};
-
-        //! to be connected to \ref halui.lube.off
-        hal_bit_t  * lubeStop{nullptr};
-        //! to be connected to \ref halui.lube.on
-        hal_bit_t  * lubeStart{nullptr};
 
         //! to be connected to \ref axis.x.jog-counts
         hal_s32_t* axisXJogCounts{nullptr};
@@ -332,13 +339,18 @@ class Hal
 public:
     Hal(Profiles::HalRequestProfile halRequestProfile=Profiles::halRequestSlowProfile());
     ~Hal();
+
+    // Not copyable
+    Hal(const Hal&) = delete;
+    Hal& operator= (const Hal&) = delete;
+
     //! Initializes HAL memory and pins according to simulation mode. Must not be called more than once.
     //! If \ref mIsSimulationMode is true heap memory will be used, shared HAL memory otherwise.
     //! \ref setIsSimulationMode() must be set before accordingly
     void init(const MetaButtonCodes* metaButtons, const KeyCodes& codes);
     //! \return true if void init(const MetaButtonCodes*, const KeyCodes&) has been called beforehand,
     //! false otherwise
-    bool isInitialized();
+    bool isInitialized() const { return mIsInitialized; };
     //! \return true if simulation mode is enabled, false otherwise
     bool isSimulationModeEnabled() const;
     //! indicates the program has been invoked in hal mode or normal
@@ -367,7 +379,7 @@ public:
 
     //! Sets the new feed rate. The step mode must be set accordingly.
     //! \param feedRate the new feed rate independent of step mode
-    void setStepSize(const hal_float_t feedRate);
+    void setStepSize(const real_t feedRate);
     //! If lead is active.
     void setLead();
     //! Sets the hal state of the respective pin (reset). Usually called in case the reset
@@ -410,13 +422,13 @@ public:
     void setFeedMinus(bool enabled);
     //! Returns the current Max Velocity value.
     //! \sa Hal::In::feedOverrideMaxVel
-    hal_float_t getFeedOverrideMaxVel() const;
+    real_t getFeedOverrideMaxVel() const;
     //! Returns the current feed override value.
     //! \sa Hal::In::feedOverrideValue
     //! \return the current feed override value v: 0 <= v <= 1
-    hal_float_t getFeedOverrideValue() const;
+    real_t getFeedOverrideValue() const;
     //! \xrefitem HalMemory::Out::feedOverrideScale setter
-    void setFeedOverrideScale(hal_float_t scale);
+    void setFeedOverrideScale(real_t scale);
 
     //! Propagates the feed value 0.001 selection state to hal.
     //! \sa Hal::Out::feedValueSelected_2
@@ -449,13 +461,13 @@ public:
 
     //! Returns the spindle speed.
     //! \return the spindle speed in rounds per second
-    hal_float_t getspindleSpeedCmd() const;
-    hal_float_t getspindleSpeedChangeIncrease() const;
-    hal_float_t getspindleSpeedChangeDecrease() const;
+    real_t getspindleSpeedCmd() const;
+    real_t getspindleSpeedChangeIncrease() const;
+    real_t getspindleSpeedChangeDecrease() const;
     //! Returns the current spindle override value.
     //! \sa Hal::In::spindleOverrideValue
     //! \return the current spindle override value v: 0 <= v <= 1
-    hal_float_t getSpindleOverrideValue() const;
+    real_t getSpindleOverrideValue() const;
     //! \sa setSpindleOverridePlus(bool, size_t)
     void setSpindleOverridePlus(bool enabled);
     //! \sa setSpindleOverrideMinus(bool, size_t)
@@ -476,8 +488,6 @@ public:
     void toggleFloodOnOff(bool enabled);
     //! \sa toggleMistOnOff(bool, size_t)
     void toggleMistOnOff(bool enabled);
-    //! \sa toggleLubeOnOff(bool, size_t)
-    void toggleLubeOnOff(bool enabled);
     //! \sa setProbeZ(bool, size_t)
     void setProbeZ(bool enabled);
     //! \sa setMpgMode(bool, size_t)
@@ -510,7 +520,7 @@ public:
     void setMacro9(bool enabled);
     //! \sa setMacro9(bool, size_t)
     void setMacro10(bool enabled);
-    //! \sa setMacro10(bool, size_t)        // Hardcoded Absolue/relative Dro
+    //! \sa setMacro10(bool, size_t)        // Hardcoded Absolute/relative Dro
     void setMacro11(bool enabled);
     //! \sa setMacro11(bool, size_t)
     void setMacro12(bool enabled);
@@ -536,21 +546,25 @@ public:
     //! Writes the corresponding counter to to each axis' count.
     //! \param counters values to propagate to each axis
     void setJogCounts(const HandWheelCounters& counters);
+    //! waits until a given pin is set to a requested state 
+    //! \param state requested state
+    //! \param pin requested pin to compare with
+    void checkState(bool state, hal_bit_t *pin);
 
     //! Returns the axis position.
     //! \param absolute true absolute, false relative
     //! \return the absolute or relative position in machine units
-    hal_float_t getAxisXPosition(bool absolute) const;
+    real_t getAxisXPosition(bool absolute) const;
     //! \xrefitem getAxisXPosition(bool)
-    hal_float_t getAxisYPosition(bool absolute) const;
+    real_t getAxisYPosition(bool absolute) const;
     //! \xrefitem getAxisXPosition(bool)
-    hal_float_t getAxisZPosition(bool absolute) const;
+    real_t getAxisZPosition(bool absolute) const;
     //! \xrefitem getAxisXPosition(bool)
-    hal_float_t getAxisAPosition(bool absolute) const;
+    real_t getAxisAPosition(bool absolute) const;
     //! \xrefitem getAxisXPosition(bool)
-    hal_float_t getAxisBPosition(bool absolute) const;
+    real_t getAxisBPosition(bool absolute) const;
     //! \xrefitem getAxisXPosition(bool)
-    hal_float_t getAxisCPosition(bool absolute) const;
+    real_t getAxisCPosition(bool absolute) const;
 
 
 private:
@@ -634,3 +648,4 @@ private:
     bool requestMode(bool isRisingEdge, hal_bit_t* requestPin, hal_bit_t* modeFeedbackPin);
 };
 }
+#endif

@@ -65,8 +65,8 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 
-#include "rtapi.h"		/* RTAPI realtime OS API */
-#include "hal.h"                /* HAL public API decls */
+#include <rtapi.h>		/* RTAPI realtime OS API */
+#include <hal.h>                /* HAL public API decls */
 #include "streamer.h"
 
 /***********************************************************************
@@ -91,6 +91,7 @@ char comp_name[HAL_NAME_LEN+1];	/* name for this instance of streamer */
 static sig_atomic_t stop;
 static void quit(int sig)
 {
+    (void)sig;
     if ( ignore_sig ) {
 	return;
     }
@@ -149,8 +150,8 @@ int main(int argc, char **argv)
     signal(SIGTERM, quit);
     signal(SIGPIPE, SIG_IGN);
     /* connect to HAL */
-    /* create a unique module name, to allow for multiple streamers */
-    snprintf(comp_name, sizeof(comp_name), "halstreamer%d", getpid());
+    /* create module name for specified channel */
+    snprintf(comp_name, sizeof(comp_name), "halstreamer%d", channel);
     /* connect to the HAL */
     ignore_sig = 1;
     comp_id = hal_init(comp_name);
@@ -211,7 +212,7 @@ int main(int argc, char **argv)
 		goto out;
 	    }
 	    if ( errmsg == NULL ) {
-		/* no error yet, check for other possibilties */
+		/* no error yet, check for other possibilities */
 		/* whitespace separates fields, and there is a newline
 		   at the end... so if there is not space or newline at
 		   the end of a field, something is wrong. */
@@ -243,7 +244,7 @@ int main(int argc, char **argv)
 	}
 	line++;
     }
-    /* run was succesfull */
+    /* run was successful */
     exitval = 0;
 
 out:

@@ -1,4 +1,4 @@
-//   This is a 'charge-pump' component for EMC2 HAL
+//   This is a 'charge-pump' component for LinuxCNC HAL
 //   Copyright 2006 Jeff Epler <jepler@unpythonic.net>
 //
 //   This program is free software; you can redistribute it and/or modify
@@ -21,15 +21,17 @@ pin out bit out "Square wave if 'enable' is TRUE or unconnected, low if 'enable'
 pin out bit out-2 "Square wave at half the frequency of 'out'";
 pin out bit out-4 "Square wave at a quarter of the frequency of 'out'";
 pin in bit enable = TRUE "If FALSE, forces all 'out' pins to be low";
-function _ nofp "Toggle the output bit (if enabled)";
+function _ "Toggle the output bit (if enabled)";
 description """
 The 'Charge Pump' should be added to the base thread function.
 When enabled the output is on for one period and off for one period. To calculate the
-frequency of the output 1/(period time in seconds x 2) = hz. For example if you
+frequency of the output 1/(period time in seconds x 2) = Hz. For example if you
 have a base period of 100,000ns that is 0.0001 seconds and the formula would be
-1/(0.0001 x 2) = 5,000 hz or 5 Khz. Two additional outputs are provided that run
+1/(0.0001 x 2) = 5,000 Hz or 5 kHz. Two additional outputs are provided that run
 a factor of 2 and 4 slower for hardware that requires a lower frequency.""";
 license "GPL";
+option period no;
+author "Jeff Epler";
 ;;
 FUNCTION(_) {
     static int acc;

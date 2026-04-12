@@ -16,16 +16,10 @@
 #ifndef CMS_HH
 #define CMS_HH
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
+#include <stdint.h>
 #include <stddef.h>		/* size_t */
 
-#ifdef __cplusplus
-}
-#endif
-#include "cms_cfg.hh"		/* CMS_CONFIG_LINELEN */
+#include <linuxcnc.h>		/* LINELEN */
 
 class PHYSMEM_HANDLE;
 struct PM_CARTESIAN;
@@ -47,7 +41,7 @@ enum CMS_STATUS {
     CMS_UPDATE_ERROR = -2,	/* An error occurred during an update. */
     CMS_INTERNAL_ACCESS_ERROR = -3,	/* An error occurred during an
 					   internal access function. */
-    CMS_NO_MASTER_ERROR = -4,	/* An error occurred becouse the master was
+    CMS_NO_MASTER_ERROR = -4,	/* An error occurred because the master was
 				   not started */
     CMS_CONFIG_ERROR = -5,	/* There was an error in the configuration */
     CMS_TIMED_OUT = -6,		/* operation timed out. */
@@ -182,6 +176,10 @@ class CMS {
       CMS(const char *bufline, const char *procline, int set_to_server = 0);
       virtual ~ CMS();
 
+    // Don't copy me.
+    CMS(const CMS & cms) = delete;
+    CMS& operator=(const CMS & cms) = delete;
+
     /* Simple read/write interface functions. */
     virtual CMS_STATUS clear();	/* Has the buffer been read recently? */
     virtual int check_if_read();	/* Has the buffer been read recently? 
@@ -259,27 +257,28 @@ class CMS {
   /***********************************************/
     /* Access functions for primitive C language data types */
     CMS_STATUS update(bool &x);
-    CMS_STATUS update(char &x);                            /* Used by emc2 */
-    CMS_STATUS update(unsigned char &x);                   /* Used by emc2 */
-    CMS_STATUS update(short int &x);
-    CMS_STATUS update(unsigned short int &x);
-    CMS_STATUS update(int &x);                             /* Used by emc2 */
-    CMS_STATUS update(unsigned int &x);
-    CMS_STATUS update(long int &x);                        /* Used by emc2 */
-    CMS_STATUS update(unsigned long int &x);               /* Used by emc2 */
+    CMS_STATUS update(int8_t &x);
+    CMS_STATUS update(uint8_t &x);
+    CMS_STATUS update(int16_t &x);
+    CMS_STATUS update(uint16_t &x);
+    CMS_STATUS update(int32_t &x);
+    CMS_STATUS update(uint32_t &x);
+    CMS_STATUS update(int64_t &x);
+    CMS_STATUS update(uint64_t &x);
     CMS_STATUS update(float &x);
-    CMS_STATUS update(double &x);                          /* Used by emc2 */
+    CMS_STATUS update(double &x);
     CMS_STATUS update(long double &x);
-    CMS_STATUS update(char *x, unsigned int len);          /* Used by emc2 */
-    CMS_STATUS update(unsigned char *x, unsigned int len); /* Used by emc2 */
-    CMS_STATUS update(short *x, unsigned int len);
-    CMS_STATUS update(unsigned short *x, unsigned int len);
-    CMS_STATUS update(int *x, unsigned int len);           /* Used by emc2 */
-    CMS_STATUS update(unsigned int *x, unsigned int len);
-    CMS_STATUS update(long *x, unsigned int len);
-    CMS_STATUS update(unsigned long *x, unsigned int len);
+    CMS_STATUS update(char *x, unsigned int len) { return update(reinterpret_cast<int8_t *>(x), len); };
+    CMS_STATUS update(int8_t *x, unsigned int len);
+    CMS_STATUS update(uint8_t *x, unsigned int len);
+    CMS_STATUS update(int16_t *x, unsigned int len);
+    CMS_STATUS update(uint16_t *x, unsigned int len);
+    CMS_STATUS update(int32_t *x, unsigned int len);
+    CMS_STATUS update(uint32_t *x, unsigned int len);
+    CMS_STATUS update(int64_t *x, unsigned int len);
+    CMS_STATUS update(uint64_t *x, unsigned int len);
     CMS_STATUS update(float *x, unsigned int len);
-    CMS_STATUS update(double *x, unsigned int len);        /* Used by emc2 */
+    CMS_STATUS update(double *x, unsigned int len);
     CMS_STATUS update(long double *x, unsigned int len);
 
   /*************************************************************************
@@ -350,16 +349,16 @@ class CMS {
     void *data;			/* pointer to local copy of data (raw) */
     void *subdiv_data;		/* pointer to current subdiv; */
 
-    /* Intersting Info Saved from the Configuration File. */
-    char BufferName[CMS_CONFIG_LINELEN];
-    char BufferHost[CMS_CONFIG_LINELEN];
-    char ProcessName[CMS_CONFIG_LINELEN];
-    char BufferLine[CMS_CONFIG_LINELEN];
-    char ProcessLine[CMS_CONFIG_LINELEN];
-    char ProcessHost[CMS_CONFIG_LINELEN];
-    char buflineupper[CMS_CONFIG_LINELEN];
-    char proclineupper[CMS_CONFIG_LINELEN];
-    char PermissionString[CMS_CONFIG_LINELEN];
+    /* Interesting Info Saved from the Configuration File. */
+    char BufferName[LINELEN];
+    char BufferHost[LINELEN];
+    char ProcessName[LINELEN];
+    char BufferLine[LINELEN];
+    char ProcessLine[LINELEN];
+    char ProcessHost[LINELEN];
+    char buflineupper[LINELEN];
+    char proclineupper[LINELEN];
+    char PermissionString[LINELEN];
     int is_local_master;
     int force_raw;
     bool serial;
@@ -456,6 +455,7 @@ class CMS {
     CMS_DIAG_PROC_INFO *dpi;
     virtual CMS_DIAG_PROC_INFO *get_diag_proc_info();
     virtual void set_diag_proc_info(CMS_DIAG_PROC_INFO *);
+    // cppcheck-suppress virtualCallInConstructor
     virtual void setup_diag_proc_info();
     virtual void calculate_and_store_diag_info(PHYSMEM_HANDLE * _handle,
 	void *);
@@ -477,10 +477,6 @@ class CMS {
     int last_id_side1;
     int use_autokey_for_connection_number;
     /* RCS_CMD_MSG, RCS_STAT_MSG stuff */
-
-  private:
-      CMS(CMS & cms);		// Don't copy me.
-
 };
 
 class CMS_HOST_ALIAS_ENTRY {

@@ -15,19 +15,12 @@
 #ifndef NML_SERVER_HH
 #define NML_SERVER_HH
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 #include <sys/types.h>
 #include <unistd.h>		/* pid_t */
 
-#ifdef __cplusplus
-}
-#endif
-#include "cms_srv.hh"		/* class CMS_SERVER */
+#include "libnml/cms/cms_srv.hh"		/* class CMS_SERVER */
 #include "nml.hh"		/* class NML */
-#include "rem_msg.hh"		/* struct REMOTE_READ_REQUEST, */
+#include "libnml/buffer/rem_msg.hh"		/* struct REMOTE_READ_REQUEST, */
 class NML_SERVER_LOCAL_PORT:public CMS_SERVER_LOCAL_PORT {
   protected:
     NML * nml;
@@ -68,6 +61,9 @@ class NML_SUPER_SERVER {
   public:
     LinkedList * servers;
     NML_SUPER_SERVER();
+    // Don't copy or assign
+    NML_SUPER_SERVER(const NML_SUPER_SERVER&) = delete;
+    NML_SUPER_SERVER& operator=(const NML_SUPER_SERVER&) = delete;
     ~NML_SUPER_SERVER();
     void add_to_list(NML *);
     void add_to_list(NML_SERVER *);

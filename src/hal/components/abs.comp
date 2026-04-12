@@ -1,4 +1,4 @@
-//   This is a component for EMC2 HAL
+//   This is a component for LinuxCNC HAL
 //   Copyright 2006 John Kasunich <jmkasunich at sourceforge dot net>
 //
 //   This program is free software; you can redistribute it and/or
@@ -21,8 +21,10 @@ pin out bit sign "Sign of input, false for positive, true for negative" ;
 pin out bit is_positive "TRUE if input is positive, FALSE if input is 0 or negative";
 pin out bit is_negative "TRUE if input is negative, FALSE if input is 0 or positive";
 
+option period no;
 function _;
 license "GPL";
+author "John Kasunich";
 ;;
 FUNCTION(_) {
     double tmp = in;

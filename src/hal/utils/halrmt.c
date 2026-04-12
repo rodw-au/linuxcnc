@@ -1,10 +1,10 @@
 /********************************************************************
 * Description: halrmt.cc
-*   Simple telnet interface to EMC2 HAL commands (halcmd)
+*   Simple telnet interface to LinuxCNC HAL commands (halcmd)
 *
 *   Derived from work by jmkasunich
 *
-*   Other contributers:
+*   Other contributors:
 *     Alex Joni
 *
 * Author: Eric H. Johnson
@@ -20,7 +20,7 @@
   Using halrmt:
 
   halrmt {-- --port <port number> --name <server name> --connectpw <password>
-             --enablepw <password> --sessions <max sessions> -ini<inifile>}
+             --enablepw <password> --sessions <max sessions> -ini <INI file>}
 
   With -- --port Waits for socket connections (Telnet) on specified socket, without port
             uses default port 5006. (note: linuxcncrsh uses 5007 as default)
@@ -29,7 +29,7 @@
   With -- --enablepw <password> Sets the enable password to 'password'. Default EMCTOO
   With -- --sessions <max sessions> Sets the maximum number of simultaneous connextions
             to max sessions. Default is no limit (-1).
-  With -- -ini <inifile>, uses inifile instead of emc.ini. 
+  With -- -ini <INI file>, uses specified INI file instead of default emc.ini. 
 
   There are six commands supported, Where the commands set and get contain HAL
   specific sub-commands based on the commands supported by halcmd. Commands and 
@@ -78,7 +78,7 @@
   connection. If no parameters are specified, it will itemize the available commands.
   If a command is specified, it will provide usage information for the specified
   command. Help will respond regardless of whether a "Hello" has been
-  successsfully negotiated.
+  successfully negotiated.
   
   
   HAL sub-commands:
@@ -298,15 +298,11 @@
 #include <fnmatch.h>
 #include <getopt.h>
 
-#include "rtapi.h"		/* RTAPI realtime OS API */
+#include <rtapi.h>		// RTAPI realtime OS API
 #include <rtapi_mutex.h>
-#include "hal.h"		/* HAL public API decls */
-#include "../hal_priv.h"	/* private HAL decls */
-/* non-EMC related uses of halrmt may want to avoid libnml dependency */
-#ifndef NO_INI
-#include "inifile.h"		/* iniFind() from libnml */
-#endif
-#include <rtapi_string.h>
+#include <rtapi_string.h>	// rtapi_strlcpy
+#include <hal.h>		// HAL public API decls
+#include "../hal_priv.h"	// private HAL decls
 
 /***********************************************************************
 *                  LOCAL FUNCTION DECLARATIONS                         *
@@ -427,6 +423,7 @@ const char *halCommands[] = {
 /* signal handler */
 static void quit(int sig)
 {
+    (void)sig;
     if ( hal_flag ) {
 	/* this process might have the hal mutex, so just set the
 	   'done' flag and return, exit after mutex work finishes */
@@ -622,21 +619,18 @@ static int release_HAL_mutex(void)
 
 static int doLock(char *command, connectionRecType *context)
 {
-    int retval=0;
-    const char *nakStr = "SET LOCK NAK";
+	int retval = 0;
+	const char *nakStr = "SET LOCK NAK";
 
-    /* if command is blank, want to lock everything */
-    if (*command == '\0')
-      retval = hal_set_lock(HAL_LOCK_ALL);
-    else 
-      if (strcmp(command, "none") == 0)
-        retval = hal_set_lock(HAL_LOCK_NONE);
-      else 
-        if (strcmp(command, "tune") == 0)
-          retval = hal_set_lock(HAL_LOCK_LOAD & HAL_LOCK_CONFIG);
-        else 
-	  if (strcmp(command, "all") == 0)
-            retval = hal_set_lock(HAL_LOCK_ALL);
+	/* if command is blank, want to lock everything */
+	if (*command == '\0')
+		retval = hal_set_lock(HAL_LOCK_ALL);
+	else if (strcmp(command, "none") == 0)
+		retval = hal_set_lock(HAL_LOCK_NONE);
+	else if (strcmp(command, "tune") == 0)
+		retval = hal_set_lock(HAL_LOCK_TUNE);
+	else if (strcmp(command, "all") == 0)
+		retval = hal_set_lock(HAL_LOCK_ALL);
 
     if (retval != 0) {
       snprintf(errorStr, sizeof(errorStr), "HAL:%d: Locking failed", linenumber);
@@ -650,15 +644,15 @@ static int doUnlock(char *command, connectionRecType *context)
     int retval=0;
     const char *nakStr = "SET UNLOCK NAK";
 
-    /* if command is blank, want to lock everything */
-    if (*command == '\0')
-      retval = hal_set_lock(HAL_LOCK_NONE);
-    else 
-      if (strcmp(command, "all") == 0)
-        retval = hal_set_lock(HAL_LOCK_NONE);
-      else 
-        if (strcmp(command, "tune") == 0)
-          retval = hal_set_lock(HAL_LOCK_LOAD & HAL_LOCK_CONFIG);
+	/* if command is blank, want to unlock everything */
+	if (*command == '\0')
+		retval = hal_set_lock(HAL_LOCK_NONE);
+	else if (strcmp(command, "none") == 0)
+		retval = hal_set_lock(HAL_LOCK_NONE);
+	else if (strcmp(command, "tune") == 0)
+		retval = hal_set_lock(hal_get_lock() & ~HAL_LOCK_TUNE);
+	else if (strcmp(command, "all") == 0)
+		retval = hal_set_lock(HAL_LOCK_NONE);
 
     if (retval != 0) {
       snprintf(errorStr, sizeof(errorStr), "HAL:%d: Unlocking failed", linenumber);
@@ -696,7 +690,7 @@ static int doLinkpp(char *first_pin_name, char *second_pin_name, connectionRecTy
     rtapi_mutex_give(&(hal_data->mutex));
     
     /* check that both pins have the same type, 
-       don't want ot create a sig, which after that won't be useful */
+       don't want to create a sig, which after that won't be useful */
     if (first_pin->type != second_pin->type) {
       snprintf(errorStr, sizeof(errorStr), "HAL:%d: ERROR: pins '%s' and '%s' not of the same type", 
 	  linenumber, first_pin_name, second_pin_name);
@@ -910,6 +904,7 @@ static int doNewsig(char *name, char *type, connectionRecType *context)
 }
 
 static int set_common(hal_type_t type, void *d_ptr, char *value, connectionRecType *context) {
+    (void)context;
     // This function assumes that the mutex is held
     int retval = 0;
     double fval;
@@ -1180,8 +1175,8 @@ static int doLoadRt(char *mod_name, char *args[], connectionRecType *context)
     
     // TODO - FIXME - remove test after 2.2.x when blocks isn't functional anymore
     if (strncmp(mod_name, "blocks", 6) == 0) {
-	//usign RTAPI_MSG_ERR as that is the default warning level for halcmd
-        snprintf(errorStr, sizeof(errorStr), "blocks is depricated, use the subcomponents generated by 'comp' instead");
+	//using RTAPI_MSG_ERR as that is the default warning level for halcmd
+        snprintf(errorStr, sizeof(errorStr), "blocks is deprecated, use the subcomponents generated by 'comp' instead");
         sockWriteError(nakStr, context);
     }
 
@@ -1265,8 +1260,7 @@ static int doDelsig(char *mod_name, connectionRecType *context)
         sig = SHMPTR(next);
         /* we want to unload this signal, remember it's name */
         if (n < ( MAX_EXPECTED_SIGS - 1)) {
-          strncpy(sigs[n], sig->name, HAL_NAME_LEN );
-	  sigs[n][HAL_NAME_LEN] = '\0';
+          snprintf(sigs[n], sizeof(sigs[n]), "%s", sig->name);
 	  n++;
 	  }
         next = sig->next_ptr;
@@ -1316,12 +1310,12 @@ static int doUnload(char *mod_name, connectionRecType *context)
     next = hal_data->comp_list_ptr;
     while (next != 0) {
 	comp = SHMPTR(next);
-	if ( comp->type == 1 ) {
+	if ( comp->type == COMPONENT_TYPE_REALTIME ) {
 	    /* found a realtime component */
 	    if ( all || ( strcmp(mod_name, comp->name) == 0 )) {
 		/* we want to unload this component, remember its name */
 		if ( n < 63 ) {
-		    strncpy(comps[n], comp->name, HAL_NAME_LEN );
+		    snprintf(comps[n], sizeof(comps[n]), "%s", comp->name);
 		    comps[n][HAL_NAME_LEN] = '\0';
 		    n++;
 		}
@@ -1482,7 +1476,7 @@ static int doLoadUsr(char *args[])
     /* get program and component name */
     if(name_flag) {
         new_comp_name = *args++;
-    prog_name = *args++;
+        prog_name = *args++;
     } else {
         new_comp_name = prog_name = *args++;
     }
@@ -1490,7 +1484,7 @@ static int doLoadUsr(char *args[])
     prog_path[0] = '\0';
     if ( prog_path[0] == '\0' ) {
 	/* try the name by itself */
-	strncpy (prog_path, prog_name, MAX_CMD_LEN);
+	rtapi_strlcpy(prog_path, prog_name, MAX_CMD_LEN);
 	rtapi_print_msg(RTAPI_MSG_DBG, "Trying '%s'\n", prog_path);
 	if ( stat(prog_path, &stat_buf) != 0 ) {
 	    /* no luck, clear prog_path to indicate failure */
@@ -1699,7 +1693,7 @@ static void getCompInfo(char *pattern, connectionRecType *context)
     while (next != 0) {
       comp = SHMPTR(next);
       if (strncmp(pattern, comp->name, len) == 0) {
-        snprintf(context->outBuf, sizeof(context->outBuf), "COMP %s %02d %s", comp->name, comp->comp_id, (comp->type ? "RT  " : "User"));
+        snprintf(context->outBuf, sizeof(context->outBuf), "COMP %s %02d %s", comp->name, comp->comp_id, (comp->type != COMPONENT_TYPE_USER) ? "RT  " : "User");
 	sockWrite(context);
 	}
       next = comp->next_ptr;
@@ -1878,7 +1872,7 @@ static void getThreadInfo(char *pattern, connectionRecType *context)
         }
 	}
 
-        snprintf(context->outBuf, sizeof(context->outBuf), "THREAD %s %11d %s %d %d",
+        snprintf(context->outBuf, sizeof(context->outBuf), "THREAD %s %11u %s %u %u",
 	  tptr->name, 
 	  (unsigned int)tptr->period, 
 	  (tptr->uses_fp ? "YES" : "NO "),  
@@ -2072,7 +2066,7 @@ static char *data_value2(int type, void *valptr)
 	value_str = buf;
 	break;
     case HAL_U32:
-	snprintf(buf, 14, "%ld", (unsigned long)*((hal_u32_t *) valptr));
+	snprintf(buf, 14, "%lu", (unsigned long)*((hal_u32_t *) valptr));
 	value_str = buf;
 	break;
     default:
@@ -2156,7 +2150,7 @@ static void save_comps(FILE *dst)
     next = hal_data->comp_list_ptr;
     while (next != 0) {
 	comp = SHMPTR(next);
-	if ( comp->type == 1 ) {
+	if ( comp->type == COMPONENT_TYPE_REALTIME ) {
 	    /* only print realtime components */
 	    if ( comp->insmod_args == 0 ) {
 		fprintf(dst, "#loadrt %s  (not loaded by loadrt, no args saved)\n", comp->name);
@@ -2350,7 +2344,7 @@ static int do_help_cmd(char *command)
 	printf("  using the syntax '$name'./n");
 #else
 	printf("  using the syntax '$name'.  If option -i was given,\n");
-	printf("  'value' may also be a reference to an ini file entry\n");
+	printf("  'value' may also be a reference to an INI file entry\n");
 	printf("  using the syntax '[section]name'.\n");
 #endif
     } else if (strcmp(command, "sets") == 0) {
@@ -2434,8 +2428,8 @@ static void print_help_general(int showR)
     printf("  -f [filename]  Read commands from 'filename', not command\n");
     printf("                 line.  If no filename, read from stdin.\n");
 #ifndef NO_INI
-    printf("  -i filename    Open .ini file 'filename', allow commands\n");
-    printf("                 to get their values from ini file.\n");
+    printf("  -i filename    Open INI file 'filename', allow commands\n");
+    printf("                 to get their values from INI file.\n");
 #endif
     printf("  -q             Quiet - print errors only (default).\n");
     printf("  -Q             Very quiet - print nothing.\n");
@@ -2490,6 +2484,7 @@ static halCommandType lookupHalCommand(char *s)
 
 static cmdResponseType getEcho(char *s, connectionRecType *context)
 {
+  (void)s;
   const char *pEchoStr = "ECHO %s";
   
   if (context->echo == 1) snprintf(context->outBuf, sizeof(context->outBuf), pEchoStr, "ON");
@@ -2499,6 +2494,7 @@ static cmdResponseType getEcho(char *s, connectionRecType *context)
 
 static cmdResponseType getVerbose(char *s, connectionRecType *context)
 {
+  (void)s;
   const char *pVerboseStr = "VERBOSE %s";
   
   if (context->verbose == 1) snprintf(context->outBuf, sizeof(context->outBuf), pVerboseStr, "ON");
@@ -2508,6 +2504,7 @@ static cmdResponseType getVerbose(char *s, connectionRecType *context)
 
 static cmdResponseType getEnable(char *s, connectionRecType *context)
 {
+  (void)s;
   const char *pEnableStr = "ENABLE %s";
   
   if (context->cliSock == enabledConn) snprintf(context->outBuf, sizeof(context->outBuf), pEnableStr, "ON");
@@ -2517,6 +2514,7 @@ static cmdResponseType getEnable(char *s, connectionRecType *context)
 
 static cmdResponseType getConfig(char *s, connectionRecType *context)
 {
+  (void)s;
   const char *pConfigStr = "CONFIG";
 
   rtapi_strxcpy(context->outBuf, pConfigStr);
@@ -2525,6 +2523,7 @@ static cmdResponseType getConfig(char *s, connectionRecType *context)
 
 static cmdResponseType getCommMode(char *s, connectionRecType *context)
 {
+  (void)s;
   const char *pCommModeStr = "COMM_MODE %s";
   
   switch (context->commMode) {
@@ -2536,6 +2535,7 @@ static cmdResponseType getCommMode(char *s, connectionRecType *context)
 
 static cmdResponseType getCommProt(char *s, connectionRecType *context)
 {
+  (void)s;
   const char *pCommProtStr = "COMM_PROT %s";
   
   snprintf(context->outBuf, sizeof(context->outBuf), pCommProtStr, context->version);
@@ -2760,7 +2760,7 @@ int commandGet(connectionRecType *context)
     case rtCustomError: // Custom error response entered in buffer
       sockWrite(context);
       break;
-    case rtCustomHandledError: ;// Custom error respose handled, take no action
+    case rtCustomHandledError: ;// Custom error response handled, take no action
     }
   return 0;
 }
@@ -2829,6 +2829,8 @@ static cmdResponseType setEnable(char *s, connectionRecType *context)
 
 static cmdResponseType setConfig(char *s, connectionRecType *context)
 {
+  (void)s;
+  (void)context;
   return rtNoError;
 }
 
@@ -2844,6 +2846,7 @@ static cmdResponseType setCommMode(char *s, connectionRecType *context)
 
 static cmdResponseType setCommProt(char *s, connectionRecType *context)
 {
+  (void)s;
   char *pVersion;
   
   pVersion = strtok(NULL, delims);
@@ -2883,7 +2886,8 @@ static cmdResponseType setUnload(char *s, connectionRecType *context)
 
 static cmdResponseType setLoadUsr(char *s, connectionRecType *context)
 {
-  char *argv[MAX_TOK+1];
+  (void)context;
+  char *argv[MAX_TOK+1] = {0};
 
   argv[0] = s;
   argv[1] = "\0";
@@ -3143,7 +3147,7 @@ int commandSet(connectionRecType *context)
     case rtCustomError: // Custom error response entered in buffer
       retval = write(context->cliSock, context->outBuf, strlen(context->outBuf));
       break;
-    case rtCustomHandledError: ;// Custom error respose handled, take no action
+    case rtCustomHandledError: ;// Custom error response handled, take no action
     }
   return retval;
 }
@@ -3374,6 +3378,7 @@ int parseCommand(connectionRecType *context)
 
 void *readClient(void *arg)
 {
+  (void)arg;
   char str[1600];
   char buf[1600];
   unsigned int i, j;
@@ -3384,6 +3389,10 @@ void *readClient(void *arg)
   
 //  res = 1;
   context = (connectionRecType *) malloc(sizeof(connectionRecType));
+  if(NULL == context) {
+    perror("readClient():malloc");
+    abort();  // There is no "clean" way. Ensure we make some noise.
+  }
   context->cliSock = client_sockfd;
   context->linked = 0;
   context->echo = 1;
@@ -3475,11 +3484,11 @@ int main(int argc, char **argv)
     // process halrmt command line args
     while((opt = getopt_long(argc, argv, "e:n:p:s:w:", longopts, NULL)) != -1) {
       switch(opt) {
-        case 'e': strncpy(enablePWD, optarg, strlen(optarg) + 1); break;
-        case 'n': strncpy(serverName, optarg, strlen(optarg) + 1); break;
+        case 'e': snprintf(enablePWD, sizeof(enablePWD), "%s", optarg); break;
+        case 'n': snprintf(serverName, sizeof(serverName), "%s", optarg); break;
         case 'p': sscanf(optarg, "%d", &port); break;
         case 's': sscanf(optarg, "%d", &maxSessions); break;
-        case 'w': strncpy(pwd, optarg, strlen(optarg) + 1); break;
+        case 'w': snprintf(pwd, sizeof(pwd), "%s", optarg); break;
         }
       }
 
@@ -3552,7 +3561,7 @@ int main(int argc, char **argv)
 		break;
 #ifndef NO_INI
 	    case 'i':
-		/* -i = allow reading 'setp' values from an ini file */
+		/* -i = allow reading 'setp' values from an INI file */
 		if (inifile == NULL) {
 		    /* it's the first -i (ignore repeats) */
 		    if ((n < argc) && (argv[n][0] != '-')) {
@@ -3561,7 +3570,7 @@ int main(int argc, char **argv)
 			inifile = fopen(filename, "r");
 			if (inifile == NULL) {
 			    fprintf(stderr,
-				"Could not open ini file '%s'\n",
+				"Could not open INI file '%s'\n",
 				filename);
 			    exit(-1);
 			}
@@ -3571,7 +3580,7 @@ int main(int argc, char **argv)
 		    } else {
 			/* no filename followed -i option, error */
 			fprintf(stderr,
-			    "No missing ini filename for -i option\n");
+			    "No missing INI filename for -i option\n");
 			exit(-1);
 		    }
 		}

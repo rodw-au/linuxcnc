@@ -1,4 +1,4 @@
-#!/usr/bin/env linuxcnc-python
+#!/usr/bin/env python3
 
 import linuxcnc
 import hal
@@ -6,11 +6,6 @@ import time
 import sys
 import os
 import math
-
-
-# this is how long we wait for linuxcnc to do our bidding
-timeout = 1.0
-
 
 program_start = time.time()
 
@@ -47,7 +42,7 @@ def wait_for_joint_to_stop_at(joint, target):
 
 
 def wait_for_task_mode(target):
-    timeout = 5.0
+    timeout = 10.0
     start = time.time()
 
     while ((time.time() - start) < timeout):
@@ -61,7 +56,7 @@ def wait_for_task_mode(target):
 
 
 def wait_for_halui_mode(pin_name):
-    timeout = 5.0
+    timeout = 10.0
 
     start = time.time()
 

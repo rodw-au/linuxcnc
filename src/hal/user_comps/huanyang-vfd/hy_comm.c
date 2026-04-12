@@ -34,7 +34,7 @@
 #include <errno.h>
 #include <limits.h>
 #include <fcntl.h>
-#include "rtapi.h"
+#include <rtapi.h>
 #include <rtapi_string.h>
 
 #include "hy_comm.h"
@@ -185,6 +185,7 @@ static int check_crc16(hycomm_param_t *hc_param, uint8_t *msg,
 static unsigned int compute_response_length(hycomm_param_t *hc_param, 
 					  uint8_t *query)
 {
+	(void)hc_param;
 	int resp_length;
 
 	switch (query[1])
@@ -277,15 +278,15 @@ static int hycomm_send(hycomm_param_t *hc_param, uint8_t *query, int query_lengt
 
 
 
-  
 
-/*********************************************************************** 
- 
-	Definintion to be used multiple times in receive_msg function
-	
-***********************************************************************/ 
-  
-  
+
+/***********************************************************************
+
+        Definition to be used multiple times in receive_msg function
+
+***********************************************************************/
+
+
 #define WAIT_DATA()                                                                \
 {                                                                                  \
     while ((select_ret = select(hc_param->fd+1, &rfds, NULL, NULL, &tv)) == -1) {  \
@@ -376,7 +377,7 @@ int receive_msg(hycomm_param_t *hc_param, int msg_length_computed,
 		
 		if ((*msg_length) < msg_length_computed) {
 			/* We can receive a shorter message than msg_length_computed as
-		  		some functions return one byte in the data feild. Check against
+		  		some functions return one byte in the data field. Check against
 				the received data length stored in msg[2] */
 			if ((*msg_length >= 2) && (*msg_length == msg[2]+5)) {
 				/* we have received the whole message */
@@ -888,7 +889,7 @@ int hycomm_connect(hycomm_param_t *hc_param)
            ONCLR ant others needs OPOST to be enabled
         */         
 
-        /* Raw ouput */
+        /* Raw output */
         tios.c_oflag &=~ OPOST;
 
         /* C_CC         Control characters 

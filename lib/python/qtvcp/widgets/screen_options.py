@@ -1,4 +1,4 @@
-#!/usr/bin/python2.7
+#!/usr/bin/env python3
 #
 # Qtvcp widget
 # Copyright (c) 2017 Chris Morley
@@ -15,9 +15,11 @@
 ###############################################################################
 
 import os
-import time
+from qtpy import QtCore, QtWidgets, QtGui
+from qtpy.QtWidgets import (QGraphicsBlurEffect,
+                QGraphicsColorizeEffect)
+from qtpy.QtCore import QVariant
 
-from PyQt5 import QtCore, QtWidgets, QtGui
 import linuxcnc
 
 from qtvcp.widgets.widget_baseclass import _HalWidgetBase
@@ -27,7 +29,7 @@ from qtvcp.lib.notify import Notify
 from qtvcp.lib.audio_player import Player
 from qtvcp.lib.preferences import Access
 from qtvcp.lib.machine_log import MachineLogger
-from qtvcp.core import Status, Info, Tool, Path
+from qtvcp.core import Status, Info, Tool, Path, Action
 from qtvcp import logger
 
 # Instantiate the libraries with global reference
@@ -46,38 +48,57 @@ TOOL = Tool()
 PATH = Path()
 MLOG = MachineLogger()
 LOG = logger.getLogger(__name__)
+ACTION = Action()
 
 try:
     SOUND = Player()
-except:
-    LOG.warning('Sound Player did not load')
+except Exception as e:
+    LOG.warning('Sound Player did not load: {}'.format(e))
 
-# Set the log level for this module
-LOG.setLevel(logger.INFO) # One of DEBUG, INFO, WARNING, ERROR, CRITICAL
+# Force the log level for this module
+#LOG.setLevel(logger.DEBUG) # One of DEBUG, INFO, WARNING, ERROR, CRITICAL
 
+# only import zmq if needed and present
+def import_ZMQ():
+    try:
+        import zmq
+    except:
+        LOG.warning('Problem importing zmq - Is python3-zmq installed?')
+        # nope no messaging for you
+        return False
+    else:
+        import json
+        # since we imported in a function we need to globalize
+        # the libraries so screenoptions can reference them.
+        global zmq
+        global json
+        # imports are good - go ahead and setup messaging
+        return True
 
 class ScreenOptions(QtWidgets.QWidget, _HalWidgetBase):
     def __init__(self, parent=None):
         super(ScreenOptions, self).__init__(parent)
-        self.error = linuxcnc.error_channel()
         self.catch_errors = True
         self.desktop_notify = True
+        self.notify_max_msgs = 10
         self.close_event = True
         self.play_sounds = True
         self.mchnMsg_play_sound = True
-        self.mchnMsg_speak_errors = True
+        self.mchnMsg_speak_errors = False
+        self.mchnMsg_speak_text = True
         self.mchnMsg_sound_type  = 'ERROR'
         self.usrMsg_play_sound = True
-        self.usrMsg_sound_type = 'RING'
+        self.usrMsg_sound_type = 'ATTENTION'
         self.usrMsg_use_FocusOverlay = True
         self.shutdown_play_sound = True
         self.shutdown_alert_sound_type = 'READY'
         self.shutdown_exit_sound_type = 'LOGOUT'
-        self.notify_start_greeting = True
+        self.notify_start_greeting = False
         self.notify_start_title = 'Welcome'
         self.notify_start_detail = 'This option can be changed in the preference file'
         self.notify_start_timeout = 5
         self.shutdown_msg_title = 'Do you want to Shutdown now?'
+        self.shutdown_msg_focus_text = ''
         self.shutdown_msg_detail = ''
         self.user_messages = True
         self.use_pref_file = True
@@ -88,38 +109,67 @@ class ScreenOptions(QtWidgets.QWidget, _HalWidgetBase):
         self.add_tool_dialog = False
         self.add_file_dialog = False
         self.add_focus_overlay = False
+        self.add_focus_effect = False
+        self.use_focus_tint = False
+        self.use_focus_blur = False
+        self.add_keyboard_dialog = False
         self.add_versaprobe_dialog = False
         self.add_macrotab_dialog = False
         self.add_camview_dialog = False
         self.add_originoffset_dialog = False
+        self.add_toolchooser_dialog = False
         self.add_tooloffset_dialog = False
         self.add_calculator_dialog = False
         self.add_machinelog_dialog = False
         self.add_runFromLine_dialog = False
+        self.add_send_zmq = False
+        self.add_receive_zmq = False
 
         self.pref_filename = '~/.qtvcp_screen_preferences'
         self._default_tab_name = ''
         self._close_color = QtGui.QColor(100, 0, 0, 150)
         self._messageDialogColor = QtGui.QColor(0, 0, 0, 150)
-        self._closeDialogColor = QtGui.QColor(0, 0, 0, 150)
         self._entryDialogSoftkey = True
         self._entryDialogColor = QtGui.QColor(0, 0, 0, 150)
         self._toolDialogColor = QtGui.QColor(100, 0, 0, 150)
         self._fileDialogColor = QtGui.QColor(0, 0, 100, 150)
+        self._keyboardDialogColor = QtGui.QColor(0, 0, 100, 150)
         self._versaProbeDialogColor = QtGui.QColor(0, 0, 0, 150)
         self._macroTabDialogColor = QtGui.QColor(0, 0, 0, 150)
         self._camViewDialogColor = QtGui.QColor(0, 0, 0, 150)
         self._originOffsetDialogColor = QtGui.QColor(0, 0, 0, 150)
         self._toolOffsetDialogColor = QtGui.QColor(0, 0, 0, 150)
+        self._toolChooserDialogColor = QtGui.QColor(0, 0, 0, 150)
+        self._toolUseDesktopNotify = False
+        self._toolFrameless = False
         self._calculatorDialogColor = QtGui.QColor(0, 0, 0, 150)
         self._machineLogDialogColor = QtGui.QColor(0, 0, 0, 150)
         self._runFromLineDialogColor = QtGui.QColor(0, 0, 0, 150)
+        self._User1Color = QtGui.QColor(100, 0, 0, 150)
+        self._User2Color = QtGui.QColor(100, 0, 0, 150)
+        self._User3Color = QtGui.QColor(100, 0, 0, 150)
+        self._User4Color = QtGui.QColor(100, 0, 0, 150)
+        self._User5Color = QtGui.QColor(100, 0, 0, 150)
+        self._User6Color = QtGui.QColor(100, 0, 0, 150)
+        self._User7Color = QtGui.QColor(100, 0, 0, 150)
+        self._User8Color = QtGui.QColor(100, 0, 0, 150)
+        self._User9Color = QtGui.QColor(100, 0, 0, 150)
+        self._User10Color = QtGui.QColor(100, 0, 0, 150)
+        self._zmq_sub_subscribe_name = b""
+        self._zmq_sub_socket_address = "tcp://127.0.0.1:5690"
+        self._zmq_pub_socket_address = "tcp://127.0.0.1:5690"
+        self._halBaseName = ''
+        self.__blurList = []
+        self.__tintList = []
 
     # self.QTVCP_INSTANCE_
     # self.HAL_GCOMP_
     # self.PREFS_
     # come from base class
     def _hal_init(self):
+
+        self.init_about_dialog()
+
         if self.add_message_dialog:
             self.init_message_dialog()
 
@@ -138,6 +188,12 @@ class ScreenOptions(QtWidgets.QWidget, _HalWidgetBase):
         if self.add_focus_overlay:
             self.init_focus_overlay()
 
+        if self.add_focus_effect:
+            self.init_focus_effect()
+
+        if self.add_keyboard_dialog:
+            self.init_keyboard_dialog()
+
         if self.add_versaprobe_dialog:
             self.init_versaprobe_dialog()
 
@@ -146,6 +202,9 @@ class ScreenOptions(QtWidgets.QWidget, _HalWidgetBase):
 
         if self.add_camview_dialog:
             self.init_camview_dialog()
+
+        if self.add_toolchooser_dialog:
+            self.init_toolchooser_dialog()
 
         if self.add_tooloffset_dialog:
             self.init_tooloffset_dialog()
@@ -166,10 +225,12 @@ class ScreenOptions(QtWidgets.QWidget, _HalWidgetBase):
         if self.PREFS_:
             self.catch_errors = self.PREFS_.getpref('catch_errors', self.catch_errors, bool, 'SCREEN_OPTIONS')
             self.desktop_notify = self.PREFS_.getpref('desktop_notify', self.desktop_notify, bool, 'SCREEN_OPTIONS')
+            self.notify_max_msgs = self.PREFS_.getpref('notify_max_msgs', self.notify_max_msgs, int, 'SCREEN_OPTIONS')
             self.close_event = self.PREFS_.getpref('shutdown_check', self.close_event, bool, 'SCREEN_OPTIONS')
             self.play_sounds = self.PREFS_.getpref('sound_player_on', self.play_sounds, bool, 'SCREEN_OPTIONS')
             self.mchnMsg_play_sound = self.PREFS_.getpref('mchnMsg_play_sound', self.mchnMsg_play_sound, bool, 'MCH_MSG_OPTIONS')
             self.mchnMsg_speak_errors = self.PREFS_.getpref('mchnMsg_speak_errors', self.mchnMsg_speak_errors, bool, 'MCH_MSG_OPTIONS')
+            self.mchnMsg_speak_text = self.PREFS_.getpref('mchnMsg_speak_text', self.mchnMsg_speak_text, bool, 'MCH_MSG_OPTIONS')
             self.mchnMsg_sound_type = self.PREFS_.getpref('mchnMsg_sound_type', self.usrMsg_sound_type, str, 'MCH_MSG_OPTIONS')
             self.usrMsg_play_sound = self.PREFS_.getpref('usermsg_play_sound', self.usrMsg_play_sound, bool, 'USR_MSG_OPTIONS')
             self.usrMsg_sound_type = self.PREFS_.getpref('userMsg_sound_type', self.usrMsg_sound_type, str, 'USR_MSG_OPTIONS')
@@ -181,6 +242,8 @@ class ScreenOptions(QtWidgets.QWidget, _HalWidgetBase):
             self.shutdown_exit_sound_type = self.PREFS_.getpref('shutdown_exit_sound_type', self.shutdown_exit_sound_type,
                                                                 str, 'SHUTDOWN_OPTIONS')
             self.shutdown_msg_title = self.PREFS_.getpref('shutdown_msg_title', self.shutdown_msg_title,
+                                                          str, 'SHUTDOWN_OPTIONS')
+            self.shutdown_msg_focus_text = self.PREFS_.getpref('shutdown_msg_focus_text', self.shutdown_msg_focus_text,
                                                           str, 'SHUTDOWN_OPTIONS')
             self.shutdown_msg_detail = self.PREFS_.getpref('shutdown_msg_detail',
                                                             self.shutdown_msg_detail,
@@ -195,6 +258,7 @@ class ScreenOptions(QtWidgets.QWidget, _HalWidgetBase):
         if self.catch_errors:
             STATUS.connect('periodic', self.on_periodic)
             STATUS.connect('error', self.process_error)
+            STATUS.connect('graphics-gcode-error', lambda w, data: self.process_error(None, linuxcnc.OPERATOR_ERROR, data))
 
         if self.close_event:
             self.QTVCP_INSTANCE_.closeEvent = self.closeEvent
@@ -206,9 +270,16 @@ class ScreenOptions(QtWidgets.QWidget, _HalWidgetBase):
                 self.play_sounds = False
                 LOG.warning('Sound Option turned off due to error registering')
 
+        # If there is a widget named statusBar give a reference to desktop notify
+        try:
+            NOTICE.statusbar = self.QTVCP_INSTANCE_.statusbar
+        except:
+            LOG.debug('cannot add notifications to statusbar - no statusbar?:')
+            NOTICE.statusbar = None
+
         if self.user_messages:
-            MSG.message_setup(self.HAL_GCOMP_)
-            MSG.message_option('NOTIFY', NOTICE)
+            self._msg = MSG.message_setup(self.HAL_GCOMP_,
+                                self.QTVCP_INSTANCE_, NOTICE)
             if self.play_sounds:
                 MSG.message_option('play_sounds', self.usrMsg_play_sound)
             else:
@@ -216,16 +287,12 @@ class ScreenOptions(QtWidgets.QWidget, _HalWidgetBase):
             MSG.message_option('alert_sound', self.usrMsg_sound_type)
             MSG.message_option('use_focus_overlay', self.usrMsg_use_FocusOverlay)
 
-        # If there is a widget named statusBar give a reference to desktop notify
-        try:
-            NOTICE.statusbar = self.QTVCP_INSTANCE_.statusbar
-        except Exception as e:
-            LOG.info('Exception adding status to notify:', exc_info=e)
 
         # critical messages don't timeout, the greeting does
         if self.desktop_notify:
             self.notify_critical = NOTICE.new_critical()
             self.notify_normal = NOTICE.new_normal()
+            self.notify_hard_limits = NOTICE.new_hard_limits(callback = self._override_limits)
             if self.notify_start_greeting:
                 NOTICE.notify(self.notify_start_title, self.notify_start_detail, None,
                         self.notify_start_timeout, self. notify_start_timeout)
@@ -234,64 +301,94 @@ class ScreenOptions(QtWidgets.QWidget, _HalWidgetBase):
         if self.process_tabs:
             self.add_xembed_tabs()
 
-        # clear and add an intial machine log message
+        # clear and add an initial machine log message
         STATUS.emit('update-machine-log', '', 'DELETE')
         STATUS.emit('update-machine-log', '', 'INITIAL')
         STATUS.connect('tool-info-changed', lambda w, data: self._tool_file_info(data, TOOL.COMMENTS))
 
     # This is called early by qt_makegui.py for access to
-    # be able to pass the preference object to ther widgets
+    # be able to pass the preference object to the widgets
     def _pref_init(self):
         if self.use_pref_file:
-            # we prefer INI settings
-            if INFO.PREFERENCE_PATH:
+            # we prefer INI settings for screens
+            if INFO.PREFERENCE_PATH and INFO.IS_SCREEN:
                 self.pref_filename = INFO.PREFERENCE_PATH
-                LOG.debug('Switching to Preference File Path from INI: {}'.format(INFO.PREFERENCE_PATH))
+                LOG.verbose('Switching to Preference File Path from INI: {}'.format(INFO.PREFERENCE_PATH))
+
             # substitute for keywords
             self.pref_filename = self.pref_filename.replace('CONFIGFOLDER',PATH.CONFIGPATH)
             self.pref_filename = self.pref_filename.replace('WORKINGFOLDER',PATH.WORKINGDIR)
+
             # check that there is a directory present
             dir = os.path.split(str(self.pref_filename))
-            dir = os.path.expanduser(dir[0])
-            if os.path.exists(dir):
-                return Access(self.pref_filename), self.pref_filename
-            else:
-                raise Exception('Cannot find directory: {} for preference file.'.format(dir))
+            # expand the directory path if there is one
+            if not dir[0] == '':
+                dir = os.path.expanduser(dir[0])
+                if not os.path.exists(dir):
+                    raise Exception('Cannot find directory: {} for preference file.'.format(dir))
+            LOG.debug('Preference File Path: {}'.format(self.pref_filename))
+            return Access(self.pref_filename), self.pref_filename
         return None,None
 
     # allow screen option to inject data to the main VCP object (basically the window)
     def _VCPObject_injection(self, vcpObject):
         if self.desktop_notify:
-            vcpObject._NOTICE = NOTICE # Guve reference
+            vcpObject._NOTICE = NOTICE # Give reference
 
     def on_periodic(self, w):
-        e = self.error.poll()
-        if e:
-            kind, text = e
-            STATUS.emit('error',kind,text)
+        try:
+            e = STATUS.poll_error()
+            #if not e is None:print ('error stat',e)
+            if e:
+                kind, text = e
+                STATUS.emit('error',kind,text)
+        except Exception as e:
+                LOG.error('Error channel reading error: {}'.format(e))
 
     def process_error(self, w, kind, text):
-            if kind in (linuxcnc.NML_ERROR, linuxcnc.OPERATOR_ERROR):
+            if 'on limit switch error' in text:
                 if self.desktop_notify:
-                    NOTICE.update(self.notify_critical, title='ERROR:', message=text)
-            elif kind in (linuxcnc.NML_TEXT, linuxcnc.OPERATOR_TEXT):
+                    NOTICE.update(self.notify_hard_limits, title='Machine Error:', message=text, msgs=self.notify_max_msgs)
+            elif kind == linuxcnc.OPERATOR_ERROR:
                 if self.desktop_notify:
-                    NOTICE.update(self.notify_critical, title='OPERATOR TEXT:', message=text)
-            elif kind in (linuxcnc.NML_DISPLAY, linuxcnc.OPERATOR_DISPLAY):
+                    NOTICE.update(self.notify_critical, title='Operator Error:', message=text, msgs=self.notify_max_msgs)
+            elif kind == linuxcnc.OPERATOR_TEXT:
                 if self.desktop_notify:
-                    NOTICE.update(self.notify_critical, title='OPERATOR DISPLAY:', message=text)
-            elif kind == 255: # temparary info
+                    NOTICE.update(self.notify_critical, title='Operator Text:', message=text, msgs=self.notify_max_msgs)
+            elif kind == linuxcnc.OPERATOR_DISPLAY:
+                if self.desktop_notify:
+                    NOTICE.update(self.notify_critical, title='Operator Display:', message=text, msgs=self.notify_max_msgs)
+
+            elif kind == linuxcnc.NML_ERROR:
+                if self.desktop_notify:
+                    NOTICE.update(self.notify_critical, title='Internal NML Error:', message=text, msgs=self.notify_max_msgs)
+            elif kind == linuxcnc.NML_TEXT:
+                if self.desktop_notify:
+                    NOTICE.update(self.notify_critical, title='Internal NML Text:', message=text, msgs=self.notify_max_msgs)
+            elif kind == linuxcnc.NML_DISPLAY:
+                if self.desktop_notify:
+                    NOTICE.update(self.notify_critical, title='Internal NML Display:', message=text, msgs=self.notify_max_msgs)
+
+            elif kind == STATUS.TEMPORARY_MESSAGE: # temporary info
                 if self.desktop_notify:
                     NOTICE.update(self.notify_normal,
-                                    title='Low Priority:',
-                                     message=text,
+                                    title='Operator Info:',
+                                    message=text,
                                     status_timeout=0,
-                                    timeout=2)
+                                    timeout=2,
+                                    msgs=self.notify_max_msgs)
+
             if self.play_sounds and self.mchnMsg_play_sound:
                 STATUS.emit('play-sound', '%s' % self.mchnMsg_sound_type)
                 if self.mchnMsg_speak_errors:
-                    STATUS.emit('play-sound', 'SPEAK %s ' % text)
-            STATUS.emit('update-machine-log', text, 'TIME')
+                    if kind in (linuxcnc.OPERATOR_ERROR, linuxcnc.NML_ERROR):
+                        STATUS.emit('play-sound', 'SPEAK %s ' % text)
+                if self.mchnMsg_speak_text:
+                    if kind in (linuxcnc.OPERATOR_TEXT, linuxcnc.NML_TEXT,
+                                linuxcnc.OPERATOR_DISPLAY, STATUS.TEMPORARY_MESSAGE):
+                        STATUS.emit('play-sound', 'SPEAK %s ' % text)
+
+            STATUS.emit('update-machine-log', text, 'TIME,ERROR')
 
 
     def closeEvent(self, event):
@@ -299,22 +396,33 @@ class ScreenOptions(QtWidgets.QWidget, _HalWidgetBase):
             sound = None
             if self.PREFS_ and self.play_sounds and self.shutdown_play_sound:
                 sound = self.shutdown_alert_sound_type
-            answer = self.QTVCP_INSTANCE_.closeDialog_.showdialog(self.shutdown_msg_title,
+            try:
+                if self.shutdown_msg_detail == '': details = None
+                else: details = self.shutdown_msg_detail
+                answer = self.QTVCP_INSTANCE_.closeDialog_.showdialog(self.shutdown_msg_title,
                                                                  None,
-                                                                 details=None,
+                                                                 details=details,
                                                                  icon=MSG.CRITICAL,
                                                                  display_type='YESNO',
-                                                                 focus_text='Close Linuxcnc?',
+                                                                 focus_text=self.shutdown_msg_focus_text,
                                                                  focus_color=self._close_color,
-                                                                 play_alert=sound)
+                                                                 play_alert=sound, use_exec=True)
+            except:
+                answer = True
             # system shutdown
-            if answer == -1:
-                if 'system_shutdown_request__' in dir(self.QTVCP_INSTANCE_):
-                    self.QTVCP_INSTANCE_.system_shutdown_request__()
-                else:
-                    from qtvcp.core import Action
-                    ACTION = Action()
-                    ACTION.SHUT_SYSTEM_DOWN_PROMPT()
+            if answer == QtWidgets.QMessageBox.DestructiveRole:
+                self.QTVCP_INSTANCE_.shutdown()
+                try:
+                    HANDLER = self.QTVCP_INSTANCE_.handler_instance
+                    if 'system_shutdown_request__' in dir(HANDLER):
+                        HANDLER.system_shutdown_request__()
+                        event.accept()
+                        return
+                except:
+                    pass
+                from qtvcp.core import Action
+                ACTION = Action()
+                ACTION.SHUT_SYSTEM_DOWN_PROMPT()
                 event.accept()
             # close linuxcnc
             elif answer:
@@ -347,7 +455,7 @@ class ScreenOptions(QtWidgets.QWidget, _HalWidgetBase):
             toolnum = tool_entry[0]
             tool_table_line = TOOL.GET_TOOL_INFO(toolnum)
             text = 'Tool %s: %s'%(str(tool_table_line[0]),str(tool_table_line[index]))
-            STATUS.emit('update-machine-log', text, 'TIME')
+            STATUS.emit('update-machine-log', text, 'TIME,SUCCESS')
         except:
             pass
 
@@ -365,23 +473,34 @@ class ScreenOptions(QtWidgets.QWidget, _HalWidgetBase):
             os.environ['QTVCP_FORWARD_EVENTS_TO'] = str(wid)
 
             for name, loc, cmd in INFO.ZIPPED_TABS:
-                LOG.debug('Processing Embedded tab:{}, {}, {}'.format(name,loc,cmd))
+                LOG.info('green<Installing Embedded tab:{}, {}, {}>'.format(name,loc,cmd))
                 if loc == 'default':
                     loc = 'rightTab'
+
                 try:
-                    if isinstance(self.QTVCP_INSTANCE_[loc], QtWidgets.QTabWidget):
-                        tw = QtWidgets.QWidget()
-                        self.QTVCP_INSTANCE_[loc].addTab(tw, name)
-                    elif isinstance(self.QTVCP_INSTANCE_[loc], QtWidgets.QStackedWidget):
-                        tw = QtWidgets.QWidget()
-                        self.QTVCP_INSTANCE_[loc].addWidget(tw)
-                    else:
-                        LOG.warning('tab location {} is not a Tab or stacked Widget - skipping'.format(loc))
+                    if 'qtvcp' in cmd.split()[0].lower():
+                        rtn = ACTION.ADD_WIDGET_TO_TAB(self.QTVCP_INSTANCE_[loc],
+                                self.QTVCP_INSTANCE_[name.replace(' ','_')],name)
+                        if not rtn:
+                            raise Exception
                         continue
+
+                    else:
+                        if isinstance(self.QTVCP_INSTANCE_[loc], QtWidgets.QTabWidget):
+                            tw = QtWidgets.QWidget()
+                            self.QTVCP_INSTANCE_[loc].addTab(tw, name)
+                        elif isinstance(self.QTVCP_INSTANCE_[loc], QtWidgets.QStackedWidget):
+                            tw = QtWidgets.QWidget()
+                            self.QTVCP_INSTANCE_[loc].addWidget(tw)
+                        else:
+                            LOG.warning('tab location {} is not a Tab or stacked Widget - skipping'.format(loc))
+                            continue
+                    self._embed(cmd,loc,tw)
                 except Exception as e:
                     LOG.warning("problem inserting VCP '{}' to location: {} :\n {}".format(name, loc, e))
-                    return
-                self._embed(cmd,loc,tw)
+                    continue
+
+
 
     def _embed(self, cmd,loc,twidget):
             if twidget is None:
@@ -391,7 +510,7 @@ class ScreenOptions(QtWidgets.QWidget, _HalWidgetBase):
             try:
                 temp = XEmbeddable()
                 temp.embed(cmd)
-            except Exception, e:
+            except Exception as e:
                 LOG.error('Embedded tab loading failed: {} {}'.format(cmd,e))
             else:
                 if twidget is not None:
@@ -401,131 +520,279 @@ class ScreenOptions(QtWidgets.QWidget, _HalWidgetBase):
                             self.QTVCP_INSTANCE_[loc].setMinimumSize(400,0)
                         layout = QtWidgets.QGridLayout(twidget)
                         layout.addWidget(temp, 0, 0)
-                    except Exception, e:
+                    except Exception as e:
                         LOG.error('Embedded tab adding widget into {} failed.'.format(loc))
                 else:
                     layout = QtWidgets.QGridLayout(tw)
                     layout.addWidget(temp, 0, 0)
 
+    def init_about_dialog(self):
+        from qtvcp.widgets.dialog_widget import AboutDialog
+        w = self.QTVCP_INSTANCE_
+        w.aboutDialog_ = AboutDialog(w)
+        w.aboutDialog_.setObjectName('aboutDialog_')
+        info = ACTION.GET_ABOUT_INFO()
+        w.aboutDialog_.setText(info)
+        w.aboutDialog_.hal_init(HAL_NAME='aboutDialog')
+
+    @QtCore.Slot(bool)
+    @QtCore.Slot(int)
+    def showAboutDialog(self, value):
+        self.QTVCP_INSTANCE_.aboutDialog_.showdialog()
+
     def init_tool_dialog(self):
         from qtvcp.widgets.dialog_widget import ToolDialog
         w = self.QTVCP_INSTANCE_
-        w.toolDialog_ = ToolDialog()
-        w.toolDialog_.hal_init(self.HAL_GCOMP_, self.HAL_NAME_,
-             w.toolDialog_, w, w.PATHS, self.PREFS_)
+        w.toolDialog_ = ToolDialog(w)
+        w.toolDialog_.setObjectName('toolDialog_')
+        w.toolDialog_.hal_init(HAL_NAME='')
         w.toolDialog_.overlay_color = self._toolDialogColor
+        w.toolDialog_.setProperty('useDesktopNotify', self._toolUseDesktopNotify)
+        w.toolDialog_.setProperty('frameless', self._toolFrameless)
 
     def init_message_dialog(self):
         from qtvcp.widgets.dialog_widget import LcncDialog
         w = self.QTVCP_INSTANCE_
-        w.messageDialog_ = LcncDialog()
-        w.messageDialog_.hal_init(self.HAL_GCOMP_, self.HAL_NAME_,
-             w.messageDialog_, w, w.PATHS, self.PREFS_)
+        w.messageDialog_ = LcncDialog(w)
+        w.messageDialog_.setObjectName('messageDialog_')
+        w.messageDialog_.hal_init(HAL_NAME='')
         w.messageDialog_.overlay_color = self._messageDialogColor
 
     def init_close_dialog(self):
         from qtvcp.widgets.dialog_widget import CloseDialog
         w = self.QTVCP_INSTANCE_
-        w.closeDialog_ = CloseDialog()
-        w.closeDialog_.hal_init(self.HAL_GCOMP_, self.HAL_NAME_,
-             w.closeDialog_, w, w.PATHS, self.PREFS_)
+        w.closeDialog_ = CloseDialog(w)
+        w.closeDialog_.setObjectName('closeDialog_')
+        w._geoName = 'closeDialog_'
+        w.closeDialog_.hal_init(HAL_NAME='')
         w.closeDialog_.overlay_color = self._messageDialogColor
 
     def init_entry_dialog(self):
         from qtvcp.widgets.dialog_widget import EntryDialog
         w = self.QTVCP_INSTANCE_
-        w.entryDialog_ = EntryDialog()
-        w.entryDialog_.hal_init(self.HAL_GCOMP_, self.HAL_NAME_,
-             w.entryDialog_, w, w.PATHS, self.PREFS_)
+        w.entryDialog_ = EntryDialog(w)
+        w.entryDialog_.setObjectName('entryDialog_')
+        w.entryDialog_.hal_init(HAL_NAME='')
         w.entryDialog_.soft_keyboard_option = self._entryDialogSoftkey
         w.entryDialog_.overlay_color = self._entryDialogColor
 
     def init_file_dialog(self):
         from qtvcp.widgets.dialog_widget import FileDialog
         w = self.QTVCP_INSTANCE_
-        w.fileDialog_ = FileDialog()
+        w.fileDialog_ = FileDialog(w)
         w.fileDialog_.setObjectName('fileDialog_')
-        w.fileDialog_.hal_init(self.HAL_GCOMP_, self.HAL_NAME_,
-             w.fileDialog_, w, w.PATHS, self.PREFS_)
+        w.fileDialog_.hal_init(HAL_NAME='')
         w.fileDialog_.overlay_color = self._fileDialogColor
 
     def init_focus_overlay(self):
         from qtvcp.widgets.overlay_widget import FocusOverlay
         w = self.QTVCP_INSTANCE_
         w.focusOverlay_ = FocusOverlay(w)
-        w.focusOverlay_.hal_init(self.HAL_GCOMP_, self.HAL_NAME_,
-             w.focusOverlay_, w, w.PATHS, self.PREFS_)
+        w.focusOverlay_.setObjectName('focusOverlay_')
+        w.focusOverlay_.hal_init(HAL_NAME='')
+
+    def init_focus_effect(self):
+       if self.use_focus_blur:
+            for i in (self.__blurList):
+                self['{}_blur'.format(i)] = QGraphicsBlurEffect()
+                self['{}_blur'.format(i)].setBlurRadius(5)
+                self['{}_blur'.format(i)].setEnabled(False)
+                self.QTVCP_INSTANCE_[i].setGraphicsEffect(self['{}_blur'.format(i)])
+
+       if self.use_focus_tint:
+            for i in (self.__tintList):
+                self['{}_tint'.format(i)] = QGraphicsColorizeEffect()
+                self['{}_tint'.format(i)].setColor(QtGui.QColor(100, 0, 0, 150))
+                self['{}_tint'.format(i)].setStrength(1)
+                self['{}_tint'.format(i)].setEnabled(False)
+                self.QTVCP_INSTANCE_[i].setGraphicsEffect(self['{}_tint'.format(i)])
+
+       STATUS.connect('focus-overlay-changed', lambda w, data, text, color:
+                        self.effect(data, text, color))
+
+    def init_keyboard_dialog(self):
+        from qtvcp.widgets.dialog_widget import KeyboardDialog
+        w = self.QTVCP_INSTANCE_
+        w.keyboardDialog_ = KeyboardDialog(w)
+        w.keyboardDialog_.setObjectName('keyboardDialog_')
+        w.keyboardDialog_.hal_init(HAL_NAME='')
+        w.keyboardDialog_.overlay_color = self._keyboardDialogColor
 
     def init_versaprobe_dialog(self):
         from qtvcp.widgets.dialog_widget import VersaProbeDialog
         w = self.QTVCP_INSTANCE_
-        w.versaProbeDialog_ = VersaProbeDialog()
+        w.versaProbeDialog_ = VersaProbeDialog(w)
         w.versaProbeDialog_.setObjectName('versaProbeDialog_')
         w.registerHalWidget(w.versaProbeDialog_)
-        w.versaProbeDialog_.hal_init(self.HAL_GCOMP_, self.HAL_NAME_,
-             w.versaProbeDialog_, w, w.PATHS, self.PREFS_)
+        w.versaProbeDialog_.hal_init(HAL_NAME='')
         w.versaProbeDialog_.overlay_color = self._versaProbeDialogColor
 
     def init_macrotab_dialog(self):
         from qtvcp.widgets.dialog_widget import MacroTabDialog
         w = self.QTVCP_INSTANCE_
-        w.macroTabDialog_ = MacroTabDialog()
+        w.macroTabDialog_ = MacroTabDialog(w)
         w.macroTabDialog_.setObjectName('macroTabDialog_')
-        w.macroTabDialog_.hal_init(self.HAL_GCOMP_, self.HAL_NAME_,
-             w.macroTabDialog_, w, w.PATHS, self.PREFS_)
+        w.macroTabDialog_.hal_init(HAL_NAME='')
         w.macroTabDialog_.overlay_color = self._macroTabDialogColor
 
     def init_camview_dialog(self):
         from qtvcp.widgets.dialog_widget import CamViewDialog
         w = self.QTVCP_INSTANCE_
-        w.camViewDialog_ = CamViewDialog()
-        w.camViewDialog_.hal_init(self.HAL_GCOMP_, self.HAL_NAME_,
-             w.camViewDialog_, w, w.PATHS, self.PREFS_)
+        w.camViewDialog_ = CamViewDialog(w)
+        w.camViewDialog_.setObjectName('camViewDialog_')
+        w.camViewDialog_.hal_init(HAL_NAME='')
         w.camViewDialog_.overlay_color = self._camViewDialogColor
+
+    def init_toolchooser_dialog(self):
+        from qtvcp.widgets.dialog_widget import ToolChooserDialog
+        w = self.QTVCP_INSTANCE_
+        w.toolChooserDialog_ = ToolChooserDialog(w)
+        w.toolChooserDialog_.setObjectName('toolChooserDialog_')
+        w.toolChooserDialog_.hal_init(HAL_NAME='')
+        w.toolChooserDialog_.overlay_color = self._toolChooserDialogColor
 
     def init_tooloffset_dialog(self):
         from qtvcp.widgets.dialog_widget import ToolOffsetDialog
         w = self.QTVCP_INSTANCE_
-        w.toolOffsetDialog_ = ToolOffsetDialog()
-        w.toolOffsetDialog_.hal_init(self.HAL_GCOMP_, self.HAL_NAME_,
-             w.toolOffsetDialog_, w, w.PATHS, self.PREFS_)
+        w.toolOffsetDialog_ = ToolOffsetDialog(w)
+        w.toolOffsetDialog_.setObjectName('toolOffsetDialog_')
+        w.toolOffsetDialog_.hal_init(HAL_NAME='')
         w.toolOffsetDialog_.overlay_color = self._toolOffsetDialogColor
 
     def init_originoffset_dialog(self):
         from qtvcp.widgets.dialog_widget import OriginOffsetDialog
         w = self.QTVCP_INSTANCE_
-        w.originOffsetDialog_ = OriginOffsetDialog()
-        w.originOffsetDialog_.hal_init(self.HAL_GCOMP_, self.HAL_NAME_,
-             w.originOffsetDialog_, w, w.PATHS, self.PREFS_)
+        w.originOffsetDialog_ = OriginOffsetDialog(w)
+        w.registerHalWidget(w.originOffsetDialog_)
+        w.originOffsetDialog_.setObjectName('originOffsetDialog_')
+        w.originOffsetDialog_.hal_init(HAL_NAME='')
         w.originOffsetDialog_.overlay_color = self._originOffsetDialogColor
 
     def init_calculator_dialog(self):
         from qtvcp.widgets.dialog_widget import CalculatorDialog
         w = self.QTVCP_INSTANCE_
-        w.calculatorDialog_ = CalculatorDialog()
-        w.calculatorDialog_.hal_init(self.HAL_GCOMP_, self.HAL_NAME_,
-             w.calculatorDialog_, w, w.PATHS, self.PREFS_)
+        w.calculatorDialog_ = CalculatorDialog(w)
+        w.calculatorDialog_.setObjectName('calculatorDialog_')
+        w.calculatorDialog_.hal_init(HAL_NAME='')
         w.calculatorDialog_.overlay_color = self._calculatorDialogColor
 
     def init_machinelog_dialog(self):
         from qtvcp.widgets.dialog_widget import MachineLogDialog
         w = self.QTVCP_INSTANCE_
-        w.machineLogDialog_ = MachineLogDialog()
-        w.machineLogDialog_.hal_init(self.HAL_GCOMP_, self.HAL_NAME_,
-             w.machineLogDialog_, w, w.PATHS, self.PREFS_)
+        w.machineLogDialog_ = MachineLogDialog(w)
+        w.machineLogDialog_.setObjectName('machineLogDialog_')
+        w.machineLogDialog_.hal_init(HAL_NAME='')
         w.machineLogDialog_.overlay_color = self._machineLogDialogColor
 
     def init_runfromline_dialog(self):
         from qtvcp.widgets.dialog_widget import RunFromLineDialog
         w = self.QTVCP_INSTANCE_
-        w.runFromLineDialog_ = RunFromLineDialog()
-        w.runFromLineDialog_.hal_init(self.HAL_GCOMP_, self.HAL_NAME_,
-             w.runFromLineDialog_, w, w.PATHS, self.PREFS_)
+        w.runFromLineDialog_ = RunFromLineDialog(w)
+        w.runFromLineDialog_.setObjectName('runFromLineDialog_')
+        w.runFromLineDialog_.hal_init(HAL_NAME='')
         w.runFromLineDialog_.overlay_color = self._runFromLineDialogColor
+
+    def init_zmg_subscribe(self):
+        if import_ZMQ():
+            try:
+                self._zmq_sub_context = zmq.Context()
+                self._zmq_sub_sock = self._zmq_sub_context.socket(zmq.SUB)
+                self._zmq_sub_sock.connect(self._zmq_sub_socket_address)
+                self._zmq_sub_sock.setsockopt(zmq.SUBSCRIBE, self._zmq_sub_subscribe_name)
+
+                self.read_noti = QtCore.QSocketNotifier(
+                                    self._zmq_sub_sock.getsockopt(zmq.FD),
+                                    QtCore.QSocketNotifier.Read, None)
+                self.read_noti.activated.connect(self.on_read_msg)
+            except Exception as e:
+                LOG.error('zmq subscribe to message setup error: {}'.format(e))
+
+    def on_read_msg(self):
+        self.read_noti.setEnabled(False)
+        if self._zmq_sub_sock.getsockopt(zmq.EVENTS) & zmq.POLLIN:
+            while self._zmq_sub_sock.getsockopt(zmq.EVENTS) & zmq.POLLIN:
+                # get raw message
+                topic, data = self._zmq_sub_sock.recv_multipart()
+                # convert from json object to python object
+                y = json.loads(data)
+                # get the function name
+                function = y.get('FUNCTION')
+                # get the arguments
+                arguments = y.get('ARGS')
+                LOG.debug('{} Sent ZMQ Message:{} {}'.format(topic,function,arguments))
+
+                # call handler function with arguments
+                try:
+                     self.QTVCP_INSTANCE_[function](arguments)
+                except Exception as e:
+                    LOG.error('zmq message parcing error: {}'.format(e))
+                    LOG.error('{} {}'.format(function, arguments))
+        elif self._zmq_sub_sock.getsockopt(zmq.EVENTS) & zmq.POLLOUT:
+            print("[Socket] zmq.POLLOUT")
+        elif self._zmq_sub_sock.getsockopt(zmq.EVENTS) & zmq.POLLERR:
+            print("[Socket] zmq.POLLERR")
+        self.read_noti.setEnabled(True)
+
+    def init_zmq_publish(self):
+        if import_ZMQ():
+            try:
+                self._zmq_pub_context = zmq.Context()
+                self._zmq_pub_socket = self._zmq_pub_context.socket(zmq.PUB)
+                self._zmq_pub_socket.bind(self._zmq_pub_socket_address)
+            except Exception as e:
+                LOG.error('zmq publish message setup error: {}'.format(e))
+
+    def zmq_write_message(self, args,topic = 'QtVCP'):
+        if self.add_send_zmq:
+            try:
+                message = json.dumps(args)
+                LOG.debug('Sending ZMQ Message:{} {}'.format(topic,message))
+                self._zmq_pub_socket.send_multipart(
+                    [bytes(topic.encode('utf-8')),
+                        bytes((message).encode('utf-8'))])
+            except Exception as e:
+                LOG.error('zmq message sending error: {}'.format(e))
+        else:
+            LOG.info('ZMQ Message not enabled. message:{} {}'.format(topic,args))
+
+    def _override_limits(self, n, signal_text):
+        if not STATUS.is_limits_override_set():
+            ACTION.TOGGLE_LIMITS_OVERRIDE()
+        ACTION.SET_MACHINE_STATE(True)
+        ACTION.SET_MANUAL_MODE()
+
+    def effect(self, data, text, color):
+        if self.use_focus_blur:
+            if self.__blurList == []:
+                ACTION.SET_BLUR(self.QTVCP_INSTANCE_,data)
+            else:
+                for i in (self.__blurList):
+                    self['{}_blur'.format(i)].setEnabled(data)
+                    self.QTVCP_INSTANCE_[i].raise_()
+        if self.use_focus_tint:
+            for i in (self.__tintList):
+                if not color is None:
+                    self['{}_tint'.format(i)].setColor(color)
+                self['{}_tint'.format(i)].setEnabled(data)
+                self.QTVCP_INSTANCE_[i].raise_()
+
+    #########################################################################
+    # This is how designer can interact with our widget properties.
+    # designer will show the Property properties in the editor
+    # it will use the get set and reset calls to do those actions
+    #
+    # _toggle_properties makes it so we can only select one option
+    ########################################################################
+
+    def _toggle_properties(self, picked):
+        data = ('focusBlur','focusTint')
+        for i in data:
+            if not i == picked:
+                self[i+'_option'] = False
 
     ########################################################################
     # This is how designer can interact with our widget properties.
-    # designer will show the pyqtProperty properties in the editor
+    # designer will show the Property properties in the editor
     # it will use the get set and reset calls to do those actions
     ########################################################################
 
@@ -535,6 +802,13 @@ class ScreenOptions(QtWidgets.QWidget, _HalWidgetBase):
         return self.desktop_notify
     def reset_notify(self):
         self.desktop_notify = True
+
+    def set_max_messages(self, data):
+        self.notify_max_msgs = data
+    def get_max_messages(self):
+        return self.notify_max_msgs
+    def reset_max_messages(self):
+        self.notify_max_msgs = 10
 
     def set_close(self, data):
         self.close_event = data
@@ -575,21 +849,39 @@ class ScreenOptions(QtWidgets.QWidget, _HalWidgetBase):
         return self._close_color
     def setColor(self, value):
         self._close_color = value
-    def resetState(self):
+    def resetColor(self):
         self._close_color = QtGui.QColor(100, 0, 0, 150)
 
+    def set_send_zmg(self, data):
+        self.add_send_zmq = data
+        # install remote control
+        if data:
+            self.init_zmq_publish()
+    def get_send_zmg(self):
+        return self.add_send_zmq
+
+    def set_receive_zmg(self, data):
+        self.add_receive_zmq = data
+        if data:
+            self.init_zmg_subscribe()
+    def get_receive_zmg(self):
+        return self.add_receive_zmq
+
     # designer will show these properties in this order:
-    notify_option = QtCore.pyqtProperty(bool, get_notify, set_notify, reset_notify)
+    notify_option = QtCore.Property(bool, get_notify, set_notify, reset_notify)
+    notify_max_messages = QtCore.Property(int, get_max_messages, set_max_messages, reset_max_messages)
 
-    catch_close_option = QtCore.pyqtProperty(bool, get_close, set_close, reset_close)
-    close_overlay_color = QtCore.pyqtProperty(QtGui.QColor, getColor, setColor)
+    catch_close_option = QtCore.Property(bool, get_close, set_close, reset_close)
+    close_overlay_color = QtCore.Property(QtGui.QColor, getColor, setColor, resetColor)
 
-    catch_errors_option = QtCore.pyqtProperty(bool, get_errors, set_errors, reset_errors)
-    play_sounds_option = QtCore.pyqtProperty(bool, get_play_sounds, set_play_sounds, reset_play_sounds)
+    catch_errors_option = QtCore.Property(bool, get_errors, set_errors, reset_errors)
+    play_sounds_option = QtCore.Property(bool, get_play_sounds, set_play_sounds, reset_play_sounds)
 
-    use_pref_file_option = QtCore.pyqtProperty(bool, get_use_pref_file, set_use_pref_file, reset_use_pref_file)
-    pref_filename_string = QtCore.pyqtProperty(str, get_pref_filename, set_pref_filename, reset_pref_filename)
+    use_pref_file_option = QtCore.Property(bool, get_use_pref_file, set_use_pref_file, reset_use_pref_file)
+    pref_filename_string = QtCore.Property(str, get_pref_filename, set_pref_filename, reset_pref_filename)
 
+    use_send_zmq_option = QtCore.Property(bool, get_send_zmg, set_send_zmg)
+    use_receive_zmq_option = QtCore.Property(bool, get_receive_zmg, set_receive_zmg)
     # Embeddable program info ##########################
 
     def set_embed_prgm(self, data):
@@ -598,12 +890,12 @@ class ScreenOptions(QtWidgets.QWidget, _HalWidgetBase):
         return self.process_tabs
     def reset_embed_prgm(self):
         self.process_tabs = True
-    embedded_program_option = QtCore.pyqtProperty(bool, get_embed_prgm, set_embed_prgm, reset_embed_prgm)
+    embedded_program_option = QtCore.Property(bool, get_embed_prgm, set_embed_prgm, reset_embed_prgm)
     def set_default_tab(self, data):
         self._default_tab_name = data
     def get_default_tab(self):
         return self._default_tab_name
-    default_embed_tab = QtCore.pyqtProperty(str, get_default_tab, set_default_tab)
+    default_embed_tab = QtCore.Property(str, get_default_tab, set_default_tab)
 
     # Focus overlay ####################################
 
@@ -613,7 +905,51 @@ class ScreenOptions(QtWidgets.QWidget, _HalWidgetBase):
         return self.add_focus_overlay
     def reset_focusOverlay(self):
         self.add_focus_overlay = False
-    focusOverlay_option = QtCore.pyqtProperty(bool, get_focusOverlay, set_focusOverlay, reset_focusOverlay)
+    focusOverlay_option = QtCore.Property(bool, get_focusOverlay, set_focusOverlay, reset_focusOverlay)
+
+    def set_focusEffect(self, data):
+        self.add_focus_effect = data
+    def get_focusEffect(self):
+        return self.add_focus_effect
+    def reset_focusEffect(self):
+        self.add_focus_effect = False
+    focusEffect_option = QtCore.Property(bool, get_focusEffect, set_focusEffect, reset_focusEffect)
+
+    def set_focusBlur(self, data):
+        self.use_focus_blur = data
+        if data:
+            self._toggle_properties('focusBlur')
+    def get_focusBlur(self):
+        return self.use_focus_blur
+    def reset_focusBlur(self):
+        self.use_focus_blur = False
+    focusBlur_option = QtCore.Property(bool, get_focusBlur, set_focusBlur, reset_focusBlur)
+
+    def set_blurList(self, data):
+        self.__blurList = data
+    def get_blurList(self):
+        return self.__blurList
+    def reset_blurList(self):
+        self.__blurList = []
+    focusBlurList = QtCore.Property(QVariant.typeToName(QVariant.StringList), get_blurList, set_blurList, reset_blurList)
+
+    def set_focusTint(self, data):
+        self.use_focus_tint = data
+        if data:
+            self._toggle_properties('focusTint')
+    def get_focusTint(self):
+        return self.use_focus_tint
+    def reset_focusTint(self):
+        self.use_focus_tint = False
+    focusTint_option = QtCore.Property(bool, get_focusTint, set_focusTint, reset_focusTint)
+
+    def set_tintList(self, data):
+        self.__tintList = data
+    def get_tintList(self):
+        return self.__tintList
+    def reset_tintList(self):
+        self.__tintList = []
+    focusTintList = QtCore.Property(QVariant.typeToName(QVariant.StringList), get_tintList, set_tintList, reset_tintList)
 
     # Dialogs ##########################################
 
@@ -623,12 +959,12 @@ class ScreenOptions(QtWidgets.QWidget, _HalWidgetBase):
         return self.add_message_dialog
     def reset_messageDialog(self):
         self.add_message_dialog = False
-    messageDialog_option = QtCore.pyqtProperty(bool, get_messageDialog, set_messageDialog, reset_messageDialog)
+    messageDialog_option = QtCore.Property(bool, get_messageDialog, set_messageDialog, reset_messageDialog)
     def get_messageDialogColor(self):
         return self._messageDialogColor
     def set_messageDialogColor(self, value):
         self._messageDialogColor = value
-    message_overlay_color = QtCore.pyqtProperty(QtGui.QColor, get_messageDialogColor, set_messageDialogColor)
+    message_overlay_color = QtCore.Property(QtGui.QColor, get_messageDialogColor, set_messageDialogColor)
 
     def set_closeDialog(self, data):
         self.add_close_dialog = data
@@ -636,12 +972,7 @@ class ScreenOptions(QtWidgets.QWidget, _HalWidgetBase):
         return self.add_close_dialog
     def reset_closeDialog(self):
         self.add_close_dialog = False
-    closeDialog_option = QtCore.pyqtProperty(bool, get_closeDialog, set_closeDialog, reset_closeDialog)
-    def get_closeDialogColor(self):
-        return self._closeDialogColor
-    def set_closeDialogColor(self, value):
-        self._closeDialogColor = value
-    close_overlay_color = QtCore.pyqtProperty(QtGui.QColor, get_closeDialogColor, set_closeDialogColor)
+    closeDialog_option = QtCore.Property(bool, get_closeDialog, set_closeDialog, reset_closeDialog)
 
     def set_entryDialog(self, data):
         self.add_entry_dialog = data
@@ -649,19 +980,19 @@ class ScreenOptions(QtWidgets.QWidget, _HalWidgetBase):
         return self.add_entry_dialog
     def reset_entryDialog(self):
         self.add_entry_dialog = False
-    entryDialog_option = QtCore.pyqtProperty(bool, get_entryDialog, set_entryDialog, reset_entryDialog)
+    entryDialog_option = QtCore.Property(bool, get_entryDialog, set_entryDialog, reset_entryDialog)
     def set_entryDialogSoftkey(self, data):
         self._entryDialogSoftkey = data
     def get_entryDialogSoftkey(self):
         return self._entryDialogSoftkey
     def reset_entryDialogSoftkey(self):
         self._entryDialogSoftkey = False
-    entryDialogSoftkey_option = QtCore.pyqtProperty(bool, get_entryDialogSoftkey, set_entryDialogSoftkey, reset_entryDialogSoftkey)
+    entryDialogSoftkey_option = QtCore.Property(bool, get_entryDialogSoftkey, set_entryDialogSoftkey, reset_entryDialogSoftkey)
     def get_entryDialogColor(self):
         return self._entryDialogColor
     def set_entryDialogColor(self, value):
         self._entryDialogColor = value
-    entry_overlay_color = QtCore.pyqtProperty(QtGui.QColor, get_entryDialogColor, set_entryDialogColor)
+    entry_overlay_color = QtCore.Property(QtGui.QColor, get_entryDialogColor, set_entryDialogColor)
 
     def set_toolDialog(self, data):
         self.add_tool_dialog = data
@@ -669,12 +1000,26 @@ class ScreenOptions(QtWidgets.QWidget, _HalWidgetBase):
         return self.add_tool_dialog
     def reset_toolDialog(self):
         self.add_tool_dialog = False
-    toolDialog_option = QtCore.pyqtProperty(bool, get_toolDialog, set_toolDialog, reset_toolDialog)
+    toolDialog_option = QtCore.Property(bool, get_toolDialog, set_toolDialog, reset_toolDialog)
     def get_toolDialogColor(self):
         return self._toolDialogColor
     def set_toolDialogColor(self, value):
         self._toolDialogColor = value
-    tool_overlay_color = QtCore.pyqtProperty(QtGui.QColor, get_toolDialogColor, set_toolDialogColor)
+    tool_overlay_color = QtCore.Property(QtGui.QColor, get_toolDialogColor, set_toolDialogColor)
+    def setUseDesktopNotify(self, value):
+        self._toolUseDesktopNotify = value
+    def getUseDesktopNotify(self):
+        return self._toolUseDesktopNotify
+    def resetUseDesktopNotify(self):
+        self._toolUseDesktopNotify = False
+    ToolUseDesktopNotify = QtCore.Property(bool, getUseDesktopNotify, setUseDesktopNotify, resetUseDesktopNotify)
+    def setFrameless(self, value):
+        self._toolFrameless = value
+    def getFrameless(self):
+        return self._toolFrameless
+    def resetFrameless(self):
+        self._toolFrameless = False
+    ToolFrameless = QtCore.Property(bool, getFrameless, setFrameless, resetFrameless)
 
     def set_fileDialog(self, data):
         self.add_file_dialog = data
@@ -682,12 +1027,25 @@ class ScreenOptions(QtWidgets.QWidget, _HalWidgetBase):
         return self.add_file_dialog
     def reset_fileDialog(self):
         self.add_file_dialog = False
-    fileDialog_option = QtCore.pyqtProperty(bool, get_fileDialog, set_fileDialog, reset_fileDialog)
+    fileDialog_option = QtCore.Property(bool, get_fileDialog, set_fileDialog, reset_fileDialog)
     def get_fileDialogColor(self):
         return self._fileDialogColor
     def set_fileDialogColor(self, value):
         self._fileDialogColor = value
-    file_overlay_color = QtCore.pyqtProperty(QtGui.QColor, get_fileDialogColor, set_fileDialogColor)
+    file_overlay_color = QtCore.Property(QtGui.QColor, get_fileDialogColor, set_fileDialogColor)
+
+    def set_keyboardDialog(self, data):
+        self.add_keyboard_dialog = data
+    def get_keyboardDialog(self):
+        return self.add_keyboard_dialog
+    def reset_keyboardDialog(self):
+        self.add_keyboard_dialog = False
+    keyboardDialog_option = QtCore.Property(bool, get_keyboardDialog, set_keyboardDialog, reset_keyboardDialog)
+    def get_keyboardDialogColor(self):
+        return self._keyboardDialogColor
+    def set_keyboardDialogColor(self, value):
+        self._keyboardDialogColor = value
+    keyboard_overlay_color = QtCore.Property(QtGui.QColor, get_keyboardDialogColor, set_keyboardDialogColor)
 
     def set_versaProbeDialog(self, data):
         self.add_versaprobe_dialog = data
@@ -695,12 +1053,12 @@ class ScreenOptions(QtWidgets.QWidget, _HalWidgetBase):
         return self.add_versaprobe_dialog
     def reset_versaProbeDialog(self):
         self.add_versaprobe_dialog = False
-    versaProbeDialog_option = QtCore.pyqtProperty(bool, get_versaProbeDialog, set_versaProbeDialog, reset_versaProbeDialog)
+    versaProbeDialog_option = QtCore.Property(bool, get_versaProbeDialog, set_versaProbeDialog, reset_versaProbeDialog)
     def get_versaProbeDialogColor(self):
         return self._versaProbeDialogColor
     def set_versaProbeDialogColor(self, value):
         self._versaProbeDialogColor = value
-    versaProbe_overlay_color = QtCore.pyqtProperty(QtGui.QColor, get_versaProbeDialogColor, set_versaProbeDialogColor)
+    versaProbe_overlay_color = QtCore.Property(QtGui.QColor, get_versaProbeDialogColor, set_versaProbeDialogColor)
 
     def set_macroTabDialog(self, data):
         self.add_macrotab_dialog = data
@@ -708,12 +1066,12 @@ class ScreenOptions(QtWidgets.QWidget, _HalWidgetBase):
         return self.add_macrotab_dialog
     def reset_macroTabDialog(self):
         self.add_macrotab_dialog = False
-    macroTabDialog_option = QtCore.pyqtProperty(bool, get_macroTabDialog, set_macroTabDialog, reset_macroTabDialog)
+    macroTabDialog_option = QtCore.Property(bool, get_macroTabDialog, set_macroTabDialog, reset_macroTabDialog)
     def get_macroTabDialogColor(self):
         return self._macroTabDialogColor
     def set_macroTabDialogColor(self, value):
         self._macroTabDialogColor = value
-    macroTab_overlay_color = QtCore.pyqtProperty(QtGui.QColor, get_macroTabDialogColor, set_macroTabDialogColor)
+    macroTab_overlay_color = QtCore.Property(QtGui.QColor, get_macroTabDialogColor, set_macroTabDialogColor)
 
     def set_camViewDialog(self, data):
         self.add_camview_dialog = data
@@ -721,12 +1079,26 @@ class ScreenOptions(QtWidgets.QWidget, _HalWidgetBase):
         return self.add_camview_dialog
     def reset_camViewDialog(self):
         self.add_camview_dialog = False
-    camViewDialog_option = QtCore.pyqtProperty(bool, get_camViewDialog, set_camViewDialog, reset_camViewDialog)
+    camViewDialog_option = QtCore.Property(bool, get_camViewDialog, set_camViewDialog, reset_camViewDialog)
     def get_camViewDialogColor(self):
         return self._camViewDialogColor
     def set_camViewDialogColor(self, value):
         self._camViewDialogColor = value
-    camView_overlay_color = QtCore.pyqtProperty(QtGui.QColor, get_camViewDialogColor, set_camViewDialogColor)
+    camView_overlay_color = QtCore.Property(QtGui.QColor, get_camViewDialogColor, set_camViewDialogColor)
+
+    def set_toolChooserDialog(self, data):
+        self.add_toolchooser_dialog = data
+    def get_toolChooserDialog(self):
+        return self.add_toolchooser_dialog
+    def reset_toolChooserDialog(self):
+        self.add_toolchooser_dialog = False
+    toolChooserDialog_option = QtCore.Property(bool, get_toolChooserDialog, set_toolChooserDialog, reset_toolChooserDialog)
+
+    def get_toolChooserDialogColor(self):
+            return self._toolChooserDialogColor
+    def set_toolChooserDialogColor(self, value):
+            self._toolChooserDialogColor = value
+    toolChooser_overlay_color = QtCore.Property(QtGui.QColor, get_toolChooserDialogColor, set_toolChooserDialogColor)
 
     def set_toolOffsetDialog(self, data):
         self.add_tooloffset_dialog = data
@@ -734,12 +1106,12 @@ class ScreenOptions(QtWidgets.QWidget, _HalWidgetBase):
         return self.add_tooloffset_dialog
     def reset_toolOffsetDialog(self):
         self.add_tooloffset_dialog = False
-    toolOffsetDialog_option = QtCore.pyqtProperty(bool, get_toolOffsetDialog, set_toolOffsetDialog, reset_toolOffsetDialog)
+    toolOffsetDialog_option = QtCore.Property(bool, get_toolOffsetDialog, set_toolOffsetDialog, reset_toolOffsetDialog)
     def get_toolOffsetDialogColor(self):
         return self._toolOffsetDialogColor
     def set_toolOffsetDialogColor(self, value):
         self._toolOffsetDialogColor = value
-    toolOffset_overlay_color = QtCore.pyqtProperty(QtGui.QColor, get_toolOffsetDialogColor, set_toolOffsetDialogColor)
+    toolOffset_overlay_color = QtCore.Property(QtGui.QColor, get_toolOffsetDialogColor, set_toolOffsetDialogColor)
 
     def set_originOffsetDialog(self, data):
         self.add_originoffset_dialog = data
@@ -747,12 +1119,12 @@ class ScreenOptions(QtWidgets.QWidget, _HalWidgetBase):
         return self.add_originoffset_dialog
     def reset_originOffsetDialog(self):
         self.add_originoffset_dialog = False
-    originOffsetDialog_option = QtCore.pyqtProperty(bool, get_originOffsetDialog, set_originOffsetDialog, reset_originOffsetDialog)
+    originOffsetDialog_option = QtCore.Property(bool, get_originOffsetDialog, set_originOffsetDialog, reset_originOffsetDialog)
     def get_originOffsetDialogColor(self):
         return self._originOffsetDialogColor
     def set_originOffsetDialogColor(self, value):
         self._originOffsetDialogColor = value
-    originOffset_overlay_color = QtCore.pyqtProperty(QtGui.QColor, get_originOffsetDialogColor, set_originOffsetDialogColor)
+    originOffset_overlay_color = QtCore.Property(QtGui.QColor, get_originOffsetDialogColor, set_originOffsetDialogColor)
 
     def set_calculatorDialog(self, data):
         self.add_calculator_dialog = data
@@ -760,12 +1132,12 @@ class ScreenOptions(QtWidgets.QWidget, _HalWidgetBase):
         return self.add_calculator_dialog
     def reset_calculatorDialog(self):
         self.add_calculator_dialog = False
-    calculatorDialog_option = QtCore.pyqtProperty(bool, get_calculatorDialog, set_calculatorDialog, reset_calculatorDialog)
+    calculatorDialog_option = QtCore.Property(bool, get_calculatorDialog, set_calculatorDialog, reset_calculatorDialog)
     def get_calculatorDialogColor(self):
         return self._calculatorDialogColor
     def set_calculatorDialogColor(self, value):
         self._calculatorDialogColor = value
-    calculator_overlay_color = QtCore.pyqtProperty(QtGui.QColor, get_calculatorDialogColor, set_calculatorDialogColor)
+    calculator_overlay_color = QtCore.Property(QtGui.QColor, get_calculatorDialogColor, set_calculatorDialogColor)
 
     def set_machineLogDialog(self, data):
         self.add_machinelog_dialog = data
@@ -773,12 +1145,12 @@ class ScreenOptions(QtWidgets.QWidget, _HalWidgetBase):
         return self.add_machinelog_dialog
     def reset_machineLogDialog(self):
         self.add_machinelog_dialog = False
-    machineLogDialog_option = QtCore.pyqtProperty(bool, get_machineLogDialog, set_machineLogDialog, reset_machineLogDialog)
+    machineLogDialog_option = QtCore.Property(bool, get_machineLogDialog, set_machineLogDialog, reset_machineLogDialog)
     def get_machineLogDialogColor(self):
         return self._machineLogDialogColor
     def set_machineLogDialogColor(self, value):
         self._machineLogDialogColor = value
-    machineLog_overlay_color = QtCore.pyqtProperty(QtGui.QColor, get_machineLogDialogColor, set_machineLogDialogColor)
+    machineLog_overlay_color = QtCore.Property(QtGui.QColor, get_machineLogDialogColor, set_machineLogDialogColor)
 
     def set_runFromLineDialog(self, data):
         self.add_runFromLine_dialog = data
@@ -786,12 +1158,80 @@ class ScreenOptions(QtWidgets.QWidget, _HalWidgetBase):
         return self.add_runFromLine_dialog
     def reset_runFromLineDialog(self):
         self.add_runFromLine_dialog = False
-    runFromLineDialog_option = QtCore.pyqtProperty(bool, get_runFromLineDialog, set_runFromLineDialog, reset_runFromLineDialog)
+    runFromLineDialog_option = QtCore.Property(bool, get_runFromLineDialog, set_runFromLineDialog, reset_runFromLineDialog)
     def get_runFromLineDialogColor(self):
         return self._runFromLineDialogColor
     def set_runFromLineDialogColor(self, value):
         self._runFromLineDialogColor = value
-    runFromLine_overlay_color = QtCore.pyqtProperty(QtGui.QColor, get_runFromLineDialogColor, set_runFromLineDialogColor)
+    runFromLine_overlay_color = QtCore.Property(QtGui.QColor, get_runFromLineDialogColor, set_runFromLineDialogColor)
+
+    def get_User1Color(self):
+        return self._User1Color
+    def set_User1Color(self, value):
+        self._User1Color = value
+    user1Color = QtCore.Property(QtGui.QColor, get_User1Color, set_User1Color)
+
+    def get_User2Color(self):
+        return self._User2Color
+    def set_User2Color(self, value):
+        self._User2Color = value
+    user2Color = QtCore.Property(QtGui.QColor, get_User2Color, set_User2Color)
+
+    def get_User3Color(self):
+        return self._User3Color
+    def set_User3Color(self, value):
+        self._User3Color = value
+    user3Color = QtCore.Property(QtGui.QColor, get_User3Color, set_User3Color)
+
+    def get_User4Color(self):
+        return self._User4Color
+    def set_User4Color(self, value):
+        self._User4Color = value
+    user4Color = QtCore.Property(QtGui.QColor, get_User4Color, set_User4Color)
+
+    def get_User5Color(self):
+        return self._User5Color
+    def set_User5Color(self, value):
+        self._User5Color = value
+    user5Color = QtCore.Property(QtGui.QColor, get_User5Color, set_User5Color)
+
+    def get_User6Color(self):
+        return self._User6Color
+    def set_User6Color(self, value):
+        self._User6Color = value
+    user6Color = QtCore.Property(QtGui.QColor, get_User6Color, set_User6Color)
+
+    def get_User7Color(self):
+        return self._User7Color
+    def set_User7Color(self, value):
+        self._User7Color = value
+    user7Color = QtCore.Property(QtGui.QColor, get_User7Color, set_User7Color)
+
+    def get_User8Color(self):
+        return self._User8Color
+    def set_User8Color(self, value):
+        self._User8Color = value
+    user8Color = QtCore.Property(QtGui.QColor, get_User8Color, set_User8Color)
+
+    def get_User9Color(self):
+        return self._User9Color
+    def set_User9Color(self, value):
+        self._User9Color = value
+    user9Color = QtCore.Property(QtGui.QColor, get_User9Color, set_User9Color)
+
+    def get_User10Color(self):
+        return self._User10Color
+    def set_User10Color(self, value):
+        self._User10Color = value
+    user10Color = QtCore.Property(QtGui.QColor, get_User10Color, set_User10Color)
+
+    def getHalCompName(self):
+        return self._halBaseName
+    def setHalCompName(self, value):
+        self._halBaseName = value
+    def resetHalCompName(self):
+        self._halBaseName = ''
+    halCompBaseName = QtCore.Property(str, getHalCompName, setHalCompName, resetHalCompName)
 
     ##############################
     # required boiler code #

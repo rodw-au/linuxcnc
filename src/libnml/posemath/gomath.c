@@ -19,9 +19,9 @@
 /* for debugging */
 extern int printf(const char * fmt, ...);
 #include <stddef.h>		/* NULL */
-
-#include "rtapi_math.h"
 #include <float.h>
+#include <rtapi_string.h>	/* memset */
+#include <rtapi_math.h>
 
 #include "sincos.h"
 
@@ -329,7 +329,7 @@ int go_mat_rvec_convert(const go_mat * m, go_rvec * r)
   3) else if e2 is largest then
   if c21 < 0 then take the negative for e1
   if c32 < 0 then take the negative for e3
-  4) else if e3 is larget then
+  4) else if e3 is larger then
   if c31 < 0 then take the negative for e1
   if c32 < 0 then take the negative for e2
 
@@ -1765,6 +1765,8 @@ int go_cart_cart_pose(const go_cart * v1, const go_cart * v2,
   go_real eigenval;
   int retval;
 
+  memset(&Nspace,0,sizeof(Nspace));
+
   Sxx = Sxy = Sxz = 0.0;
   Syx = Syy = Syz = 0.0;
   Szx = Szy = Szz = 0.0;
@@ -2574,7 +2576,7 @@ int go_poGO_RESULT_plane_distance(const go_cart * point, const go_plane * plane,
 
 int go_plane_evaluate(const go_plane * plane, go_real u, go_real v, go_cart * point)
 {
-  go_cart v1, v2;		/* othogonal vectors in plane */
+  go_cart v1, v2;		/* orthogonal vectors in plane */
   go_cart p;			/* point in plane closest to origin */
 
   if (GO_RESULT_OK != go_cart_normal(&plane->normal, &v1)) return GO_RESULT_ERROR;

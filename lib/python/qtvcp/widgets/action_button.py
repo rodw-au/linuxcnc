@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 # Qtvcp action widget
 #
 # Copyright (c) 2017  Chris Morley <chrisinnanaimo@hotmail.com>
@@ -13,17 +13,17 @@
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 # GNU General Public License for more details.
 
-# Action buttons are used to change linuxcnc behaivor do to button pushing.
+# Action buttons are used to change linuxcnc behavior do to button pushing.
 # By making the button 'checkable' in the designer editor,
-# the buton will toggle.
+# the button will toggle.
 # In the designer editor, it is possible to select what the button will do.
 ###############################################################################
 
-from PyQt5 import QtCore, QtWidgets
+from qtpy import QtCore
 import linuxcnc
 
 from qtvcp.widgets.widget_baseclass import _HalWidgetBase
-from qtvcp.widgets.simple_widgets import Indicated_PushButton
+from qtvcp.widgets.simple_widgets import IndicatedPushButton
 from qtvcp.core import Status, Action, Info
 from qtvcp.lib.aux_program_loader import Aux_program_loader
 from qtvcp import logger
@@ -39,15 +39,16 @@ INFO = Info()
 AUX_PRGM = Aux_program_loader()
 LOG = logger.getLogger(__name__)
 
-# Set the log level for this module
-# LOG.setLevel(logger.INFO) # One of DEBUG, INFO, WARNING, ERROR, CRITICAL
+# Force the log level for this module
+LOG.setLevel(logger.DEBUG) # One of DEBUG, INFO, WARNING, ERROR, CRITICAL
 
-class ActionButton(Indicated_PushButton, _HalWidgetBase):
+class ActionButton(IndicatedPushButton):
     def __init__(self, parent=None):
         super(ActionButton, self).__init__(parent)
         self._block_signal = False
         self._designer_block_signal = False
         self._designer_running = False
+        self._no_action = False
         self.estop = False
         self.machine_on = False
         self.home = False
@@ -64,6 +65,7 @@ class ActionButton(Indicated_PushButton, _HalWidgetBase):
         self.macro_dialog = False
         self.origin_offset_dialog = False
         self.tool_offset_dialog = False
+        self.tool_chooser_dialog = False
         self.camview_dialog = False
         self.machine_log_dialog = False
         self.jog_joint_pos = False
@@ -106,10 +108,11 @@ class ActionButton(Indicated_PushButton, _HalWidgetBase):
         self.dro_dtg = False
         self.exit = False
         self.template_label = False
-
+        self.lathe_mirror_x = False
+        self.home_no_unhome = False
         self.toggle_float = False
         self._toggle_state = 0
-        self.joint = 0
+        self.joint = -1
         self.axis = ''
         self.jog_incr_imperial = .010
         self.jog_incr_mm = .025
@@ -118,53 +121,96 @@ class ActionButton(Indicated_PushButton, _HalWidgetBase):
         self.float_alt = 50.0
         self.view_type = 'p'
         self.command_text = ''
-        self.ini_mdi_num = 0
+        # legacy attribute
+        self.ini_mdi_num = -1
+        self.ini_mdi_keystring = ''
         self._textTemplate = '%1.3f in'
         self._alt_textTemplate = '%1.2f mm'
         self._run_from_line_int = 0
 
+    # Estop button behaviour works different then most buttons.
+    # The visual cue is set by linuxcnc E-state not button state.
+    # We catch the state change here and reset it to linuxcnc state
+    # only if the button is an estop button and is checkable.
+    # This behaviour is consistent with AXIS ans users are used to it.
+
+    # spindle up/down also have odd behaviour and are caught here.
+    # if the spindle is already running, pressing the opposite button
+    # should not change the check state (only change the spindle speed)
+    # but if the spindle is running or stopped then the check state
+    # should change (and the spindle speed - done in other code)
+    def nextCheckState (self):
+        if self.estop and self.isCheckable():
+            if STATUS.estop_is_clear():
+                self.setChecked(False)
+            else:
+                self.setChecked(True)
+            self._safecheck(not STATUS.estop_is_clear())
+            return
+        try:
+            speed = STATUS.get_spindle_speed()
+        except:
+            speed = 0
+        if self.spindle_down and self.isCheckable():
+            if speed == 0 or speed < 0:
+                self._safecheck(not self.isChecked())
+        elif self.spindle_up and self.isCheckable():
+            if speed == 0 or speed > 0:
+                self._safecheck(not self.isChecked())
+
+        else:
+            self.setChecked(not self.isChecked())
+
+    # only called from designer plugin when widget built in editor
+    def _designer_init(self):
+        self._designer_block_signal = True
+        self._designer_running = True
+
+    ##################################################
+    # _safecheck blocks the outgoing signal so
+    # the buttons can be synced with linuxcnc
+    # without setting an infinite loop
+    # If the indicator isn't controlled by a HAL pin
+    # then update it's state.
+    # It still might not show do to the draw_indicator option off
+    ###################################################
+    def _safecheck(self, state, data=None):
+        self._block_signal = True
+        self.setChecked(state)
+        # update indicator if halpin or status doesn't
+        if self._HAL_pin is False and self._ind_status is False:
+            self.indicator_update(state)
+        # if using state labels option update the labels
+        if self._state_text:
+            self.setText(None)
+        self._block_signal = False
+
     ##################################################
     # This gets called by qtvcp_makepins
     # It infers HAL involvement but there is none
-    # STATUS is used to synch the buttons in case
+    # STATUS is used to sync the buttons in case
     # other entities change linuxcnc's state
     # also some buttons are disabled/enabled based on
     # linuxcnc state / possible actions
     #
-    # If the indicator isn't controlled by a HAL pin
-    # then update it's state.
-    # It still might not show do to the draw_indicator option off
-    #
-    # _safecheck blocks the outgoing signal so
-    # the buttons can be synced with linuxcnc
-    # without setting an infinite loop
+    # super()._hal_init() initializes parent classes
     ###################################################
     def _hal_init(self):
-        super(ActionButton, self)._hal_init()
-        def _safecheck(state, data=None):
-            self._block_signal = True
-            self.setChecked(state)
-            # update indicator if halpin or status doesn't
-            if self._HAL_pin is False and self._ind_status is False:
-                self.indicator_update(state)
-            # if using state labels option update the labels
-            if self._state_text:
-                self.setText(None)
-            self._block_signal = False
+        super()._hal_init()
 
         def _checkincrements(value, text):
             value = round(value , 5)
             if STATUS.is_metric_mode():
                 machn_units = INFO.convert_metric_to_machine(self.jog_incr_mm)
                 if round(machn_units , 5) == value:
-                    _safecheck(True)
+                    self._safecheck(True)
                     return
             else:
                 machn_units = INFO.convert_imperial_to_machine(self.jog_incr_imperial)
                 if  round(machn_units , 5) == value:
-                    _safecheck(True)
+                    self._safecheck(True)
                     return
-            _safecheck(False)
+            self._safecheck(False)
 
         def homed_on_loaded_test():
             return (STATUS.machine_is_on()
@@ -185,29 +231,35 @@ class ActionButton(Indicated_PushButton, _HalWidgetBase):
                 ACTION.TOGGLE_LIMITS_OVERRIDE()
 
         def spindle_control_test(e,d):
+            # this can happen if these fwd/rev properties are
+            # changed to up/down in stylesheets - this callback is
+            # still called
+            if self.spindle_up or self.spindle_down:
+                return
+
             if self.spindle_fwd:
                 if d in(0,-1):
-                    _safecheck(False)
+                    self._safecheck(False)
                     return
-            else:
+            elif self.spindle_rev:
                 if d in(0,1):
-                    _safecheck(False)
+                    self._safecheck(False)
                     return
-            _safecheck(True)
+            self._safecheck(True)
 
         if self.estop:
             # Estop starts with button down - in estop which
             # backwards logic for the button...
-            if self.isCheckable(): _safecheck(True)
-            STATUS.connect('state-estop', lambda w: _safecheck(True))
-            STATUS.connect('state-estop-reset', lambda w: _safecheck(False))
+            if self.isCheckable(): self._safecheck(True)
+            STATUS.connect('state-estop', lambda w: self._safecheck(True))
+            STATUS.connect('state-estop-reset', lambda w: self._safecheck(False))
 
         elif self.machine_on or self.abort:
             #self.setEnabled(False)
             STATUS.connect('state-estop', lambda w: self.setEnabled(False))
             STATUS.connect('state-estop-reset', lambda w: self.setEnabled(True))
-            STATUS.connect('state-on', lambda w: _safecheck(True))
-            STATUS.connect('state-off', lambda w: _safecheck(False))
+            STATUS.connect('state-on', lambda w: self._safecheck(True))
+            STATUS.connect('state-off', lambda w: self._safecheck(False))
 
         elif True in(self.home, self.unhome, self.home_select, self.unhome_select):
             #self.setEnabled(False)
@@ -215,18 +267,18 @@ class ActionButton(Indicated_PushButton, _HalWidgetBase):
             STATUS.connect('state-estop', lambda w: self.setEnabled(False))
             STATUS.connect('interp-idle', lambda w: self.setEnabled(STATUS.machine_is_on()))
             STATUS.connect('interp-run', lambda w: self.setEnabled(False))
-            STATUS.connect('all-homed', lambda w: _safecheck(True))
-            STATUS.connect('not-all-homed', lambda w, axis: _safecheck(False, axis))
+            STATUS.connect('all-homed', lambda w: self._safecheck(True))
+            STATUS.connect('not-all-homed', lambda w, axis: self._safecheck(False, axis))
 
         elif self.load_dialog:
             STATUS.connect('state-off', lambda w: self.setEnabled(False))
             STATUS.connect('state-estop', lambda w: self.setEnabled(False))
             STATUS.connect('interp-idle', lambda w: self.setEnabled(STATUS.machine_is_on()))
             STATUS.connect('interp-run', lambda w: self.setEnabled(False))
-            STATUS.connect('all-homed', lambda w: _safecheck(True))
+            STATUS.connect('all-homed', lambda w: self._safecheck(True))
 
         elif self.camview_dialog or self.macro_dialog or self.origin_offset_dialog or \
-                self.tool_offset_dialog:
+                self.tool_offset_dialog or self.tool_chooser_dialog:
             pass
         elif self.jog_joint_pos or self.jog_joint_neg or \
                     self.jog_selected_pos or self.jog_selected_neg:
@@ -234,6 +286,7 @@ class ActionButton(Indicated_PushButton, _HalWidgetBase):
             STATUS.connect('state-estop', lambda w: self.setEnabled(False))
             STATUS.connect('interp-idle', lambda w: self.setEnabled(STATUS.machine_is_on()))
             STATUS.connect('interp-run', lambda w: self.setEnabled(False))
+            STATUS.connect('interp-paused', lambda w: self.setEnabled(False))
             if self.jog_joint_pos:
                 self.pressed.connect(lambda: self.jog_action(1))
                 self.released.connect(lambda: self.jog_action(0))
@@ -247,8 +300,8 @@ class ActionButton(Indicated_PushButton, _HalWidgetBase):
                 self.pressed.connect(lambda: self.jog_selected_action(-1))
                 self.released.connect(lambda: self.jog_selected_action(0))
 
-            # jog button use diferent action signals so
-            # leave early to aviod the standard 'clicked' signal
+            # jog button use different action signals so
+            # leave early to avoid the standard 'clicked' signal
             return
 
         elif True in(self.zero_axis, self.zero_g5x,self.zero_g92, self.run, self.zero_zrot,
@@ -259,16 +312,19 @@ class ActionButton(Indicated_PushButton, _HalWidgetBase):
             STATUS.connect('interp-run', lambda w: self.setEnabled(False))
             STATUS.connect('all-homed', lambda w: self.setEnabled(True))
             STATUS.connect('not-all-homed', lambda w, data: self.setEnabled(False))
-            STATUS.connect('interp-paused', lambda w: self.setEnabled(True))
             if True in (self.run, self.run_from_status, self.run_from_slot):
                 STATUS.connect('file-loaded', lambda w, f: self.setEnabled(True))
+                STATUS.connect('interp-paused', lambda w: self.setEnabled(True))
+            else:
+                STATUS.connect('interp-paused', lambda w: self.setEnabled(False))
+
             if self.run_from_status:
                 STATUS.connect('gcode-line-selected', lambda w, line: self.updateRunFromLine(line))
 
         elif True in(self.pause, self.step):
             self.setEnabled(False)
             if self.pause:
-                STATUS.connect('program-pause-changed', lambda w, state: _safecheck(state))
+                STATUS.connect('program-pause-changed', lambda w, state: self._safecheck(state))
             STATUS.connect('state-off', lambda w: self.setEnabled(False))
             STATUS.connect('state-estop', lambda w: self.setEnabled(False))
             STATUS.connect('interp-run', lambda w: self.setEnabled(homed_on_test()))
@@ -284,18 +340,23 @@ class ActionButton(Indicated_PushButton, _HalWidgetBase):
             pass
         elif self.launch_calibration:
             pass
-        elif self.auto:
-            STATUS.connect('mode-auto', lambda w: _safecheck(True))
-            STATUS.connect('mode-mdi', lambda w: _safecheck(False))
-            STATUS.connect('mode-manual', lambda w: _safecheck(False))
-        elif self.mdi:
-            STATUS.connect('mode-mdi', lambda w: _safecheck(True))
-            STATUS.connect('mode-manual', lambda w: _safecheck(False))
-            STATUS.connect('mode-auto', lambda w: _safecheck(False))
-        elif self.manual:
-            STATUS.connect('mode-manual', lambda w: _safecheck(True))
-            STATUS.connect('mode-mdi', lambda w: _safecheck(False))
-            STATUS.connect('mode-auto', lambda w: _safecheck(False))
+        elif self.auto or self.mdi or self.manual:
+            STATUS.connect('interp-run', lambda w: self.setEnabled(False))
+            STATUS.connect('interp-paused', lambda w: self.setEnabled(False))
+            STATUS.connect('interp-idle', lambda w: self.setEnabled(True))
+            if self.auto:
+                STATUS.connect('mode-auto', lambda w: self._safecheck(True))
+                STATUS.connect('mode-mdi', lambda w: self._safecheck(False))
+                STATUS.connect('mode-manual', lambda w: self._safecheck(False))
+            elif self.mdi:
+                STATUS.connect('mode-mdi', lambda w: self._safecheck(True))
+                STATUS.connect('mode-manual', lambda w: self._safecheck(False))
+                STATUS.connect('mode-auto', lambda w: self._safecheck(False))
+            elif self.manual:
+                STATUS.connect('mode-manual', lambda w: self._safecheck(True))
+                STATUS.connect('mode-mdi', lambda w: self._safecheck(False))
+                STATUS.connect('mode-auto', lambda w: self._safecheck(False))
+
         elif self.jog_incr:
             STATUS.connect('metric-mode-changed', lambda w, data:  self.incr_action())
             STATUS.connect('jogincrement-changed', lambda w, value, text: _checkincrements(value, text))
@@ -304,10 +365,11 @@ class ActionButton(Indicated_PushButton, _HalWidgetBase):
             self.max_velocity_over:
             STATUS.connect('state-estop', lambda w: self.setEnabled(False))
             STATUS.connect('state-estop-reset', lambda w: self.setEnabled(True))
-            STATUS.connect('state-on', lambda w: _safecheck(True))
-            STATUS.connect('state-off', lambda w: _safecheck(False))
+            STATUS.connect('state-on', lambda w: self._safecheck(True))
+            STATUS.connect('state-off', lambda w: self._safecheck(False))
         elif self.view_change:
-            pass
+            if self.view_type.lower() in('x', 'y', 'y2', 'z', 'z2', 'p'):
+                STATUS.connect('graphics-view-changed', lambda w,v,d: self.view_check(v))
         elif self.spindle_fwd or self.spindle_rev or self.spindle_up or self.spindle_down:
             STATUS.connect('mode-manual', lambda w: self.setEnabled(True))
             STATUS.connect('mode-mdi', lambda w: self.setEnabled(False))
@@ -316,12 +378,14 @@ class ActionButton(Indicated_PushButton, _HalWidgetBase):
             STATUS.connect('state-estop', lambda w: self.setEnabled(False))
             STATUS.connect('state-on', lambda w: self.setEnabled(True))
             if self.spindle_fwd or self.spindle_rev:
-                STATUS.connect('spindle-control-changed', lambda w, e, d: spindle_control_test(e,d))
+                STATUS.connect('spindle-control-changed', lambda w, num, e, d, upto: spindle_control_test(e,d))
         elif self.spindle_stop:
+            STATUS.connect('mode-manual', lambda w: self.setEnabled(True))
+            STATUS.connect('mode-mdi', lambda w: self.setEnabled(True))
             STATUS.connect('mode-auto', lambda w: self.setEnabled(False))
             STATUS.connect('state-off', lambda w: self.setEnabled(False))
             STATUS.connect('state-estop', lambda w: self.setEnabled(False))
-            STATUS.connect('spindle-control-changed', lambda w, e, d: self.setEnabled(e and not STATUS.is_auto_mode()))
+            STATUS.connect('spindle-control-changed', lambda w,num, e, d, upto: self.setEnabled(e and not STATUS.is_auto_mode()))
         elif self.limits_override:
             self.setEnabled(False)
             #STATUS.connect('override-limits-changed', lambda w, data, group: limits_override_test(data))
@@ -330,34 +394,46 @@ class ActionButton(Indicated_PushButton, _HalWidgetBase):
             STATUS.connect('state-estop', lambda w: self.setEnabled(False))
             STATUS.connect('state-on', lambda w: self.setEnabled(True))
             STATUS.connect('state-off', lambda w: self.setEnabled(False))
-            STATUS.connect('flood-changed', lambda w, data: _safecheck(data))
+            STATUS.connect('flood-changed', lambda w, data: self._safecheck(data))
         elif self.mist:
             STATUS.connect('state-estop', lambda w: self.setEnabled(False))
             STATUS.connect('state-on', lambda w: self.setEnabled(True))
             STATUS.connect('state-off', lambda w: self.setEnabled(False))
-            STATUS.connect('mist-changed', lambda w, data: _safecheck(data))
+            STATUS.connect('mist-changed', lambda w, data: self._safecheck(data))
         elif self.block_delete:
             STATUS.connect('state-estop', lambda w: self.setEnabled(False))
             STATUS.connect('state-off', lambda w: self.setEnabled(False))
             STATUS.connect('mode-mdi', lambda w: self.setEnabled(True))
             STATUS.connect('mode-manual', lambda w: self.setEnabled(True))
             STATUS.connect('mode-auto', lambda w: self.setEnabled(False))
-            STATUS.connect('block-delete-changed', lambda w, data: _safecheck(data))
+            STATUS.connect('block-delete-changed', lambda w, data: self._safecheck(data))
         elif self.optional_stop:
             STATUS.connect('state-estop', lambda w: self.setEnabled(False))
             STATUS.connect('state-off', lambda w: self.setEnabled(False))
             STATUS.connect('mode-mdi', lambda w: self.setEnabled(True))
             STATUS.connect('mode-manual', lambda w: self.setEnabled(True))
             STATUS.connect('mode-auto', lambda w: self.setEnabled(False))
-            STATUS.connect('optional-stop-changed', lambda w, data: _safecheck(data))
+            STATUS.connect('optional-stop-changed', lambda w, data: self._safecheck(data))
         elif self.mdi_command or self.ini_mdi_command:
+            STATUS.connect('state-off', lambda w: self.setEnabled(False))
+            STATUS.connect('state-estop', lambda w: self.setEnabled(False))
+            STATUS.connect('interp-idle', lambda w: self.setEnabled(homed_on_test()))
+            STATUS.connect('all-homed', lambda w: self.setEnabled(True))
+            STATUS.connect('not-all-homed', lambda w, axis: self.setEnabled(False))
+            if self.ini_mdi_command:
+                self.setMDILabel()
+        elif self.dro_absolute or self.dro_relative or self.dro_dtg:
+            pass
+        elif True in(self.exit, self.machine_log_dialog):
+            pass
+        elif self.lathe_mirror_x:
             STATUS.connect('state-off', lambda w: self.setEnabled(False))
             STATUS.connect('state-estop', lambda w: self.setEnabled(False))
             STATUS.connect('interp-idle', lambda w: self.setEnabled(STATUS.machine_is_on()))
             STATUS.connect('all-homed', lambda w: self.setEnabled(True))
-        elif self.dro_absolute or self.dro_relative or self.dro_dtg:
-            pass
-        elif True in(self.exit, self.machine_log_dialog):
+            STATUS.connect('interp-idle', lambda w: self.setEnabled(homed_on_test()))
+            STATUS.connect('interp-run', lambda w: self.setEnabled(False))
+        elif self._no_action:
             pass
 
         # connect a signal and callback function to the button
@@ -366,15 +442,37 @@ class ActionButton(Indicated_PushButton, _HalWidgetBase):
         else:
             self.pressed.connect(self.action)
 
+    def safecheck(self, state):
+        self._block_signal = True
+        self.setChecked(state)
+        # update indicator if halpin or status doesn't
+        if self._HAL_pin is False and self._ind_status is False:
+            self.indicator_update(state)
+        # if using state labels option update the labels
+        if self._state_text:
+            self.setText(None)
+        self._block_signal = False
+
+    def view_check(self,data):
+        if data.lower() == self.view_type.lower():
+            self._safecheck(True)
+        else:
+            self._safecheck(False)
+
     ###################################
     # Here we do the actions
     ###################################
     def action(self, state=None):
         # don't do anything if the signal is blocked
         if self._block_signal: return
-        if self.estop:
+        if self._no_action:
+            pass
+        elif self.estop:
             if self.isCheckable():
-                ACTION.SET_ESTOP_STATE(state)
+                if STATUS.estop_is_clear():
+                    ACTION.SET_ESTOP_STATE(STATUS.STATE_ESTOP)
+                else:
+                    ACTION.SET_ESTOP_STATE(STATUS.STATE_ESTOP_RESET)
             else:
                 ACTION.SET_ESTOP_STATE(STATUS.estop_is_clear())
         elif self.machine_on:
@@ -388,10 +486,19 @@ class ActionButton(Indicated_PushButton, _HalWidgetBase):
                 if state:
                     ACTION.SET_MACHINE_HOMING(self.joint)
                 else:
-                    ACTION.SET_MACHINE_UNHOMED(self.joint)
+                    if not self.home_no_unhome:
+                        ACTION.SET_MACHINE_UNHOMED(self.joint)
             else:
-                if STATUS.is_all_homed():
-                    ACTION.SET_MACHINE_UNHOMED(self.joint)
+                if self.joint == -1:
+                    if STATUS.is_all_homed():
+                        if not self.home_no_unhome:
+                            ACTION.SET_MACHINE_UNHOMED(-1)
+                    else:
+                        ACTION.SET_MACHINE_HOMING(-1)
+                elif STATUS.is_joint_homed(self.joint):
+                    if not self.home_no_unhome:
+                        ACTION.SET_MACHINE_UNHOMED(self.joint)
+                    pass
                 else:
                     ACTION.SET_MACHINE_HOMING(self.joint)
         elif self.unhome:
@@ -420,13 +527,20 @@ class ActionButton(Indicated_PushButton, _HalWidgetBase):
             STATUS.emit('dialog-request', {'NAME':'ORIGINOFFSET', 'ID':'_%s_'% self.objectName()})
         elif self.tool_offset_dialog:
             STATUS.emit('dialog-request', {'NAME':'TOOLOFFSET', 'ID':'_%s_'% self.objectName()})
+        elif self.tool_chooser_dialog:
+            STATUS.emit('dialog-request', {'NAME':'TOOLCHOOSER', 'ID':'_%s_'% self.objectName()})
         elif self.zero_axis:
-            j = "XYZABCUVW"
-            try:
-                axis = j[self.joint]
-            except IndexError:
-                LOG.error("can't zero origin for specified joint {}".format(self.joint))
+            axis = self.axis
+            if axis == '':
+                # TODO remove this 2.9 workaround in the future
+                LOG.warning("{} should use axis property not joint".format(self.objectName()))
+                j = "XYZABCUVW"
+                try:
+                    axis = j[self.joint]
+                except IndexError:
+                    LOG.error("can't zero origin for specified joint {}".format(self.joint))
             ACTION.SET_AXIS_ORIGIN(axis, 0)
+            STATUS.emit('update-machine-log', 'Zeroed Axis %s' % axis, 'TIME,SUCCESS')
         elif self.zero_g5x:
             ACTION.ZERO_G5X_OFFSET(0)
         elif self.zero_g92:
@@ -489,11 +603,18 @@ class ActionButton(Indicated_PushButton, _HalWidgetBase):
         elif self.view_change:
             if self.view_type =='reload':
                  STATUS.emit('reload-display')
+            elif self.view_type in('mouse-button-mode', 'pan-lock-mode',
+                            'zoom-lock-mode', 'rotate-lock-mode'):
+                    if state:
+                        ACTION.SET_GRAPHICS_SCROLL_MODE(('mouse-button-mode',
+                        'pan-lock-mode', 'rotate-lock-mode', 'zoom-lock-mode').index(self.view_type))
+                    else:
+                        ACTION.SET_GRAPHICS_SCROLL_MODE(0)
             else:
                 try:
                     ACTION.SET_GRAPHICS_VIEW(self.view_type)
                 except Exception as e:
-                    print e
+                    print(e)
                     pass
         elif True in (self.spindle_fwd, self.spindle_rev):
             if self.spindle_fwd:
@@ -520,7 +641,10 @@ class ActionButton(Indicated_PushButton, _HalWidgetBase):
                 b = self.joint +1
             for i in range(a,b):
                 if STATUS.is_spindle_on(i):
-                    ACTION.SET_SPINDLE_FASTER(i)
+                    if STATUS.get_spindle_speed(i) >= 0:
+                        ACTION.SET_SPINDLE_FASTER(i)
+                    else:
+                        ACTION.SET_SPINDLE_SLOWER(i)
                 else:
                     ACTION.SET_SPINDLE_ROTATION(linuxcnc.SPINDLE_FORWARD,
                          INFO['DEFAULT_SPINDLE_{}_SPEED'.format(i)],i)
@@ -533,7 +657,11 @@ class ActionButton(Indicated_PushButton, _HalWidgetBase):
                 b = self.joint +1
             for i in range(a,b):
                 if STATUS.is_spindle_on(i):
-                    ACTION.SET_SPINDLE_SLOWER(i)
+                    if STATUS.get_spindle_speed(i) <= 0:
+                        ACTION.SET_SPINDLE_FASTER(i)
+                    else:
+                        ACTION.SET_SPINDLE_SLOWER(i)
+
                 else:
                     ACTION.SET_SPINDLE_ROTATION(linuxcnc.SPINDLE_REVERSE,
                          INFO['DEFAULT_SPINDLE_{}_SPEED'.format(i)],i)
@@ -575,9 +703,26 @@ class ActionButton(Indicated_PushButton, _HalWidgetBase):
             self.command_text = str(self.command_text)
             LOG.debug("MDI STRING COMMAND: {}".format(self.command_text))
             ACTION.CALL_MDI(self.command_text)
+
         elif self.ini_mdi_command:
-            LOG.debug("INI MDI COMMAND #: {}".format(self.ini_mdi_num))
-            ACTION.CALL_INI_MDI(self.ini_mdi_num)
+            # we prefer named INI MDI commands:
+            if not self.ini_mdi_keystring == '' and \
+                    not INFO.get_ini_mdi_command(self.ini_mdi_keystring) is None:
+                LOG.debug("INI MDI COMMAND #: {}".format(self.ini_mdi_keystring))
+                ACTION.CALL_INI_MDI(self.ini_mdi_keystring)
+
+            # legacy version (nth line)
+            elif not self.ini_mdi_num <0 and \
+                    not INFO.get_ini_mdi_command(self.ini_mdi_num) is None:
+                LOG.debug("INI MDI COMMAND #: {}".format(self.ini_mdi_num))
+                ACTION.CALL_INI_MDI(self.ini_mdi_num)
+
+            # set the indicator that the MDI command is running
+            # if the indicator option is turned on and a command is started running
+            if not STATUS.get_current_command() == '':
+                if self._is_mdi_command_finished:
+                    self._watch_command_flag = True
+
         elif self.dro_absolute:
             STATUS.emit('dro-reference-change-request', 0)
         elif self.dro_relative:
@@ -588,9 +733,18 @@ class ActionButton(Indicated_PushButton, _HalWidgetBase):
             self.QTVCP_INSTANCE_.close()
         elif self.machine_log_dialog:
             STATUS.emit('dialog-request',{'NAME':'MACHINELOG', 'ID':'_%s_'% self.objectName()})
-        # defult error case
-        elif not self._python_command:
-            LOG.error('No action recognised')
+        elif self.lathe_mirror_x:
+            if state:
+                ACTION.SET_LATHE_MIRROR_X()
+            else:
+                ACTION.UNSET_LATHE_MIRROR_X()
+        # default error case
+        else:
+            if state is not None:
+                self.safecheck(state)
+            if not self._python_command:
+                LOG.debug('No action recognised for {}'.format(self.objectName()))
+
 
         # This is check after because action buttons can do an action plus
         # a python command, or just either one.
@@ -599,11 +753,11 @@ class ActionButton(Indicated_PushButton, _HalWidgetBase):
                 state = not self._indicator_state
             self.python_command(state)
 
-    @QtCore.pyqtSlot(int,name='setRunFromLine')
+    @QtCore.Slot(int,name='setRunFromLine')
     def updateRunFromLine(self, data):
         self._run_from_line_int = int(data)
 
-    @QtCore.pyqtSlot(str,name='setRunFromLine')
+    @QtCore.Slot(str,name='setRunFromLine')
     def updateRunFromLine(self, data):
         try:
             self._run_from_line_int = int(data)
@@ -630,6 +784,9 @@ class ActionButton(Indicated_PushButton, _HalWidgetBase):
     def jog_action(self, direction):
         if STATUS.stat.motion_mode == linuxcnc.TRAJ_MODE_FREE:
             actuator = self.joint
+            # joint number less then 0 means convert axis name to joint number
+            if self.joint <0:
+                actuator = INFO.GET_JOG_FROM_NAME[self.axis]
         else:
             actuator = self.axis
         if direction == 0:
@@ -651,7 +808,7 @@ class ActionButton(Indicated_PushButton, _HalWidgetBase):
                 text = '%s mm' % str(self.jog_incr_mm)
             else:
                 incr = 0
-                text = 'Continous'
+                text = 'Continuous'
             if self.template_label:
                 self._set_alt_text(self.jog_incr_mm)
         else:
@@ -661,7 +818,7 @@ class ActionButton(Indicated_PushButton, _HalWidgetBase):
                 text = '''%s "''' % str(self.jog_incr_imperial)
             else:
                 incr = 0
-                text = 'Continous'
+                text = 'Continuous'
             if self.template_label:
                 self._set_text(self.jog_incr_imperial)
         ACTION.SET_JOG_INCR(incr , text)
@@ -670,16 +827,16 @@ class ActionButton(Indicated_PushButton, _HalWidgetBase):
         if self.jog_incr_angle < 0: return
         elif self.jog_incr_angle == 0:
             incr = 0
-            text = 'Continous'
+            text = 'Continuous'
         else:
             incr = self.jog_incr_angle
             text = '''%s deg''' % str(self.jog_incr_angle)
         ACTION.SET_JOG_INCR_ANGULAR(incr , text)
 
     def setText(self,data):
-        #print 'set text:',data, self._designer_running
+        #print ('set text:',data, self._designer_running)
         if self._designer_running:
-            #print 'update'
+            #print('update')
             self.set_textTemplate(data)
         super(ActionButton, self).setText(data)
 
@@ -692,9 +849,41 @@ class ActionButton(Indicated_PushButton, _HalWidgetBase):
         tmpl = lambda s: str(self._alt_textTemplate) % s
         self.setText(tmpl(data))
 
+    # see if the INI specified an optional new label
+    # if so apply it, otherwise skip and use the original text
+    def setMDILabel(self):
+        key = None
+        # we prefer named INI MDI commands
+        if not self.ini_mdi_keystring == '' and \
+                not INFO.get_ini_mdi_command(self.ini_mdi_keystring) is None:
+            key = self.ini_mdi_keystring
+            # legacy version (nth line)
+        elif not self.ini_mdi_num <0 and \
+                not INFO.get_ini_mdi_command(self.ini_mdi_num) is None:
+            key = self.ini_mdi_num
+
+        # change the button label if supplied in the INI
+        try:
+            label = INFO.get_ini_mdi_label(key)
+            label = label.replace(r'\n', '\n')
+            self.setText(label)
+        except:
+            pass
+
+        # add tool tip of the command
+        try:
+            tooltiplabel = 'INI MDI CMD {}:\n'.format(key)
+            tooltiplabel += INFO.get_ini_mdi_command(key).replace(';', '\n')
+            self.setToolTip(tooltiplabel)
+        except Exception as e:
+            # if the MDI command is missing set a tooltip to say so
+            # otherwise set any optional label
+            msg = 'MDI_COMMAND_{} Not found under [MDI_COMMAND_LIST] in INI file'.format(key)
+            self.setToolTip(msg)
+
     #########################################################################
     # This is how designer can interact with our widget properties.
-    # designer will show the pyqtProperty properties in the editor
+    # designer will show the Property properties in the editor
     # it will use the get set and reset calls to do those actions
     #
     # _toggle_properties makes it so we can only select one option
@@ -715,13 +904,23 @@ class ActionButton(Indicated_PushButton, _HalWidgetBase):
                 'dro_relative', 'dro_dtg','max_velocity_over', 'launch_halscope',
                 'launch_calibration',
                  'exit', 'machine_log_dialog', 'zero_g5x', 'zero_g92', 'zero_zrot',
-                 'origin_offset_dialog', 'run_from_status', 'run_from_slot')
+                 'origin_offset_dialog', 'run_from_status', 'run_from_slot',
+                 'tool_chooser_dialog', 'lathe_mirror_x', 'no')
 
         for i in data:
             if not i == picked:
                 self[i+'_action'] = False
 
     # BOOL VARIABLES----------------------
+    def set_no_action(self, data):
+        self._no_action = data
+        if data:
+            self._toggle_properties('no')
+    def get_no_action(self):
+        return self._no_action
+    def reset_no_action(self):
+        self._no_action = False
+
     def set_estop(self, data):
         self.estop = data
         if data:
@@ -848,6 +1047,15 @@ class ActionButton(Indicated_PushButton, _HalWidgetBase):
         return self.tool_offset_dialog
     def reset_tool_offset_dialog(self):
         self.tool_offset_dialog = False
+
+    def set_tool_chooser_dialog(self, data):
+        self.tool_chooser_dialog = data
+        if data:
+            self._toggle_properties('tool_chooser_dialog')
+    def get_tool_chooser_dialog(self):
+        return self.tool_chooser_dialog
+    def reset_tool_chooser_dialog(self):
+        self.tool_chooser_dialog = False
 
     def set_camview_dialog(self, data):
         self.camview_dialog = data
@@ -1250,6 +1458,23 @@ class ActionButton(Indicated_PushButton, _HalWidgetBase):
     def reset_machine_log_dialog(self):
         self.machine_log_dialog = False
 
+    def set_lathe_mirror_x(self, data):
+        self.lathe_mirror_x = data
+        if data:
+            self._toggle_properties('lathe_mirror_x')
+    def get_lathe_mirror_x(self):
+        return self.lathe_mirror_x
+    def reset_lathe_mirror_x(self):
+        self.lathe_mirror_x = False
+
+    def set_home_no_unhome(self, data):
+        self.home_no_unhome = data
+    def get_home_no_unhome(self):
+        return self.home_no_unhome
+    def reset_home_no_unhome(self):
+        self.home_no_unhome = False
+
+
     # NON BOOL VARIABLES------------------
     def set_incr_imperial(self, data):
         self.jog_incr_imperial = data
@@ -1299,7 +1524,8 @@ class ActionButton(Indicated_PushButton, _HalWidgetBase):
         if not data.lower() in('x', 'y', 'y2', 'z', 'z2', 'p', 'clear',
                     'zoom-in','zoom-out','pan-up','pan-down',
                     'pan-left','pan-right','rotate-up','rotate-down',
-                    'rotate-cw','rotate-ccw','reload'):
+                    'rotate-cw','rotate-ccw','reload','zoom-lock-mode',
+                    'pan-lock-mode','rotate-lock-mode','scroll-mode'):
             data = 'p'
         self.view_type = data
     def get_view_type(self):
@@ -1319,72 +1545,87 @@ class ActionButton(Indicated_PushButton, _HalWidgetBase):
     def get_ini_mdi_num(self):
         return self.ini_mdi_num
     def reset_ini_mdi_num(self):
-        self.ini_mdi_num = 0
+        self.ini_mdi_num = -1
+
+    def set_ini_mdi_key(self, data):
+        self.ini_mdi_keystring = data
+    def get_ini_mdi_key(self):
+        return self.ini_mdi_keystring
+    def reset_ini_mdi_key(self):
+        self.ini_mdi_keystring = ''
 
     # designer will show these properties in this order:
     # BOOL
-    estop_action = QtCore.pyqtProperty(bool, get_estop, set_estop, reset_estop)
-    machine_on_action = QtCore.pyqtProperty(bool, get_machine_on, set_machine_on, reset_machine_on)
-    auto_action = QtCore.pyqtProperty(bool, get_auto, set_auto, reset_auto)
-    mdi_action = QtCore.pyqtProperty(bool, get_mdi, set_mdi, reset_mdi)
-    manual_action = QtCore.pyqtProperty(bool, get_manual, set_manual, reset_manual)
-    run_action = QtCore.pyqtProperty(bool, get_run, set_run, reset_run)
-    run_from_status_action = QtCore.pyqtProperty(bool, get_run_from_status, set_run_from_status, reset_run_from_status)
-    run_from_slot_action = QtCore.pyqtProperty(bool, get_run_from_slot, set_run_from_slot, reset_run_from_slot)
-    abort_action = QtCore.pyqtProperty(bool, get_abort, set_abort, reset_abort)
-    pause_action = QtCore.pyqtProperty(bool, get_pause, set_pause, reset_pause)
-    step_action = QtCore.pyqtProperty(bool, get_step, set_step, reset_step)
-    load_dialog_action = QtCore.pyqtProperty(bool, get_load_dialog, set_load_dialog, reset_load_dialog)
-    camview_dialog_action = QtCore.pyqtProperty(bool,
+    no_action = QtCore.Property(bool, get_no_action, set_no_action, reset_no_action)
+    estop_action = QtCore.Property(bool, get_estop, set_estop, reset_estop)
+    machine_on_action = QtCore.Property(bool, get_machine_on, set_machine_on, reset_machine_on)
+    auto_action = QtCore.Property(bool, get_auto, set_auto, reset_auto)
+    mdi_action = QtCore.Property(bool, get_mdi, set_mdi, reset_mdi)
+    manual_action = QtCore.Property(bool, get_manual, set_manual, reset_manual)
+    run_action = QtCore.Property(bool, get_run, set_run, reset_run)
+    run_from_status_action = QtCore.Property(bool, get_run_from_status, set_run_from_status, reset_run_from_status)
+    run_from_slot_action = QtCore.Property(bool, get_run_from_slot, set_run_from_slot, reset_run_from_slot)
+    abort_action = QtCore.Property(bool, get_abort, set_abort, reset_abort)
+    pause_action = QtCore.Property(bool, get_pause, set_pause, reset_pause)
+    step_action = QtCore.Property(bool, get_step, set_step, reset_step)
+    load_dialog_action = QtCore.Property(bool, get_load_dialog, set_load_dialog, reset_load_dialog)
+    camview_dialog_action = QtCore.Property(bool,
                                                 get_camview_dialog, set_camview_dialog, reset_camview_dialog)
-    origin_offset_dialog_action = QtCore.pyqtProperty(bool,
+    origin_offset_dialog_action = QtCore.Property(bool,
                                                       get_origin_offset_dialog, set_origin_offset_dialog,
                                                       reset_origin_offset_dialog)
-    tool_offset_dialog_action = QtCore.pyqtProperty(bool,
+    tool_offset_dialog_action = QtCore.Property(bool,
                                                       get_tool_offset_dialog, set_tool_offset_dialog,
                                                       reset_tool_offset_dialog)
-    macro_dialog_action = QtCore.pyqtProperty(bool, get_macro_dialog, set_macro_dialog, reset_macro_dialog)
-    launch_halmeter_action = QtCore.pyqtProperty(bool, get_launch_halmeter, set_launch_halmeter, reset_launch_halmeter)
-    launch_status_action = QtCore.pyqtProperty(bool, get_launch_status, set_launch_status, reset_launch_status)
-    launch_halshow_action = QtCore.pyqtProperty(bool, get_launch_halshow, set_launch_halshow, reset_launch_halshow)
-    launch_halscope_action = QtCore.pyqtProperty(bool, get_launch_halscope, set_launch_halscope, reset_launch_halscope)
-    launch_calibration_action = QtCore.pyqtProperty(bool, get_launch_calibration, set_launch_calibration, reset_launch_calibration)
-    home_action = QtCore.pyqtProperty(bool, get_home, set_home, reset_home)
-    unhome_action = QtCore.pyqtProperty(bool, get_unhome, set_unhome, reset_unhome)
-    home_select_action = QtCore.pyqtProperty(bool, get_home_select, set_home_select, reset_home_select)
-    unhome_select_action = QtCore.pyqtProperty(bool, get_unhome_select, set_unhome_select, reset_unhome_select)
-    zero_axis_action = QtCore.pyqtProperty(bool, get_zero_axis, set_zero_axis, reset_zero_axis)
-    zero_g5x_action = QtCore.pyqtProperty(bool, get_zero_g5x, set_zero_g5x, reset_zero_g5x)
-    zero_g92_action = QtCore.pyqtProperty(bool, get_zero_g92, set_zero_g92, reset_zero_g92)
-    zero_zrot_action = QtCore.pyqtProperty(bool, get_zero_zrot, set_zero_zrot, reset_zero_zrot)
-    jog_joint_pos_action = QtCore.pyqtProperty(bool, get_jog_joint_pos, set_jog_joint_pos, reset_jog_joint_pos)
-    jog_joint_neg_action = QtCore.pyqtProperty(bool, get_jog_joint_neg, set_jog_joint_neg, reset_jog_joint_neg)
-    jog_selected_pos_action = QtCore.pyqtProperty(bool, get_jog_selected_pos, set_jog_selected_pos, reset_jog_selected_pos)
-    jog_selected_neg_action = QtCore.pyqtProperty(bool, get_jog_selected_neg, set_jog_selected_neg, reset_jog_selected_neg)
-    jog_incr_action = QtCore.pyqtProperty(bool, get_jog_incr, set_jog_incr, reset_jog_incr)
-    jog_rate_action = QtCore.pyqtProperty(bool, get_jog_rate, set_jog_rate, reset_jog_rate)
-    feed_over_action = QtCore.pyqtProperty(bool, get_feed_over, set_feed_over, reset_feed_over)
-    rapid_over_action = QtCore.pyqtProperty(bool, get_rapid_over, set_rapid_over, reset_rapid_over)
-    max_velocity_over_action = QtCore.pyqtProperty(bool, get_max_velocity_over, set_max_velocity_over, reset_max_velocity_over)
-    spindle_over_action = QtCore.pyqtProperty(bool, get_spindle_over, set_spindle_over, reset_spindle_over)
-    spindle_fwd_action = QtCore.pyqtProperty(bool, get_spindle_fwd, set_spindle_fwd, reset_spindle_fwd)
-    spindle_rev_action = QtCore.pyqtProperty(bool, get_spindle_rev, set_spindle_rev, reset_spindle_rev)
-    spindle_stop_action = QtCore.pyqtProperty(bool, get_spindle_stop, set_spindle_stop, reset_spindle_stop)
-    spindle_up_action = QtCore.pyqtProperty(bool, get_spindle_up, set_spindle_up, reset_spindle_up)
-    spindle_down_action = QtCore.pyqtProperty(bool, get_spindle_down, set_spindle_down, reset_spindle_down)
-    view_change_action = QtCore.pyqtProperty(bool, get_view_change, set_view_change, reset_view_change)
-    limits_override_action = QtCore.pyqtProperty(bool, get_limits_override, set_limits_override, reset_limits_override)
-    flood_action = QtCore.pyqtProperty(bool, get_flood, set_flood, reset_flood)
-    mist_action = QtCore.pyqtProperty(bool, get_mist, set_mist, reset_mist)
-    block_delete_action = QtCore.pyqtProperty(bool, get_block_delete, set_block_delete, reset_block_delete)
-    optional_stop_action = QtCore.pyqtProperty(bool, get_optional_stop, set_optional_stop, reset_optional_stop)
-    mdi_command_action = QtCore.pyqtProperty(bool, get_mdi_command, set_mdi_command, reset_mdi_command)
-    ini_mdi_command_action = QtCore.pyqtProperty(bool, get_ini_mdi_command, set_ini_mdi_command, reset_ini_mdi_command)
-    dro_absolute_action = QtCore.pyqtProperty(bool, get_dro_absolute, set_dro_absolute, reset_dro_absolute)
-    dro_relative_action = QtCore.pyqtProperty(bool, get_dro_relative, set_dro_relative, reset_dro_relative)
-    dro_dtg_action = QtCore.pyqtProperty(bool, get_dro_dtg, set_dro_dtg, reset_dro_dtg)
-    exit_action = QtCore.pyqtProperty(bool, get_exit, set_exit, reset_exit)
-    machine_log_dialog_action = QtCore.pyqtProperty(bool, get_machine_log_dialog, set_machine_log_dialog, reset_machine_log_dialog)
+    tool_chooser_dialog_action = QtCore.Property(bool,
+                                                      get_tool_chooser_dialog, set_tool_chooser_dialog,
+                                                      reset_tool_chooser_dialog)
+    macro_dialog_action = QtCore.Property(bool, get_macro_dialog, set_macro_dialog, reset_macro_dialog)
+    launch_halmeter_action = QtCore.Property(bool, get_launch_halmeter, set_launch_halmeter, reset_launch_halmeter)
+    launch_status_action = QtCore.Property(bool, get_launch_status, set_launch_status, reset_launch_status)
+    launch_halshow_action = QtCore.Property(bool, get_launch_halshow, set_launch_halshow, reset_launch_halshow)
+    launch_halscope_action = QtCore.Property(bool, get_launch_halscope, set_launch_halscope, reset_launch_halscope)
+    launch_calibration_action = QtCore.Property(bool, get_launch_calibration, set_launch_calibration, reset_launch_calibration)
+    home_action = QtCore.Property(bool, get_home, set_home, reset_home)
+    unhome_action = QtCore.Property(bool, get_unhome, set_unhome, reset_unhome)
+    home_select_action = QtCore.Property(bool, get_home_select, set_home_select, reset_home_select)
+    unhome_select_action = QtCore.Property(bool, get_unhome_select, set_unhome_select, reset_unhome_select)
+    zero_axis_action = QtCore.Property(bool, get_zero_axis, set_zero_axis, reset_zero_axis)
+    zero_g5x_action = QtCore.Property(bool, get_zero_g5x, set_zero_g5x, reset_zero_g5x)
+    zero_g92_action = QtCore.Property(bool, get_zero_g92, set_zero_g92, reset_zero_g92)
+    zero_zrot_action = QtCore.Property(bool, get_zero_zrot, set_zero_zrot, reset_zero_zrot)
+    jog_joint_pos_action = QtCore.Property(bool, get_jog_joint_pos, set_jog_joint_pos, reset_jog_joint_pos)
+    jog_joint_neg_action = QtCore.Property(bool, get_jog_joint_neg, set_jog_joint_neg, reset_jog_joint_neg)
+    jog_selected_pos_action = QtCore.Property(bool, get_jog_selected_pos, set_jog_selected_pos, reset_jog_selected_pos)
+    jog_selected_neg_action = QtCore.Property(bool, get_jog_selected_neg, set_jog_selected_neg, reset_jog_selected_neg)
+    jog_incr_action = QtCore.Property(bool, get_jog_incr, set_jog_incr, reset_jog_incr)
+    jog_rate_action = QtCore.Property(bool, get_jog_rate, set_jog_rate, reset_jog_rate)
+    feed_over_action = QtCore.Property(bool, get_feed_over, set_feed_over, reset_feed_over)
+    rapid_over_action = QtCore.Property(bool, get_rapid_over, set_rapid_over, reset_rapid_over)
+    max_velocity_over_action = QtCore.Property(bool, get_max_velocity_over, set_max_velocity_over, reset_max_velocity_over)
+    spindle_over_action = QtCore.Property(bool, get_spindle_over, set_spindle_over, reset_spindle_over)
+    spindle_fwd_action = QtCore.Property(bool, get_spindle_fwd, set_spindle_fwd, reset_spindle_fwd)
+    spindle_rev_action = QtCore.Property(bool, get_spindle_rev, set_spindle_rev, reset_spindle_rev)
+    spindle_stop_action = QtCore.Property(bool, get_spindle_stop, set_spindle_stop, reset_spindle_stop)
+    spindle_up_action = QtCore.Property(bool, get_spindle_up, set_spindle_up, reset_spindle_up)
+    spindle_down_action = QtCore.Property(bool, get_spindle_down, set_spindle_down, reset_spindle_down)
+    view_change_action = QtCore.Property(bool, get_view_change, set_view_change, reset_view_change)
+    limits_override_action = QtCore.Property(bool, get_limits_override, set_limits_override, reset_limits_override)
+    flood_action = QtCore.Property(bool, get_flood, set_flood, reset_flood)
+    mist_action = QtCore.Property(bool, get_mist, set_mist, reset_mist)
+    block_delete_action = QtCore.Property(bool, get_block_delete, set_block_delete, reset_block_delete)
+    optional_stop_action = QtCore.Property(bool, get_optional_stop, set_optional_stop, reset_optional_stop)
+    mdi_command_action = QtCore.Property(bool, get_mdi_command, set_mdi_command, reset_mdi_command)
+    ini_mdi_command_action = QtCore.Property(bool, get_ini_mdi_command, set_ini_mdi_command, reset_ini_mdi_command)
+    dro_absolute_action = QtCore.Property(bool, get_dro_absolute, set_dro_absolute, reset_dro_absolute)
+    dro_relative_action = QtCore.Property(bool, get_dro_relative, set_dro_relative, reset_dro_relative)
+    dro_dtg_action = QtCore.Property(bool, get_dro_dtg, set_dro_dtg, reset_dro_dtg)
+    exit_action = QtCore.Property(bool, get_exit, set_exit, reset_exit)
+    machine_log_dialog_action = QtCore.Property(bool, get_machine_log_dialog, set_machine_log_dialog, reset_machine_log_dialog)
+    lathe_mirror_x_action = QtCore.Property(bool, get_lathe_mirror_x, set_lathe_mirror_x, reset_lathe_mirror_x)
+
+
+    home_no_unhome_option = QtCore.Property(bool, get_home_no_unhome, set_home_no_unhome, reset_home_no_unhome)
 
     def set_template_label(self, data):
         self.template_label = data
@@ -1392,20 +1633,22 @@ class ActionButton(Indicated_PushButton, _HalWidgetBase):
         return self.template_label
     def reset_template_label(self):
         self.template_label = False
-    template_label_option = QtCore.pyqtProperty(bool, get_template_label, set_template_label, reset_template_label)
+    template_label_option = QtCore.Property(bool, get_template_label, set_template_label, reset_template_label)
+
 
     # NON BOOL
-    joint_number = QtCore.pyqtProperty(int, get_joint, set_joint, reset_joint)
-    axis_letter = QtCore.pyqtProperty(str, get_axis, set_axis, reset_axis)
-    incr_imperial_number = QtCore.pyqtProperty(float, get_incr_imperial, set_incr_imperial, reset_incr_imperial)
-    incr_mm_number = QtCore.pyqtProperty(float, get_incr_mm, set_incr_mm, reset_incr_mm)
-    incr_angular_number = QtCore.pyqtProperty(float, get_incr_angle, set_incr_angle, reset_incr_angle)
-    toggle_float_option = QtCore.pyqtProperty(bool, get_toggle_float, set_toggle_float, reset_toggle_float)
-    float_num = QtCore.pyqtProperty(float, get_float, set_float, reset_float)
-    float_alt_num = QtCore.pyqtProperty(float, get_float_alt, set_float_alt, reset_float_alt)
-    view_type_string = QtCore.pyqtProperty(str, get_view_type, set_view_type, reset_view_type)
-    command_text_string = QtCore.pyqtProperty(str, get_command_text, set_command_text, reset_command_text)
-    ini_mdi_number = QtCore.pyqtProperty(int, get_ini_mdi_num, set_ini_mdi_num, reset_ini_mdi_num)
+    joint_number = QtCore.Property(int, get_joint, set_joint, reset_joint)
+    axis_letter = QtCore.Property(str, get_axis, set_axis, reset_axis)
+    incr_imperial_number = QtCore.Property(float, get_incr_imperial, set_incr_imperial, reset_incr_imperial)
+    incr_mm_number = QtCore.Property(float, get_incr_mm, set_incr_mm, reset_incr_mm)
+    incr_angular_number = QtCore.Property(float, get_incr_angle, set_incr_angle, reset_incr_angle)
+    toggle_float_option = QtCore.Property(bool, get_toggle_float, set_toggle_float, reset_toggle_float)
+    float_num = QtCore.Property(float, get_float, set_float, reset_float)
+    float_alt_num = QtCore.Property(float, get_float_alt, set_float_alt, reset_float_alt)
+    view_type_string = QtCore.Property(str, get_view_type, set_view_type, reset_view_type)
+    command_text_string = QtCore.Property(str, get_command_text, set_command_text, reset_command_text)
+    ini_mdi_number = QtCore.Property(int, get_ini_mdi_num, set_ini_mdi_num, reset_ini_mdi_num)
+    ini_mdi_key = QtCore.Property(str, get_ini_mdi_key, set_ini_mdi_key, reset_ini_mdi_key)
 
     def set_textTemplate(self, data):
         self._textTemplate = data
@@ -1414,7 +1657,7 @@ class ActionButton(Indicated_PushButton, _HalWidgetBase):
         return self._textTemplate
     def reset_textTemplate(self):
         self._textTemplate = '%1.3f in'
-    textTemplate = QtCore.pyqtProperty(str, get_textTemplate, set_textTemplate, reset_textTemplate)
+    textTemplate = QtCore.Property(str, get_textTemplate, set_textTemplate, reset_textTemplate)
 
     def set_alt_textTemplate(self, data):
         self._alt_textTemplate = data
@@ -1422,7 +1665,7 @@ class ActionButton(Indicated_PushButton, _HalWidgetBase):
         return self._alt_textTemplate
     def reset_alt_textTemplate(self):
         self._alt_textTemplate = '%1.2f mm'
-    alt_textTemplate = QtCore.pyqtProperty(str, get_alt_textTemplate, set_alt_textTemplate, reset_alt_textTemplate)
+    alt_textTemplate = QtCore.Property(str, get_alt_textTemplate, set_alt_textTemplate, reset_alt_textTemplate)
 
     ##############################
     # required class boiler code #
@@ -1436,7 +1679,7 @@ class ActionButton(Indicated_PushButton, _HalWidgetBase):
 if __name__ == "__main__":
 
     import sys
-    from PyQt5.QtWidgets import QApplication
+    from qtpy.QtWidgets import QApplication
     app = QApplication(sys.argv)
 
     widget = ActionButton('Action')
