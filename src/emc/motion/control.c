@@ -34,6 +34,7 @@
 #include "config.h"
 #include "homing.h"
 #include "axis.h"
+#include "state_tag.h"
 
 // Mark strings for translation, but defer translation to userspace
 #define _(s) (s)
@@ -1888,6 +1889,20 @@ static void output_to_hal(void)
     *(emcmot_hal_data->coord_error) = GET_MOTION_ERROR_FLAG();
     *(emcmot_hal_data->on_soft_limit) = emcmotStatus->on_soft_limit;
 
+    /* Update the HAL Output Pins from the active tag */
+    /* Geometric Metadata */
+    *(emcmot_hal_data->interp_arc_radius)       = emcmotStatus->tag.fields[GM_FIELD_FLOAT_ARC_RADIUS];
+    *(emcmot_hal_data->interp_arc_center_x)     = emcmotStatus->tag.fields[GM_FIELD_FLOAT_ARC_CENTER_X];
+    *(emcmot_hal_data->interp_arc_center_y)     = emcmotStatus->tag.fields[GM_FIELD_FLOAT_ARC_CENTER_Y];
+    *(emcmot_hal_data->interp_straight_heading) = emcmotStatus->tag.fields[GM_FIELD_FLOAT_STRAIGHT_HEADING];
+
+    /* Performance Metadata */
+    *(emcmot_hal_data->interp_feedrate)         = emcmotStatus->tag.fields[GM_FIELD_FLOAT_FEED];
+
+    /* Line and Motion Type (Casting to int for s32 HAL pins) */
+    *(emcmot_hal_data->interp_line_number)      = (int)emcmotStatus->tag.fields[GM_FIELD_FLOAT_LINE_NUMBER];
+    *(emcmot_hal_data->interp_motion_type)      = (int)emcmotStatus->tag.fields[GM_FIELD_MOTION_MODE];
+
     switch (emcmotStatus->motionType) {
         case EMC_MOTION_TYPE_FEED: //fall thru
         case EMC_MOTION_TYPE_ARC:
@@ -2033,10 +2048,8 @@ static void output_to_hal(void)
 	/* point to joint struct */
 	joint = &joints[joint_num];
 	joint_data = &(emcmot_hal_data->joint[joint_num]);
-
 	/* apply backlash and motor offset to output */
-	joint->motor_pos_cmd =
-	    joint->pos_cmd + joint->backlash_filt + joint->motor_offset;
+	joint->motor_pos_cmd = joint->pos_cmd + joint->backlash_filt + joint->motor_offset;
 	/* point to HAL data */
 	/* write to HAL pins */
 	*(joint_data->motor_offset) = joint->motor_offset;
@@ -2131,6 +2144,9 @@ static void update_status(void)
 		// and the state machine is still active. The homing status deassertion
 		// must be delayed until the state machine is done.
 		joint_status->homing = get_homing(joint_num);
+    /* check to see if we should pause in order to implement
+       single emcmotStatus->stepping */
+
 	}
 	joint_status->homed  = get_homed(joint_num);
 	joint_status->pos_cmd = joint->pos_cmd;
@@ -2211,11 +2227,48 @@ static void update_status(void)
       emcmotStatus->stepping = 0;
       emcmotStatus->paused = 1;
     }
-#ifdef WATCH_FLAGS
-    /*! \todo FIXME - this is for debugging */
-    if ( old_motion_flag != emcmotStatus->motionFlag ) {
-	rtapi_print ( "Motion flag %04X -> %04X\n", old_motion_flag, emcmotStatus->motionFlag );
-	old_motion_flag = emcmotStatus->motionFlag;
+// State Tags handling    
+// Get the current executing trajectory component (the "Source of Truth")
+ /* 1. Update the HAL Output Pins from the active tag */
+    if (emcmot_hal_data) {
+        // Line and Motion Type
+        if (emcmot_hal_data->interp_line_number) {
+            *(emcmot_hal_data->interp_line_number) = (int)emcmotStatus->tag.fields[GM_FIELD_FLOAT_LINE_NUMBER];
+        }
+        
+        // Performance Metadata
+        if (emcmot_hal_data->interp_feedrate) {
+            *(emcmot_hal_data->interp_feedrate) = emcmotStatus->tag.fields[GM_FIELD_FLOAT_FEED];
+        }
+
+        // Geometric Metadata
+        if (emcmot_hal_data->interp_arc_radius) {
+            *(emcmot_hal_data->interp_arc_radius) = emcmotStatus->tag.fields[GM_FIELD_FLOAT_ARC_RADIUS];
+        }
+        if (emcmot_hal_data->interp_arc_center_x) {
+            *(emcmot_hal_data->interp_arc_center_x) = emcmotStatus->tag.fields[GM_FIELD_FLOAT_ARC_CENTER_X];
+        }
+        if (emcmot_hal_data->interp_arc_center_y) {
+            *(emcmot_hal_data->interp_arc_center_y) = emcmotStatus->tag.fields[GM_FIELD_FLOAT_ARC_CENTER_Y];
+        }
+        if (emcmot_hal_data->interp_straight_heading) {
+            *(emcmot_hal_data->interp_straight_heading) = emcmotStatus->tag.fields[GM_FIELD_FLOAT_STRAIGHT_HEADING];
+        }
+    } 
+    
+    /* 2. Handle the idle state (Optional cleanup) */
+    if (emcmotStatus->activeDepth == 0) {
+        /* If there is no active move, we can clear the geometric metadata 
+           so the UI doesn't show "old" radius data during a pause. */
+        if (emcmot_hal_data && emcmot_hal_data->interp_arc_radius) {
+            *(emcmot_hal_data->interp_arc_radius) = 0.0;
+        }
     }
-#endif
 }
+#ifdef WATCH_FLAGS
+/*! \todo FIXME - this is for debugging */
+if ( old_motion_flag != emcmotStatus->motionFlag ) {
+rtapi_print ( "Motion flag %04X -> %04X\n", old_motion_flag, emcmotStatus->motionFlag );
+old_motion_flag = emcmotStatus->motionFlag;
+}
+#endif
