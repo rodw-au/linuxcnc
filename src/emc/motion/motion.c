@@ -560,7 +560,7 @@ static int init_hal_io(void)
     CALL_CHECK(hal_pin_float_newf(HAL_OUT, &(emcmot_hal_data->interp_arc_radius), mot_comp_id, "motion.interp.arc-radius"));
     CALL_CHECK(hal_pin_float_newf(HAL_OUT, &(emcmot_hal_data->interp_arc_center_x), mot_comp_id, "motion.interp.arc-center-x"));
     CALL_CHECK(hal_pin_float_newf(HAL_OUT, &(emcmot_hal_data->interp_arc_center_y), mot_comp_id, "motion.interp.arc-center-y"));
-    CALL_CHECK(hal_pin_float_newf(HAL_OUT, &(emcmot_hal_data->interp_straight_heading), mot_comp_id, "motion.interp.straight-heading"));
+    CALL_CHECK(hal_pin_float_newf(HAL_OUT, &(emcmot_hal_data->interp_straight_heading), mot_comp_id, "motion.interp.heading"));
 
     /* export debug parameters */
     /* these can be used to view any internal variable, simply change a line

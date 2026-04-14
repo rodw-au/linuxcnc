@@ -1262,6 +1262,30 @@ int Interp::convert_arc2(int move,                     //!< either G_2 (cw arc) 
     inverse_time_rate_arc(*current1, *current2, *current3, center1, center2,
                           turn, end1, end2, end3, block, settings);
 
+	// We need to determine which 'center' is X and which is Y
+double abs_x = 0, abs_y = 0;
+double abs_cx = 0, abs_cy = 0;
+
+	if (settings->plane == CANON_PLANE::XY) {
+		abs_x = end1;
+		abs_y = end2;
+		abs_cx = center1;
+		abs_cy = center2;
+	} else if (settings->plane == CANON_PLANE::XZ) {
+		abs_x = end1;
+		abs_y = 0; // Or whatever your system expects for non-active axes
+		abs_cx = center1;
+		abs_cy = 0;
+	} else { // YZ plane
+		abs_x = 0;
+		abs_y = end1;
+		abs_cx = 0;
+		abs_cy = center1;
+	}
+
+	// Call our tagger with the resolved X, Y, CX, and CY
+	tag_arc(block, abs_x, abs_y, abs_cx, abs_cy, move);
+
     ARC_FEED(block->line_number, end1, end2, center1, center2, turn, end3,
              AA_end, BB_end, CC_end, u, v, w);
     *current1 = end1;
@@ -1392,8 +1416,7 @@ int Interp::convert_arc_comp1(int move,               //!< either G_2 (cw arc) o
     center_x = end_x + c_len * cos(AB_ang);
     center_y = end_y + c_len * sin(AB_ang);
 
-    // send  state tags for arc here
-    tag_arc(end_x, end_y, center_x, center_y);
+
 
     /* center to endpoint distances matched before - they still should. */
     CHKS((fabs(hypot(center_x - end_x, center_y - end_y) -
@@ -5947,7 +5970,7 @@ int Interp::convert_straight(int move,               //!< either G_0 or G_1
     // Create a state tag and dump it to canon
     write_canon_state_tag(block, settings);
 
-    tag_straight(end_x, end_y); // Update the heading and clear arc data for ANY straight move
+	// Check if the move is a Straight Line (G0 or G1)
 
     if ((settings->cutter_comp_side != CUTTER_COMP::OFF) && /* ! "== true" */
         (settings->cutter_comp_radius > 0.0))
@@ -5980,6 +6003,7 @@ int Interp::convert_straight(int move,               //!< either G_0 or G_1
     }
     else if (move == G_0)
     {
+		tag_straight(block,end_x, end_y); // Update the heading and clear arc data for ANY straight move
         STRAIGHT_TRAVERSE(block->line_number, end_x, end_y, end_z,
                           AA_end, BB_end, CC_end,
                           u_end, v_end, w_end);
@@ -5989,6 +6013,7 @@ int Interp::convert_straight(int move,               //!< either G_0 or G_1
     }
     else if (move == G_1)
     {
+ 		tag_straight(block,end_x, end_y); // Update the heading and clear arc data for ANY straight move
         STRAIGHT_FEED(block->line_number, end_x, end_y, end_z,
                       AA_end, BB_end, CC_end,
                       u_end, v_end, w_end);
@@ -7052,31 +7077,62 @@ int Interp::update_tag(StateTag &tag)
     return INTERP_OK;
 }
 
-int Interp::tag_straight(double x, double y)
+int Interp::tag_straight(block_pointer block, double x, double y)
 {
-    double dx = x - _setup.current_x;
-    double dy = y - _setup.current_y;
+	//  Get current position to find the vector
+    double start_x = _setup.current_x;
+    double start_y = _setup.current_y;
 
-    // Calculate heading (atan2 returns radians, converting to degrees)
-    double heading = (hypot(dx, dy) > 1e-9) ? (atan2(dy, dx) * 180.0 / M_PI) : 0.0;
+    double dx = x - start_x;
+    double dy = y- start_y;
 
-    _setup.state_tag.fields_float[GM_FIELD_FLOAT_STRAIGHT_HEADING] = heading;
-    // Reset arc fields for linear moves
-    _setup.state_tag.fields_float[GM_FIELD_FLOAT_ARC_RADIUS] = 0.0;
-    _setup.state_tag.fields_float[GM_FIELD_FLOAT_ARC_CENTER_X] = 0.0;
-    _setup.state_tag.fields_float[GM_FIELD_FLOAT_ARC_CENTER_Y] = 0.0;
+
+
+    //  Store in the block 
+		//  Calculate Heading but check for Z axis only moves
+	double heading = atan2( dy,dx) * (180.0 / M_PI);
+	if (heading < 0.00) heading += 360.0;
+	rtapi_print("start_x = %f, start_y = %f, end_x = %f, end_y = %f, heading = %f\n", start_x, start_y,x,y,heading);
+	block->arc_heading = heading;
+
+    // If no XY movement, block->arc_heading remains whatever it was last,
+    // preventing a sudden "jump" during Z-only moves.
+    
+    //  Reset Arc data so HAL pins don't show old values
+    block->radius = 0.0;
+    block->arc_center_x = 0.0; 
+    block->arc_center_y = 0.0;
     return INTERP_OK;
 }
 
-int Interp::tag_arc(double /*x*/, double /*y*/, double center_x, double center_y)
+int Interp::tag_arc(block_pointer block, double x, double y, double center_x, double center_y, int move)
     {
+
         double dx = center_x - _setup.current_x;
         double dy = center_y - _setup.current_y;
+        double radial_angle = atan2(dy, dx);  // radial angle (centre to tool)
+        double tangent_angle;
+        
+        // The Tangent is 90 degrees offset
+		if (move == G_3) { // Counter-Clockwise
+			tangent_angle = radial_angle + (M_PI / 2.0);
+		} else {           // Clockwise (G_2)
+			tangent_angle = radial_angle - (M_PI / 2.0);
+		}
+		// Convert to degrees for HAL pins
+		double heading = tangent_angle * (180.0 / M_PI);
 
-        _setup.state_tag.fields_float[GM_FIELD_FLOAT_ARC_RADIUS] = hypot(dx, dy);
-        _setup.state_tag.fields_float[GM_FIELD_FLOAT_ARC_CENTER_X] = center_x;
-        _setup.state_tag.fields_float[GM_FIELD_FLOAT_ARC_CENTER_Y] = center_y;
-        // Reset heading for arc moves
-        _setup.state_tag.fields_float[GM_FIELD_FLOAT_STRAIGHT_HEADING] = 0.0;
+		// Normalise 0-360
+        while (heading < 0) heading += 360.0;
+		while (heading >= 360.0) heading -= 360.0;
+		
+        // Save for tags
+        block->arc_center_x = center_x;
+        block->arc_center_y = center_y;
+        block->arc_radius = hypot(dx, dy);      
+        block->arc_heading = heading;   
+        write_canon_state_tag(block,&_setup);
+        
+		//rtapi_print("DEBUG WRITE: CX= %f, CY= %f, Radius = %f, Heading = %f\n", block->arc_center_x, block->arc_center_y,  block->arc_radius, block->arc_heading  );
         return INTERP_OK;
     }

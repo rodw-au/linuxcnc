@@ -658,8 +658,8 @@ int read_inputs(setup_pointer settings);
 	    const char *fmt, ...) __attribute__((format(printf,5,6)));
 
  /* State Tags Helpers */
- int tag_straight(double x, double y);
- int tag_arc(double x, double y, double center_x, double center_y);
+ int tag_straight(block_pointer block, double x, double y);
+ int tag_arc(block_pointer block, double x, double y, double center_x, double center_y, int move);
        
  const char *interp_status(int status);
 

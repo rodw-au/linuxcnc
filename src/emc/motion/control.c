@@ -1889,18 +1889,18 @@ static void output_to_hal(void)
     *(emcmot_hal_data->coord_error) = GET_MOTION_ERROR_FLAG();
     *(emcmot_hal_data->on_soft_limit) = emcmotStatus->on_soft_limit;
 
-    /* Update the HAL Output Pins from the active tag */
+    /* Update the HAL Output Pins from the active tag  */
     /* Geometric Metadata */
-    *(emcmot_hal_data->interp_arc_radius)       = emcmotStatus->tag.fields[GM_FIELD_FLOAT_ARC_RADIUS];
-    *(emcmot_hal_data->interp_arc_center_x)     = emcmotStatus->tag.fields[GM_FIELD_FLOAT_ARC_CENTER_X];
-    *(emcmot_hal_data->interp_arc_center_y)     = emcmotStatus->tag.fields[GM_FIELD_FLOAT_ARC_CENTER_Y];
-    *(emcmot_hal_data->interp_straight_heading) = emcmotStatus->tag.fields[GM_FIELD_FLOAT_STRAIGHT_HEADING];
+    *(emcmot_hal_data->interp_arc_radius)       = emcmotStatus->tag.fields_float[GM_FIELD_FLOAT_ARC_RADIUS];
+    *(emcmot_hal_data->interp_arc_center_x)     = emcmotStatus->tag.fields_float[GM_FIELD_FLOAT_ARC_CENTER_X];
+    *(emcmot_hal_data->interp_arc_center_y)     = emcmotStatus->tag.fields_float[GM_FIELD_FLOAT_ARC_CENTER_Y];
+    *(emcmot_hal_data->interp_straight_heading) = emcmotStatus->tag.fields_float[GM_FIELD_FLOAT_STRAIGHT_HEADING];
 
     /* Performance Metadata */
-    *(emcmot_hal_data->interp_feedrate)         = emcmotStatus->tag.fields[GM_FIELD_FLOAT_FEED];
+    *(emcmot_hal_data->interp_feedrate)         = emcmotStatus->tag.fields_float[GM_FIELD_FLOAT_FEED];
 
     /* Line and Motion Type (Casting to int for s32 HAL pins) */
-    *(emcmot_hal_data->interp_line_number)      = (int)emcmotStatus->tag.fields[GM_FIELD_FLOAT_LINE_NUMBER];
+    *(emcmot_hal_data->interp_line_number)      = (int)emcmotStatus->tag.fields[GM_FIELD_LINE_NUMBER];
     *(emcmot_hal_data->interp_motion_type)      = (int)emcmotStatus->tag.fields[GM_FIELD_MOTION_MODE];
 
     switch (emcmotStatus->motionType) {
@@ -2227,43 +2227,72 @@ static void update_status(void)
       emcmotStatus->stepping = 0;
       emcmotStatus->paused = 1;
     }
-// State Tags handling    
-// Get the current executing trajectory component (the "Source of Truth")
- /* 1. Update the HAL Output Pins from the active tag */
-    if (emcmot_hal_data) {
-        // Line and Motion Type
-        if (emcmot_hal_data->interp_line_number) {
-            *(emcmot_hal_data->interp_line_number) = (int)emcmotStatus->tag.fields[GM_FIELD_FLOAT_LINE_NUMBER];
-        }
-        
-        // Performance Metadata
-        if (emcmot_hal_data->interp_feedrate) {
-            *(emcmot_hal_data->interp_feedrate) = emcmotStatus->tag.fields[GM_FIELD_FLOAT_FEED];
-        }
+	// State Tags handling    
+	// Get the current executing trajectory component (the "Source of Truth")
+	/* Update the HAL Output Pins from the active tag */
+	if (emcmot_hal_data) {			
+		// Line and Motion Type
+		if (emcmot_hal_data->interp_line_number) {
+			*(emcmot_hal_data->interp_line_number) = (int)emcmotStatus->tag.fields[GM_FIELD_LINE_NUMBER];
+		}
+		
+		// Performance Metadata
+		if (emcmot_hal_data->interp_feedrate) {
+			*(emcmot_hal_data->interp_feedrate) = emcmotStatus->tag.fields_float[GM_FIELD_FLOAT_FEED];
+		}
 
-        // Geometric Metadata
-        if (emcmot_hal_data->interp_arc_radius) {
-            *(emcmot_hal_data->interp_arc_radius) = emcmotStatus->tag.fields[GM_FIELD_FLOAT_ARC_RADIUS];
-        }
-        if (emcmot_hal_data->interp_arc_center_x) {
-            *(emcmot_hal_data->interp_arc_center_x) = emcmotStatus->tag.fields[GM_FIELD_FLOAT_ARC_CENTER_X];
-        }
-        if (emcmot_hal_data->interp_arc_center_y) {
-            *(emcmot_hal_data->interp_arc_center_y) = emcmotStatus->tag.fields[GM_FIELD_FLOAT_ARC_CENTER_Y];
-        }
-        if (emcmot_hal_data->interp_straight_heading) {
-            *(emcmot_hal_data->interp_straight_heading) = emcmotStatus->tag.fields[GM_FIELD_FLOAT_STRAIGHT_HEADING];
-        }
-    } 
-    
-    /* 2. Handle the idle state (Optional cleanup) */
-    if (emcmotStatus->activeDepth == 0) {
-        /* If there is no active move, we can clear the geometric metadata 
-           so the UI doesn't show "old" radius data during a pause. */
-        if (emcmot_hal_data && emcmot_hal_data->interp_arc_radius) {
-            *(emcmot_hal_data->interp_arc_radius) = 0.0;
-        }
-    }
+		// Geometric Metadata
+				
+		if (emcmot_hal_data->interp_arc_radius) {
+			*(emcmot_hal_data->interp_arc_radius) = emcmotStatus->tag.fields_float[GM_FIELD_FLOAT_ARC_RADIUS];
+		}
+		if (emcmot_hal_data->interp_arc_center_x) {
+			*(emcmot_hal_data->interp_arc_center_x) = emcmotStatus->tag.fields_float[GM_FIELD_FLOAT_ARC_CENTER_X];
+		}
+		if (emcmot_hal_data->interp_arc_center_y) {
+			*(emcmot_hal_data->interp_arc_center_y) = emcmotStatus->tag.fields_float[GM_FIELD_FLOAT_ARC_CENTER_Y];
+		}		
+		// Get the current motion type from the tag (1=G1, 2=G2, 3=G3)
+		int motion_type = (int)emcmotStatus->tag.fields[GM_FIELD_MOTION_MODE];
+		if (motion_type == 10) {
+			/* --- G1: STATIC HEADING --- */
+			// For linear moves, the heading doesn't change during the segment.
+			if (emcmot_hal_data->interp_straight_heading) {
+				*(emcmot_hal_data->interp_straight_heading) = emcmotStatus->tag.fields_float[GM_FIELD_FLOAT_STRAIGHT_HEADING];
+			}
+		}
+		else if (motion_type == 20 || motion_type == 30) {
+			/* --- G2/G3: DYNAMIC ARC HEADING --- */
+			double cx = emcmotStatus->tag.fields_float[GM_FIELD_FLOAT_ARC_CENTER_X];
+			double cy = emcmotStatus->tag.fields_float[GM_FIELD_FLOAT_ARC_CENTER_Y];
+			
+			// Current RT feedback position
+			double dx = emcmotStatus->carte_pos_fb.tran.x - cx;
+			double dy = emcmotStatus->carte_pos_fb.tran.y - cy;
+			double angle_rad = atan2(dy, dx);
+			double heading_deg;
+
+			// G3 (CCW): Heading is Radial Angle + 90 degrees
+			if (motion_type == 3) {
+				heading_deg = (angle_rad + M_PI_2) * (180.0 / M_PI);
+			} 
+			// G2 (CW): Heading is Radial Angle - 90 degrees
+			else {
+				heading_deg = (angle_rad - M_PI_2) * (180.0 / M_PI);
+			}
+			// 0-360 Normalization
+			while (heading_deg < 0) heading_deg += 360.0;
+			while (heading_deg >= 360.0) heading_deg -= 360.0;
+
+			// Now assign the calculated value
+			if (emcmot_hal_data->interp_straight_heading)
+				*(emcmot_hal_data->interp_straight_heading) = heading_deg;		
+			// Performance Metadata
+			if (emcmot_hal_data->interp_feedrate) {
+				*(emcmot_hal_data->interp_feedrate) = emcmotStatus->tag.fields_float[GM_FIELD_FLOAT_FEED];
+			}
+		}		
+	}
 }
 #ifdef WATCH_FLAGS
 /*! \todo FIXME - this is for debugging */

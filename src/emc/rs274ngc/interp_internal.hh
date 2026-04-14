@@ -495,6 +495,13 @@ struct block_struct
   long     offset{};   // start of line in file
   int      o_type{};
   int      call_type{}; // oword-sub, python oword-sub, remap
+  
+  // Add Geometic fields
+  double arc_center_x;
+  double arc_center_y;
+  double arc_radius;
+  double arc_heading;
+  
   const char    *o_name{};   // !!!KL be sure to free this
   double   params[INTERP_SUB_PARAMS]{};
   int param_cnt{};
@@ -781,7 +788,6 @@ struct setup
   context sub_context[INTERP_SUB_ROUTINE_LEVELS];
   int call_state;                  //  enum call_states - indicate Py handler reexecution
   offset_map_type offset_map;      // store label x name, file, line
-
   bool adaptive_feed;              // adaptive feed is enabled
   bool feed_hold;                  // feed hold is enabled
   int loggingLevel;                  // 0 means logging is off
@@ -816,6 +822,12 @@ struct setup
     bool loop_on_main_m99;
 
   int disable_g92_persistence;
+
+// add new geometric fields for our new tags
+  double heading;
+  double radius;
+  double center_x;
+  double center_y;
 
 #define FEATURE(x) (_setup.feature_set & FEATURE_ ## x)
 #define FEATURE_RETAIN_G43           0x00000001

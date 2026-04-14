@@ -1,0 +1,22 @@
+(Test G-code for Tangential Arcs)
+G17 G21 G90 G54 (XY Plane, mm, Absolute, Coord System 1)
+F1000           (Set a visible feedrate)
+
+(Step 1: Straight move to establish initial heading)
+G0 X0 Y0
+G1 X10 Y0
+
+(Step 2: G3 Counter-Clockwise Circle)
+(Start: 10,0 | Center: 20,0 | End: 10,0)
+G3 X10 Y0 I10 J0
+
+(Step 3: Move to position for G2)
+G1 X30 Y0
+
+(Step 4: G2 Clockwise Circle)
+(Start: 30,0 | Center: 40,0 | End: 30,0)
+G2 X30 Y0 I10 J0
+
+(Step 5: Return Home)
+G1 X0 Y0
+M2

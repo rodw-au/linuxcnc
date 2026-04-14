@@ -1,0 +1,13 @@
+(Test G-code for Tangential Arcs)
+G17 G21 G90 G54 (XY Plane, mm, Absolute, Coord System 1)
+F1000           (Set a visible feedrate)
+
+(Step 1: Straight move to establish initial heading)
+G0 X0 Y0
+g1 x100 y0
+g1 x100 y100
+g1 x0 y100
+g1 x0 y0
+g1 x100 y 100
+
+M2
