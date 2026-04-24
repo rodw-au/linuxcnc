@@ -285,11 +285,11 @@ These pins provide geometric intent and interpreter state for the segment of mot
 
 ==== Interpreter Geometric Pins
 
-* `motion.interp.straight-heading` (float, out) +
-  The XY plane heading of the current linear move in degrees. Measured counter-clockwise from the +X axis (0 to 360). This value is 0.0 during circular moves or when no XY motion occurs.
+* `motion.interp.heading` (float, out) +
+  The XY plane heading of the current linear move in degrees. Measured counter-clockwise from the +X axis (0 to 360). This could be used to control a tangential knife.
 
 * `motion.interp.arc-radius` (float, out) +
-  The radius of the current circular move. This value is 0.0 during linear moves.
+  The radius of the current circular move. This value is 0.0 during linear moves. This could be used to modify plasma cutting parameters based on the arc radius and when hole cutting.
 
 * `motion.interp.arc-center-x` (float, out) +
   The absolute X-coordinate of the center point for the current arc.

@@ -26,7 +26,6 @@
 #include <posemath.h>
 #include <kinematics.h>  //for kinematicsSwitchable()
 #include <motion_types.h>
-
 #include "../tp/tp.h"
 #include "simple_tp.h"
 #include "motion.h"
@@ -35,6 +34,7 @@
 #include "homing.h"
 #include "axis.h"
 #include "state_tag.h"
+
 
 // Mark strings for translation, but defer translation to userspace
 #define _(s) (s)
@@ -2254,7 +2254,7 @@ static void update_status(void)
 		}		
 		// Get the current motion type from the tag (1=G1, 2=G2, 3=G3)
 		int motion_type = (int)emcmotStatus->tag.fields[GM_FIELD_MOTION_MODE];
-		if (motion_type == 10) {
+		if (motion_type == 10 || motion_type == 0) {
 			/* --- G1: STATIC HEADING --- */
 			// For linear moves, the heading doesn't change during the segment.
 			if (emcmot_hal_data->interp_straight_heading) {
@@ -2273,7 +2273,7 @@ static void update_status(void)
 			double heading_deg;
 
 			// G3 (CCW): Heading is Radial Angle + 90 degrees
-			if (motion_type == 3) {
+			if (motion_type == 30) {
 				heading_deg = (angle_rad + M_PI_2) * (180.0 / M_PI);
 			} 
 			// G2 (CW): Heading is Radial Angle - 90 degrees

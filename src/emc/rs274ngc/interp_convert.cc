@@ -7079,35 +7079,51 @@ int Interp::update_tag(StateTag &tag)
 
 int Interp::tag_straight(block_pointer block, double x, double y)
 {
-	//  Get current position to find the vector
+    // Use a static variable to remember the heading between function calls
+    // Initialize to 0.0 or your preferred default start angle
+    static double last_valid_heading = 0.0;
+
     double start_x = _setup.current_x;
     double start_y = _setup.current_y;
 
     double dx = x - start_x;
-    double dy = y- start_y;
+    double dy = y - start_y;
 
+    // Only update the heading if there is actual XY motion
+    if (hypot(dx, dy) > 0.0001) 
+    {
+        double heading = atan2(dy, dx) * (180.0 / M_PI);
+        
+        // Normalization
+        heading = fmod(heading, 360.0);
+        if (heading < 0.0) heading += 360.0;
 
+        // Store it for this block AND for the next Z-only move
+        block->arc_heading = heading;
+        last_valid_heading = heading;
+    }
+    else 
+    {
+        // For Z-only moves, reuse the last calculated XY heading
+        block->arc_heading = last_valid_heading;
+    }
 
-    //  Store in the block 
-		//  Calculate Heading but check for Z axis only moves
-	double heading = atan2( dy,dx) * (180.0 / M_PI);
-	if (heading < 0.00) heading += 360.0;
-	rtapi_print("start_x = %f, start_y = %f, end_x = %f, end_y = %f, heading = %f\n", start_x, start_y,x,y,heading);
-	block->arc_heading = heading;
-
-    // If no XY movement, block->arc_heading remains whatever it was last,
-    // preventing a sudden "jump" during Z-only moves.
-    
-    //  Reset Arc data so HAL pins don't show old values
+    // Reset Arc data for safety
     block->radius = 0.0;
     block->arc_center_x = 0.0; 
     block->arc_center_y = 0.0;
+
+    // Ship the data to the status registers
+    write_canon_state_tag(block, &_setup);
+    
     return INTERP_OK;
 }
 
 int Interp::tag_arc(block_pointer block, double x, double y, double center_x, double center_y, int move)
     {
-
+		// Silence unused parameter warnings
+		(void)x;
+		(void)y;       
         double dx = center_x - _setup.current_x;
         double dy = center_y - _setup.current_y;
         double radial_angle = atan2(dy, dx);  // radial angle (centre to tool)
