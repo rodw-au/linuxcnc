@@ -518,6 +518,7 @@ class GlCanonDraw:
         self.foam_z_height = 0
         self.hide_icons = False
         self.disable_cone_scaling = False
+        self.view_tool_min_dia = 0.0
 
         try:
             system_memory_bytes = os.sysconf('SC_PAGE_SIZE') * os.sysconf('SC_PHYS_PAGES')
@@ -535,7 +536,7 @@ class GlCanonDraw:
             if os.environ["INI_FILE_NAME"]:
                 self.inifile = linuxcnc.ini(os.environ["INI_FILE_NAME"])
 
-                if self.inifile.find("DISPLAY", "DRO_FORMAT_IN"):
+                if self.inifile.hasvariable("DISPLAY", "DRO_FORMAT_IN"):
                     temp = self.inifile.find("DISPLAY", "DRO_FORMAT_IN")
                     try:
                         test = temp % 1.234
@@ -544,7 +545,7 @@ class GlCanonDraw:
                     else:
                         self.dro_in = temp
 
-                if self.inifile.find("DISPLAY", "DRO_FORMAT_MM"):
+                if self.inifile.hasvariable("DISPLAY", "DRO_FORMAT_MM"):
                     temp = self.inifile.find("DISPLAY", "DRO_FORMAT_MM")
                     try:
                         test = temp % 1.234
@@ -554,19 +555,20 @@ class GlCanonDraw:
                         self.dro_mm = temp
                         self.dro_in = temp
 
-                self.foam_w_height = float(self.inifile.find("DISPLAY", "FOAM_W") or 1.5)
-                self.foam_z_height = float(self.inifile.find("DISPLAY", "FOAM_Z") or 0)
+                self.foam_w_height = self.inifile.getreal("DISPLAY", "FOAM_W", fallback=1.5)
+                self.foam_z_height = self.inifile.getreal("DISPLAY", "FOAM_Z", fallback=0)
 
-                size = (self.inifile.find("DISPLAY", "CONE_BASESIZE") or None)
+                size = self.inifile.getreal("DISPLAY", "CONE_BASESIZE")
                 if size is not None:
-                    self.set_cone_basesize(float(size))
+                    self.set_cone_basesize(size)
 
                 # set maximum file size before showing boundary box instead
-                temp = self.inifile.find("DISPLAY", "GRAPHICAL_MAX_FILE_SIZE")
+                temp = self.inifile.getint("DISPLAY", "GRAPHICAL_MAX_FILE_SIZE")
                 if not temp is None:
-                    self.max_file_size = int(temp) * 1024 * 1024
+                    self.max_file_size = temp * 1024 * 1024
 
-                self.disable_cone_scaling = bool(self.inifile.find("DISPLAY", "DISABLE_CONE_SCALING"))
+                self.disable_cone_scaling = self.inifile.getbool("DISPLAY", "DISABLE_CONE_SCALING", fallback=False)
+                self.tool_min_dia = self.inifile.getreal("DISPLAY", "GCODE_VIEW_TOOL_MIN_DIA", fallback=0.0)
 
         except:
             # Probably started in an editor so no INI
@@ -1496,7 +1498,7 @@ class GlCanonDraw:
                 glBlendFunc(GL_ONE, GL_CONSTANT_ALPHA)
 
                 current_tool = self.get_current_tool()
-                if current_tool is None or current_tool.diameter == 0:
+                if current_tool is None or current_tool.diameter < self.view_tool_min_dia:
                     if self.canon and not self.disable_cone_scaling:
                         g = self.canon
 

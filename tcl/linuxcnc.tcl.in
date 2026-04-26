@@ -25,15 +25,16 @@ namespace eval linuxcnc {
     variable TCL_SCRIPT_DIR @EMC2_TCL_DIR@/scripts
     variable HELP_DIR @EMC2_HELP_DIR@
     variable RTLIB_DIR @EMC2_RTLIB_DIR@
-    variable CONFIG_PATH {@LINUXCNC_CONFIG_PATH_TCL@}
+    variable CONFIG_PATH [subst -nocommands -nobackslashes {@LINUXCNC_CONFIG_PATH_TCL@}]
     variable NCFILES_DIR @EMC2_NCFILES_DIR@
     variable LANG_DIR @EMC2_LANG_DIR@
     variable IMAGEDIR @EMC2_IMAGE_DIR@
     variable REALTIME @REALTIME@
     variable RTS @RTS@
+    variable RUN_IN_PLACE @RUN_IN_PLACE@
     variable CONFIG_DIR {}
     variable _dir
-    foreach _dir  [split {@LINUXCNC_CONFIG_PATH_TCL@} :] {
+    foreach _dir  [split $CONFIG_PATH :] {
 	lappend CONFIG_DIR [file normalize $_dir]
     }
     unset _dir
@@ -134,10 +135,29 @@ proc linuxcnc::standard_fixed_font {} {
     list [standard_fixed_font_family] [standard_font_size]
 }
 
+#
+# FIXME:
+# This parse_ini() code should be removed. It is inadequate for the new
+# INI-file parser and requires preprocessing. Either it needs to be mapped to
+# the new C++ parser or all the Tcl code depending on INI-file entries need to
+# be ported to python.
+#
 proc parse_ini {filename} {
     # create associative arrays for all ini file sections
     # like: ::EMC(VERSION), ::KINS(JOINTS), ... etc
-    set f [open $filename]
+    # The INI-file for this routine has been pre-formatted by the linuxcnc
+    # startup script to handle includes, strings, comments and continuations.
+    # LINUXCNC_INI_EXPANDED is set by the startup script when the inifile's
+    # directory is not writable (e.g. installed sample configs), so the
+    # expanded file lives in a per-user cache dir instead of next to the INI.
+    if {[info exists ::env(LINUXCNC_INI_EXPANDED)]
+        && [file readable $::env(LINUXCNC_INI_EXPANDED)]} {
+        set f [open $::env(LINUXCNC_INI_EXPANDED)]
+    } elseif [catch {set f [open "${filename}.expanded"]} msg] {
+        # This is a fallback open. It happens in test twopass-personality.
+        # When this open is necessary, then a lot of errors are possible.
+        set f [open "${filename}"]
+    }
 
     while {[gets $f line] >= 0} {
         set line [string trim $line]

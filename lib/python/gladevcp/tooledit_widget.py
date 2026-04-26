@@ -167,16 +167,10 @@ class ToolEdit(Gtk.Box):
         # check the INI file if display-type: LATHE is set
         try:
             self.inifile = linuxcnc.ini(INIPATH)
-            test = self.inifile.find("DISPLAY", "LATHE")
-            if test == '1' or test == 'True':
-                self.lathe_display_type = True
-                self.set_lathe_display(True)
-            else:
-                self.lathe_display_type = False
-                self.set_lathe_display(False)
+            self.lathe_display_type = self.inifile.getbool("DISPLAY", "LATHE", fallback=False)
+            self.set_lathe_display(self.lathe_display_type)
         except:
-            pass
-
+            print("No INI file found")
         # check linuxcnc status every second
         GLib.timeout_add(1000, self.periodic_check)
 
@@ -775,7 +769,7 @@ def main(filename=None):
     window.connect("destroy", Gtk.main_quit)
     tooledit.set_col_visible("abcUVW", False, tab='1')
     # uncommented the below line for testing.
-    tooledit.set_filename("../../../configs/sim/sim.tbl")
+    # tooledit.set_filename("../../../configs/sim/sim.tbl")
     tooledit.set_font("sans 16",tab='23')
     window.show_all()
     #tooledit.set_lathe_display(True)
@@ -786,7 +780,10 @@ def main(filename=None):
        print("False")
 
 if __name__ == "__main__":
-    # if there are two arguments then specify the path
+    if "INI_FILE_NAME" not in os.environ:
+        print("LinuxCNC probably not running. Run 'export INI_FILE_NAME=<your_ini_file>' to use tooledit stand alone.")
+    
+    # if there is one argument given, specify the path of the tooltable file
     if len(sys.argv) > 1: main(sys.argv[1])
     else: main()
 
