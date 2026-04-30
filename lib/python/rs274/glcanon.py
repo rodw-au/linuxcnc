@@ -568,7 +568,7 @@ class GlCanonDraw:
                     self.max_file_size = temp * 1024 * 1024
 
                 self.disable_cone_scaling = self.inifile.getbool("DISPLAY", "DISABLE_CONE_SCALING", fallback=False)
-                self.tool_min_dia = self.inifile.getreal("DISPLAY", "GCODE_VIEW_TOOL_MIN_DIA", fallback=0.0)
+                self.view_tool_min_dia = self.inifile.getreal("DISPLAY", "GCODE_VIEW_TOOL_MIN_DIA", fallback=0.0)
 
         except:
             # Probably started in an editor so no INI
@@ -1498,7 +1498,7 @@ class GlCanonDraw:
                 glBlendFunc(GL_ONE, GL_CONSTANT_ALPHA)
 
                 current_tool = self.get_current_tool()
-                if current_tool is None or current_tool.diameter < self.view_tool_min_dia:
+                if current_tool is None or current_tool.diameter <= self.view_tool_min_dia:
                     if self.canon and not self.disable_cone_scaling:
                         g = self.canon
 
