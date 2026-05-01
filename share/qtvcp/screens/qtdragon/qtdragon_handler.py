@@ -76,7 +76,7 @@ class HandlerClass:
         self.w = widgets
         self.gcodes = GCodes(widgets)
         # This validator precludes using comma as a decimal
-        self.valid = QtGui.QRegExpValidator(QtCore.QRegExp('-?[0-9]{0,6}[.][0-9]{0,3}'))
+        self.valid = QtGui.QRegularExpressionValidator(QtCore.QRegularExpression('-?[0-9]{0,6}[.][0-9]{0,3}'))
         self.KEYBIND = KEYBIND
         KEYBIND.add_call('Key_F11','on_keycall_F11')
         KEYBIND.add_call('Key_F12','on_keycall_F12')
@@ -292,6 +292,7 @@ class HandlerClass:
         self.configureMacroButtons()
 
         self.log_version()
+        STATUS.emit('update-machine-log', '', 'OFF')
 
     def init_utils(self):
         from qtvcp.lib.gcode_utility.facing import Facing
@@ -706,6 +707,9 @@ class HandlerClass:
         return KEYBIND.manage_function_calls(self,event,is_pressed,key,shift,cntrl)
 
     def before_loop__(self):
+        # Should be initialized and ready to log good info 
+        STATUS.emit('update-machine-log', '', 'ON')
+
         # no spindle lift without pins connected
         self.spindle_lift_pins_present = True
         for i in ('qtdragon.eoffset-is-active','qtdragon.spindle-inhibit','qtdragon.eoffset-clear',
@@ -844,6 +848,7 @@ class HandlerClass:
     def all_homed(self, obj):
         self.home_all = True
         self.w.btn_home_all.setText(_translate("HandlerClass","ALL\nHOMED"))
+        self.add_status(_translate("HandlerClass","All homed"))
         if self.first_turnon is True:
             self.first_turnon = False
             if self.w.chk_reload_tool.isChecked():
@@ -900,29 +905,36 @@ class HandlerClass:
     # called from hal_glib to run macros from external event
     def request_macro_call(self, data):
         if not STATUS.is_mdi_mode():
-            self.add_status(_translate("HandlerClass",'Machine must be in MDI mode to run macros'), CRITICAL)
+            self.add_status(_translate("HandlerClass",'Machine must be in MDI mode to run macros'), WARNING)
             return
-        flag = True
-        for b in range(0,10):
-            button = self.w['macrobutton{}'.format(b)]
-            # prefer named INI MDI commands
-            key = button.property('ini_mdi_key')
-            code = INFO.get_ini_mdi_command(key)
-            if key == '' or code is None:
-                # fallback to legacy nth line
-                key = button.property('ini_mdi_number')
+        if 'ini-macro-cmd' in data:
+            self.add_status(_translate("HandlerClass",'Externally run INI macros not supported yet'), CRITICAL)
+        elif 'ini-mdi-cmd' in data:
+            for b in range(0,10):
+                button = self.w['macrobutton{}'.format(b)]
+                # prefer named INI MDI commands
+                key = button.property('ini_mdi_key')
                 code = INFO.get_ini_mdi_command(key)
-            try:
-                if code is None: raise Exception
-                flag = False
-            except:
-                continue
-            if key == data:
-                #print('match',button.objectName())
-                text = button.text().replace('\n',' ')
-                self.add_status(_translate("HandlerClass",'Running macro: {} {}'.format(key, text)))
-                button.click()
-                break
+                #print(data,key,code)
+                if key == '' or code is None:
+                    # fallback to legacy nth line
+                    key = button.property('ini_mdi_number')
+                    code = INFO.get_ini_mdi_command(key)
+                    if code is None:
+                        continue
+                if str(key) in data:
+                    #print('match',button.objectName())
+                    text = button.text().replace('\n',' ')
+                    self.add_status(_translate("HandlerClass",'Running macro: {} {}'.format(key, text)))
+                    try:
+                        button.click()
+                    except Exception as e:
+                        self.add_status(_translate("HandlerClass",'Error running macro: {} {}\n{}'.format(key, text, e)))
+                    break
+            else:
+                self.add_status(_translate(f"HandlerClass",'External requested INI mdi {data} does not match button name/number'), CRITICAL)
+        else:
+            self.add_status(_translate(f"HandlerClass",'External requested INI macro data not recognized:{data}'), CRITICAL)
 
     #######################
     # CALLBACKS FROM FORM #
@@ -2093,33 +2105,6 @@ class HandlerClass:
                  t)
         self.add_status(mess, CRITICAL,noLog=True)
         STATUS.emit('update-machine-log', mess, None)
-
-    # called from hal_glib to run macros from external event
-    def request_macro_call(self, data):
-        if not STATUS.is_mdi_mode():
-            self.add_status(_translate("HandlerClass",'Machine must be in MDI mode to run macros'), CRITICAL)
-            return
-
-        for b in range(0,10):
-            button = self.w['macrobutton{}'.format(b)]
-            # prefer named INI MDI commands
-            key = button.property('ini_mdi_key')
-            code = INFO.get_ini_mdi_command(key)
-            if key == '' or code is None:
-                # fallback to legacy nth line
-                key = button.property('ini_mdi_number')
-                code = INFO.get_ini_mdi_command(key)
-                if code is None:
-                    continue
-            if str(key) == data:
-                #print('match',button.objectName())
-                text = button.text().replace('\n',' ')
-                self.add_status(_translate("HandlerClass",'Running macro: {} {}'.format(key, text)))
-                try:
-                    button.click()
-                except Exception as e:
-                    self.add_status(_translate("HandlerClass",'Running macro: {} {}\n{}'.format(key, text, e)))
-                break
 
     # show/hide macro buttons depending on the INI definitions
     def configureMacroButtons(self):
