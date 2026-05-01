@@ -333,12 +333,13 @@ int Interp::write_state_tag(block_pointer block,
 
     state.fields_float[GM_FIELD_FLOAT_FEED] = settings->feed_rate;
     state.fields_float[GM_FIELD_FLOAT_SPEED] = settings->speed[0];
-    
-    // Pack new geometric data
-    state.fields_float[GM_FIELD_FLOAT_STRAIGHT_HEADING] = (float)block->arc_heading;
-	state.fields_float[GM_FIELD_FLOAT_ARC_RADIUS]       = (float)block->arc_radius;
-	state.fields_float[GM_FIELD_FLOAT_ARC_CENTER_X]     = (float)block->arc_center_x;
-	state.fields_float[GM_FIELD_FLOAT_ARC_CENTER_Y]     = (float)block->arc_center_y;
+
+    // Pack new geometric data. block is NULL on the M70 save path
+    // (save_settings() in interp_convert.cc), so guard against null deref.
+    state.fields_float[GM_FIELD_FLOAT_STRAIGHT_HEADING] = (block == NULL) ? 0.0f : (float)block->arc_heading;
+    state.fields_float[GM_FIELD_FLOAT_ARC_RADIUS]       = (block == NULL) ? 0.0f : (float)block->arc_radius;
+    state.fields_float[GM_FIELD_FLOAT_ARC_CENTER_X]     = (block == NULL) ? 0.0f : (float)block->arc_center_x;
+    state.fields_float[GM_FIELD_FLOAT_ARC_CENTER_Y]     = (block == NULL) ? 0.0f : (float)block->arc_center_y;
 
     return 0;
 }

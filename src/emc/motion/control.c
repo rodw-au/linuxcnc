@@ -2291,13 +2291,13 @@ static void update_status(void)
 			if (emcmot_hal_data->interp_feedrate) {
 				*(emcmot_hal_data->interp_feedrate) = emcmotStatus->tag.fields_float[GM_FIELD_FLOAT_FEED];
 			}
-		}		
+		}
 	}
-}
 #ifdef WATCH_FLAGS
-/*! \todo FIXME - this is for debugging */
-if ( old_motion_flag != emcmotStatus->motionFlag ) {
-rtapi_print ( "Motion flag %04X -> %04X\n", old_motion_flag, emcmotStatus->motionFlag );
-old_motion_flag = emcmotStatus->motionFlag;
-}
+    /*! \todo FIXME - this is for debugging */
+    if ( old_motion_flag != emcmotStatus->motionFlag ) {
+	rtapi_print ( "Motion flag %04X -> %04X\n", old_motion_flag, emcmotStatus->motionFlag );
+	old_motion_flag = emcmotStatus->motionFlag;
+    }
 #endif
+}

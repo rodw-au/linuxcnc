@@ -496,11 +496,13 @@ struct block_struct
   int      o_type{};
   int      call_type{}; // oword-sub, python oword-sub, remap
   
-  // Add Geometic fields
-  double arc_center_x;
-  double arc_center_y;
-  double arc_radius;
-  double arc_heading;
+  // Geometric fields for state-tag HAL pins (read by write_state_tag
+  // on every block, so default-initialise to avoid garbage on blocks
+  // that never go through tag_arc/tag_straight).
+  double arc_center_x{};
+  double arc_center_y{};
+  double arc_radius{};
+  double arc_heading{};
   
   const char    *o_name{};   // !!!KL be sure to free this
   double   params[INTERP_SUB_PARAMS]{};

@@ -67,7 +67,7 @@ typedef enum {
  * WARNING:
  *
  * 1) Since these are used as array indices, they have to start at 0,
- * be monotonic, and the MAX_FIELDS GM_FIELD_FLOAT_MAX_FIELDSenum MUST be last in the list.
+ * be monotonic, and the MAX_FIELDS enum MUST be last in the list.
  *
  * 2) If your application needs to pass state tags through NML, then
  * you MUST update the corresponding cms->update function for state
