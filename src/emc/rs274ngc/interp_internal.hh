@@ -497,10 +497,10 @@ struct block_struct
   int      call_type{}; // oword-sub, python oword-sub, remap
   
   // Add Geometic fields
-  double arc_center_x;
-  double arc_center_y;
-  double arc_radius;
-  double arc_heading;
+  double arc_center_x{};
+  double arc_center_y{};
+  double arc_radius{};
+  double arc_heading{};
   double normal_heading{};
   bool iscircle{};
   const char    *o_name{};   // !!!KL be sure to free this
