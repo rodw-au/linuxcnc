@@ -1902,7 +1902,7 @@ static void output_to_hal(void)
     /* Line and Motion Type (Casting to int for s32 HAL pins) */
     *(emcmot_hal_data->interp_line_number)      = (int)emcmotStatus->tag.fields[GM_FIELD_LINE_NUMBER];
     *(emcmot_hal_data->interp_motion_type)      = (int)emcmotStatus->tag.fields[GM_FIELD_MOTION_MODE];
-	*(emcmot_hal_data->iscircle)      = (int)emcmotStatus->tag.fields[GM_FLAG_IS_CIRCLE];
+    *(emcmot_hal_data->iscircle)                = (hal_bit_t)((emcmotStatus->tag.packed_flags & (1UL << GM_FLAG_IS_CIRCLE)) != 0);
     switch (emcmotStatus->motionType) {
         case EMC_MOTION_TYPE_FEED: //fall thru
         case EMC_MOTION_TYPE_ARC:
@@ -2265,19 +2265,15 @@ static void update_status(void)
 			/* --- G2/G3: DYNAMIC ARC HEADING --- */
 			double cx = emcmotStatus->tag.fields_float[GM_FIELD_FLOAT_ARC_CENTER_X];
 			double cy = emcmotStatus->tag.fields_float[GM_FIELD_FLOAT_ARC_CENTER_Y];
-			*(emcmot_hal_data->interp_normal_heading) = emcmotStatus->tag.fields_float[GM_FIELD_FLOAT_NORMAL_HEADING];
-			*(emcmot_hal_data->iscircle) = (hal_bit_t)((emcmotStatus->tag.packed_flags & (1 << GM_FLAG_IS_CIRCLE)) != 0);
+			*(emcmot_hal_data->iscircle) = (hal_bit_t)((emcmotStatus->tag.packed_flags & (1UL << GM_FLAG_IS_CIRCLE)) != 0);
 			// Current RT feedback position
 			double dx = emcmotStatus->carte_pos_fb.tran.x - cx;
 			double dy = emcmotStatus->carte_pos_fb.tran.y - cy;
 			double angle_rad = atan2(dy, dx);
 			// Normal heading is tool-to-centre (opposite of radial)
 			double normal_heading_deg = (angle_rad * (180.0 / M_PI)) + 180.0;
-    
-			// 0-360 Normalization
 			while (normal_heading_deg < 0) normal_heading_deg += 360.0;
 			while (normal_heading_deg >= 360.0) normal_heading_deg -= 360.0;
-    
 			*(emcmot_hal_data->interp_normal_heading) = normal_heading_deg;
 			
 			double heading_deg;
@@ -2301,13 +2297,13 @@ static void update_status(void)
 			if (emcmot_hal_data->interp_feedrate) {
 				*(emcmot_hal_data->interp_feedrate) = emcmotStatus->tag.fields_float[GM_FIELD_FLOAT_FEED];
 			}
-		}		
+		}
 	}
-}
 #ifdef WATCH_FLAGS
-/*! \todo FIXME - this is for debugging */
-if ( old_motion_flag != emcmotStatus->motionFlag ) {
-rtapi_print ( "Motion flag %04X -> %04X\n", old_motion_flag, emcmotStatus->motionFlag );
-old_motion_flag = emcmotStatus->motionFlag;
-}
+    /*! \todo FIXME - this is for debugging */
+    if ( old_motion_flag != emcmotStatus->motionFlag ) {
+	rtapi_print ( "Motion flag %04X -> %04X\n", old_motion_flag, emcmotStatus->motionFlag );
+	old_motion_flag = emcmotStatus->motionFlag;
+    }
 #endif
+}
