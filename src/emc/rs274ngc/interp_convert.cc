@@ -7112,6 +7112,8 @@ int Interp::tag_straight(block_pointer block, double x, double y)
     block->radius = 0.0;
     block->arc_center_x = 0.0; 
     block->arc_center_y = 0.0;
+    block->normal_heading = 0.0;
+    block->iscircle = false;
 
     // Ship the data to the status registers
     write_canon_state_tag(block, &_setup);
