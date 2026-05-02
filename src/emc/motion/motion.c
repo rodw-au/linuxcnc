@@ -561,7 +561,11 @@ static int init_hal_io(void)
     CALL_CHECK(hal_pin_float_newf(HAL_OUT, &(emcmot_hal_data->interp_arc_center_x), mot_comp_id, "motion.interp.arc-center-x"));
     CALL_CHECK(hal_pin_float_newf(HAL_OUT, &(emcmot_hal_data->interp_arc_center_y), mot_comp_id, "motion.interp.arc-center-y"));
     CALL_CHECK(hal_pin_float_newf(HAL_OUT, &(emcmot_hal_data->interp_straight_heading), mot_comp_id, "motion.interp.heading"));
-
+    CALL_CHECK(hal_pin_float_newf(HAL_OUT, &(emcmot_hal_data->interp_normal_heading), mot_comp_id, "motion.interp.normal-heading"));
+    CALL_CHECK(hal_pin_bit_newf(HAL_OUT, &emcmot_hal_data->iscircle, mot_comp_id, "motion.interp.iscircle"));
+  //CALL_CHECK(hal_pin_bit_newf(HAL_OUT, &(emcmot_hal_data->jog_is_active), mot_comp_id, "motion.jog-is-active"));
+    
+    
     /* export debug parameters */
     /* these can be used to view any internal variable, simply change a line
        in control.c:output_to_hal() and recompile */
@@ -573,6 +577,7 @@ static int init_hal_io(void)
     CALL_CHECK(hal_param_float_newf(HAL_RO, &(emcmot_hal_data->debug_float_3), mot_comp_id, "motion.debug-float-3"));
     CALL_CHECK(hal_param_s32_newf(HAL_RO, &(emcmot_hal_data->debug_s32_0), mot_comp_id, "motion.debug-s32-0"));
     CALL_CHECK(hal_param_s32_newf(HAL_RO, &(emcmot_hal_data->debug_s32_1), mot_comp_id, "motion.debug-s32-1"));
+
 
     // FIXME - debug only, remove later
     // export HAL parameters for some trajectory planner internal variables

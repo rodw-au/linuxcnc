@@ -496,14 +496,13 @@ struct block_struct
   int      o_type{};
   int      call_type{}; // oword-sub, python oword-sub, remap
   
-  // Geometric fields for state-tag HAL pins (read by write_state_tag
-  // on every block, so default-initialise to avoid garbage on blocks
-  // that never go through tag_arc/tag_straight).
-  double arc_center_x{};
-  double arc_center_y{};
-  double arc_radius{};
-  double arc_heading{};
-  
+  // Add Geometic fields
+  double arc_center_x;
+  double arc_center_y;
+  double arc_radius;
+  double arc_heading;
+  double normal_heading{};
+  bool iscircle{};
   const char    *o_name{};   // !!!KL be sure to free this
   double   params[INTERP_SUB_PARAMS]{};
   int param_cnt{};
@@ -537,7 +536,7 @@ struct block_struct
     // true if in a remap procedure the code being remapped was
     // referenced, which caused execution of the builtin semantics
     // reason for recording the fact: this permits an epilog to do the
-    // right thing depending on whether the builtin was used or not.
+    // right thing depending oniscircle whether the builtin was used or not.
     bool builtin_used{};
 };
 
@@ -778,7 +777,7 @@ struct setup
   int defining_sub;                  // true if in a subroutine defn
   const char *sub_name;                    // name of sub we are defining (free this)
   int doing_continue;                // true if doing a continue
-  int doing_break;                   // true if doing a break
+  int doing_break;                   // true if doing a breakiscircle
   int executed_if;                   // true if executed in current if
   const char *skipping_o;                  // o_name we are skipping for (or zero)
   const char *skipping_to_sub;             // o_name of sub skipping to (or zero)
@@ -830,6 +829,8 @@ struct setup
   double radius;
   double center_x;
   double center_y;
+  double normal_heading;
+  bool iscircle;
 
 #define FEATURE(x) (_setup.feature_set & FEATURE_ ## x)
 #define FEATURE_RETAIN_G43           0x00000001

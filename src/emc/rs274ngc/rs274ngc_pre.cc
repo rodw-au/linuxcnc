@@ -2240,7 +2240,7 @@ int Interp::active_modes(int *g_codes,
     // system of unpacking state tags into arrays of fixed type and
     // purpose should be refactored into something more elegant
     settings[0] = tag.fields[GM_FIELD_LINE_NUMBER];
-
+	// Where do we update tag.fields[GM_FLAG_IS_CIRCLE]
     return INTERP_OK;
 }
 

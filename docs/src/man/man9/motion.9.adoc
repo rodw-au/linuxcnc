@@ -297,6 +297,12 @@ These pins provide geometric intent and interpreter state for the segment of mot
 * `motion.interp.arc-center-y` (float, out) +
   The absolute Y-coordinate of the center point for the current arc.
 
+* `motion.interp.normal-heading` (float, out) +
+  the heading from the current point back to the arc circlefor the current arc.
+  
+ * `motion.interp.iscircle` (bit, out) +
+  True if the current arc is a full circle.
+  
 [NOTE]
 These pins represent the *commanded geometric intent* from the interpreter and are updated in real-time as each motion segment is consumed by the trajectory planner.
 

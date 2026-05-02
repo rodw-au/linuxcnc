@@ -7142,11 +7142,24 @@ int Interp::tag_arc(block_pointer block, double x, double y, double center_x, do
         while (heading < 0) heading += 360.0;
 		while (heading >= 360.0) heading -= 360.0;
 		
+		double normal_heading = radial_angle * (180.0 / M_PI) + 180.0;
+		// Normalise 0-360
+		while (normal_heading < 0) 
+			normal_heading += 360.0;
+		while (normal_heading >= 360.0) 
+			normal_heading -= 360.0;
+		// Check if this is a full circle allowing for tolerance
+		double start_dx = _setup.current_x - x;
+		double start_dy = _setup.current_y - y;
+		double distance_to_end = hypot(start_dx, start_dy);
+		block->iscircle = (distance_to_end < TOLERANCE_EQUAL) ? 1 : 0;
+		
         // Save for tags
         block->arc_center_x = center_x;
         block->arc_center_y = center_y;
         block->arc_radius = hypot(dx, dy);      
         block->arc_heading = heading;   
+        block->normal_heading = normal_heading;
         write_canon_state_tag(block,&_setup);
         
 		//rtapi_print("DEBUG WRITE: CX= %f, CY= %f, Radius = %f, Heading = %f\n", block->arc_center_x, block->arc_center_y,  block->arc_radius, block->arc_heading  );
