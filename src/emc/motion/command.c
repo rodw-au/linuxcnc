@@ -536,6 +536,8 @@ void emcmotCommandHandler_locked(void *arg, long servo_period)
 				*(emcmot_hal_data->interp_arc_center_x) = 0.0;
 				*(emcmot_hal_data->interp_arc_center_y) = 0.0;
 				*(emcmot_hal_data->interp_straight_heading) = 0.0;
+				*(emcmot_hal_data->interp_normal_heading) = 0.0;
+				*(emcmot_hal_data->iscircle) = 0.0;
 		}
 	    break;
 

@@ -339,6 +339,8 @@ int Interp::write_state_tag(block_pointer block,
 	state.fields_float[GM_FIELD_FLOAT_ARC_RADIUS]       = (float)block->arc_radius;
 	state.fields_float[GM_FIELD_FLOAT_ARC_CENTER_X]     = (float)block->arc_center_x;
 	state.fields_float[GM_FIELD_FLOAT_ARC_CENTER_Y]     = (float)block->arc_center_y;
+	state.fields_float[GM_FIELD_FLOAT_NORMAL_HEADING]   = (block == NULL) ? 0.0f : (float)block->normal_heading;
+	state.flags[GM_FLAG_IS_CIRCLE] = block->iscircle;
 
     return 0;
 }
