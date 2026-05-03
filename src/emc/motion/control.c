@@ -2280,11 +2280,11 @@ static void update_status(void)
 
 			// G3 (CCW): Heading is Radial Angle + 90 degrees
 			if (motion_type == 30) {
-				heading_deg = (angle_rad + M_PI_2) * (180.0 / M_PI);
-			} 
+				heading_deg = (angle_rad + (M_PI / 2.0)) * (180.0 / M_PI);
+			}
 			// G2 (CW): Heading is Radial Angle - 90 degrees
 			else {
-				heading_deg = (angle_rad - M_PI_2) * (180.0 / M_PI);
+				heading_deg = (angle_rad - (M_PI / 2.0)) * (180.0 / M_PI);
 			}
 			// 0-360 Normalization
 			while (heading_deg < 0) heading_deg += 360.0;
