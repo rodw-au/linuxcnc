@@ -57,3 +57,4 @@ position.txt
 *.*-stamp
 # Ignore VSCode settings
 .vscode/settings.json
+docs/man/man9/output_buffer.9
